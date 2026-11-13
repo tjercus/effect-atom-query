@@ -107,6 +107,12 @@ export interface Definition<I, A, E, R, C> {
   /** How long a settled, unobserved execution stays in the mutation cache. Default 5 minutes. */
   readonly gcTime?: MutationOptions<I, A, E, R, C>["gcTime"];
   readonly meta?: Readonly<Record<string, unknown>> | undefined;
+  /**
+   * Persist executions paused while offline (`QueryPersister`), to resume
+   * them after a reload. Needs a `key`; register the same definition with
+   * `client.setMutationDefaults(key, ...)` so the restored execution has a `run`.
+   */
+  readonly persist?: MutationOptions<I, A, E, R, C>["persist"];
 }
 
 /**

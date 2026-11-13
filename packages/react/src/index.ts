@@ -7,6 +7,7 @@
 export {
   FocusManager,
   InfiniteQuery,
+  QueryPersister,
   Mutation,
   MutationObserver,
   MutationResult,
@@ -28,6 +29,9 @@ export {
 
 /** @since 0.1.0 */
 export { useIsFetching } from "./useIsFetching.ts";
+
+/** @since 0.1.0 */
+export { useIsRestoring } from "./useIsRestoring.ts";
 
 /** @since 0.1.0 */
 export {

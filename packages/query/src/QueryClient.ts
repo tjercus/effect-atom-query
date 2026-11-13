@@ -238,6 +238,14 @@ export interface Service {
   ) => Effect.Effect<A, E, R>;
   /** Number of matching mutations that are pending. */
   readonly isMutating: (filters?: MutationFilters) => Effect.Effect<number>;
+  /**
+   * Run mutations restored from storage (`QueryPersister`). Completes when
+   * they have settled. Executions paused by a live offline period continue on
+   * reconnect by themselves.
+   */
+  readonly resumePausedMutations: Effect.Effect<void>;
+  /** Whether a `QueryPersister` is restoring the cache. */
+  readonly isRestoring: Effect.Effect<boolean>;
 
   /** @internal Synchronous access used by atoms and framework bindings. */
   readonly cache: QueryCache;
@@ -294,6 +302,31 @@ export const make: (options?: Options) => Effect.Effect<Service, never, Scope.Sc
 
     const cache = new QueryCache();
     const mutationCache = new MutationCache();
+    let restoringCount = 0;
+    const restoringListeners = new Set<() => void>();
+    const notifyRestoring = () => {
+      for (const listener of Array.from(restoringListeners)) listener();
+    };
+    const restoring: ClientRuntime["restoring"] = {
+      isRestoring: () => restoringCount > 0,
+      subscribe: (listener) => {
+        restoringListeners.add(listener);
+        return () => {
+          restoringListeners.delete(listener);
+        };
+      },
+      start: () => {
+        restoringCount++;
+        if (restoringCount === 1) notifyRestoring();
+      },
+      finish: () => {
+        if (restoringCount === 0) return;
+        restoringCount--;
+        if (restoringCount > 0) return;
+        for (const entry of cache.all()) entry.onRestored();
+        notifyRestoring();
+      },
+    };
     const clientDefaults = options?.defaultOptions?.queries ?? {};
     const queryDefaults: Array<readonly [QueryKey.QueryKey, QueryOptions<unknown>]> = [];
 
@@ -314,6 +347,8 @@ export const make: (options?: Options) => Effect.Effect<Service, never, Scope.Sc
       focus,
       online,
       reactivity,
+      restoring,
+      preloaded: new Map(),
     };
     cache.setRuntime(runtime);
 
@@ -497,6 +532,15 @@ export const make: (options?: Options) => Effect.Effect<Service, never, Scope.Sc
     const isMutating: Service["isMutating"] = (filters) =>
       Effect.sync(() => mutationCache.findAll({ ...filters, status: "pending" }).length);
 
+    const resumePausedMutations: Service["resumePausedMutations"] = Effect.suspend(() => {
+      const fibers = mutationCache.all().flatMap((entry) => {
+        if (!entry.isAwaitingResume) return [];
+        const fiber = entry.resume();
+        return fiber === undefined ? [] : [fiber];
+      });
+      return Effect.forEach(fibers, Fiber.await, { discard: true, concurrency: "unbounded" });
+    });
+
     const service = QueryClient.of({
       fetchQuery: fetchEntry,
       prefetchQuery,
@@ -522,6 +566,8 @@ export const make: (options?: Options) => Effect.Effect<Service, never, Scope.Sc
       getMutationDefaults,
       mutate,
       isMutating,
+      resumePausedMutations,
+      isRestoring: Effect.sync(() => restoring.isRestoring()),
       cache,
       mutationCache,
       mutationDefaults,

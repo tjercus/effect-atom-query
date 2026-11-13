@@ -5,7 +5,7 @@
 > interruption as cancellation, and Effect Atoms (`effect/reactivity`) as the
 > reactive cache.
 
-Status: **v0.7, 2026-11-13. Phases 1–5 done**; see §8 for implementation notes. Decisions D1–D4 are settled and the
+Status: **v1.0 scope complete, 2026-11-13. Phases 1–6 done**; see §8 for implementation notes. Decisions D1–D4 are settled and the
 remaining open questions are in [QUESTIONS.md](./QUESTIONS.md). The TanStack-to-Effect feature mapping is in
 [FEATURE-MATRIX.md](./FEATURE-MATRIX.md).
 
@@ -343,7 +343,7 @@ Each phase ends with green `vp check` and `vp run -r test`, plus a playground pa
 | 3   | **Triggers** ✅                   | FocusManager, OnlineManager, `networkMode` (online/always/offlineFirst), refetchOnMount/Focus/Reconnect, `refetchInterval`, cancellation via `cancel` with revert                                                                                               |
 | 4   | **Mutations and invalidation** ✅ | `Mutation.make`, `useMutation`, `invalidate`/`refetch`/`reset`/`remove`/`setQueryData`/`setQueriesData`, Reactivity integration, optimistic updates (both styles), `useMutationState`, `useIsMutating`, mutation `scope`                                        |
 | 5   | **Suspense and infinite** ✅      | `useSuspenseQuery`/`Queries`/`InfiniteQuery`, `QueryErrorResetBoundary`, `useInfiniteQuery` with sequential refetch and `maxPages`, `usePrefetchQuery`                                                                                                          |
-| 6   | **Persistence and offline**       | Schema-based `QueryPersister` (KeyValueStore: localStorage/IndexedDB), `buster`/`maxAge`, `useIsRestoring`, paused-mutation persistence and `resumePausedMutations`                                                                                             |
+| 6   | **Persistence and offline** ✅    | Schema-based `QueryPersister` (KeyValueStore: localStorage/IndexedDB), `buster`/`maxAge`, `useIsRestoring`, paused-mutation persistence and `resumePausedMutations`                                                                                             |
 | —   | **v1.0 release**                  | phases 1–6                                                                                                                                                                                                                                                      |
 | 7   | **Post-v1**                       | SSR (dehydrate/hydrate, `HydrationBoundary`, server defaults), tracked-props optimisation, docs site, playground examples matching the TanStack examples, bundle-size budget, optional devtools inspector                                                       |
 
@@ -656,3 +656,77 @@ Decisions made while building it:
   - In headless Chromium, the playground feed shows the Suspense fallback,
     loads 4 pages through "load more", keeps the list visible while loading
     the next page, and logs no console warnings.
+
+### Phase 6: persistence and offline
+
+New in core:
+
+- **`QueryPersister`:** `layer(options)`, `restore`, `persist`, `dehydrate`,
+  `hydrate`, `removeClient`, and the `PersistedClient` schema.
+- **Opt-in `persist` options:**
+  - `persist: { schema }` on queries.
+  - `persist: { page, pageParam }` on infinite queries.
+  - `persist: { variables }` on mutations.
+- **New `QueryClient` members:** `QueryClient.resumePausedMutations` and
+  `QueryClient.isRestoring`.
+- **`QueryKey.toJsonKey`:** canonical JSON, used as the storage key.
+
+New in React: `useIsRestoring`. Suspense hooks suspend while a background
+restore runs.
+
+Decisions made while building it:
+
+- **Persistence is opt-in per query and typed.** A query is stored only if it
+  declares a `Schema`. The snapshot holds its data encoded with
+  `Schema.toCodecJson`.
+  - Restored data is decoded **lazily**: data waits in
+    `runtime.preloaded`, keyed by the canonical JSON key, until that key's
+    query atom builds its cache entry. This mirrors how
+    `Atom.serializable` preloads values.
+  - Data that no longer decodes, for example after a schema change, is
+    dropped and refetched.
+  - Unclaimed data is carried over into the next snapshot, so it is not lost
+    when some screens never mount.
+  - The snapshot envelope is itself validated with a `Schema`
+    (`fromJsonString`).
+- **Storage is any `KeyValueStore`**: `layerStorage` for localStorage or
+  sessionStorage, `layerMemory`, the file system, SQL, or custom
+  (IndexedDB). This also covers React Native with an AsyncStorage-backed
+  store (QUESTIONS.md #4).
+- **Two restore modes:**
+  - `"blocking"` (the default) restores while the layer builds. With
+    synchronous storage, the first render already has the data, and
+    `QueryClientProvider runtime={…}` works unchanged.
+  - `"background"` sets `isRestoring`. Meanwhile, mounts do not fetch,
+    Suspense hooks suspend, and `useIsRestoring` is true. When restoring
+    finishes, entries claim their data and run the mount fetches that were
+    held back, so nothing is fetched that restored fresh data already covers.
+- **Writes are throttled** (1 s by default) and driven by cache
+  notifications. A final snapshot is written when the layer closes. Writes
+  run on the client's runtime, so tests drive them with `TestClock`.
+  `buster` and `maxAge` discard whole snapshots, as TanStack does.
+- **Offline mutations:**
+  - Executions paused while offline are stored when their mutation has
+    `persist` and a `key`.
+  - On restore they are re-created as paused executions. With
+    `resumePausedMutations` (the default) they run once the network allows.
+  - Because functions cannot be stored, the definitions are passed as
+    `QueryPersister.layer({ mutations: [...] })`, which registers them as
+    mutation defaults.
+- **Robustness fix:** a _new_ query atom with the _same key_ on every render,
+  e.g. one defined inline, used to make `useQuery` re-attach and loop. The
+  observer now treats it as the same query and updates the definition in
+  place. Module-level atoms remain the recommended style.
+- **Tests:**
+  - 77 core tests, including mutation-checked persistence tests that fail
+    when restoring is disabled.
+  - 37 React tests, using happy-dom `localStorage` and a deliberately slow
+    store for the background mode.
+  - In headless Chromium, the playground todo list survives a reload, and a
+    todo added while offline is stored, then saved after the next reload.
+    No console warnings.
+
+**v1 scope (phases 1–6) is complete.** Phase 7 (post-v1) covers SSR /
+hydration (`HydrationBoundary`, server defaults), tracked-props render
+optimisation, a docs site and examples, a bundle-size budget, and optional
+devtools.

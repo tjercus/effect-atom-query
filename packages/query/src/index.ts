@@ -37,3 +37,6 @@ export * as MutationResult from "./MutationResult.ts";
 
 /** @since 0.1.0 */
 export * as InfiniteQuery from "./InfiniteQuery.ts";
+
+/** @since 0.1.0 */
+export * as QueryPersister from "./QueryPersister.ts";

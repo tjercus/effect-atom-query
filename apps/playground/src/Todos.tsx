@@ -14,9 +14,12 @@ const todosQuery = Query.single({
   key: ["todos"],
   run: Effect.sync(() => serverTodos).pipe(Effect.delay("300 millis")),
   staleTime: "30 seconds",
+  gcTime: "24 hours",
+  // Survives reloads (see main.tsx): restored data is decoded with this schema.
+  persist: { schema: Schema.Array(Schema.String) },
 });
 
-const addTodo = Mutation.make({
+export const addTodo = Mutation.make({
   key: ["todos", "add"],
   run: (title: string) =>
     Effect.gen(function* () {
@@ -26,6 +29,8 @@ const addTodo = Mutation.make({
       return title;
     }),
   invalidates: [["todos"]],
+  // Added while offline and then reloaded? It is stored and resumed.
+  persist: { variables: Schema.String },
 });
 
 // Pending additions shown immediately, greyed out; nothing to roll back.

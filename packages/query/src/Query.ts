@@ -14,7 +14,7 @@
  *
  * @since 0.1.0
  */
-import { type Effect, Option } from "effect";
+import { type Effect, Option, type Schema } from "effect";
 import { AsyncResult, Atom } from "effect/reactivity";
 import type {
   InitialData,
@@ -22,6 +22,7 @@ import type {
   QueryEntry,
   QueryOptions as InternalQueryOptions,
 } from "./internal/queryEntry.ts";
+import { persistCodec } from "./internal/persistCodec.ts";
 import * as QueryClient from "./QueryClient.ts";
 import type * as QueryKey from "./QueryKey.ts";
 import * as QueryResult from "./QueryResult.ts";
@@ -158,6 +159,18 @@ export interface Definition<Arg, A, E, R> extends Omit<QueryOptions<E>, "enabled
   readonly initialData?: ((arg: Arg) => A) | undefined;
   /** Epoch millis the initial data is from. Defaults to now. */
   readonly initialDataUpdatedAt?: ((arg: Arg) => number) | undefined;
+  /** Opt into persistence (`QueryPersister`): the data is stored with this schema's JSON codec. */
+  readonly persist?: Persist<A> | undefined;
+}
+
+/**
+ * Persistence of a query's data. The key must be JSON-compatible.
+ *
+ * @since 0.1.0
+ * @category models
+ */
+export interface Persist<A> {
+  readonly schema: Schema.Codec<A, any>;
 }
 
 /**
@@ -169,6 +182,7 @@ export interface SingleDefinition<A, E, R> extends QueryOptions<E> {
   readonly run: Effect.Effect<A, E, R>;
   readonly initialData?: (() => A) | undefined;
   readonly initialDataUpdatedAt?: (() => number) | undefined;
+  readonly persist?: Persist<A> | undefined;
 }
 
 /**
@@ -203,7 +217,8 @@ export const make: {
 } = (<Arg, A, E = never, R = never>(
   definition: Definition<Arg, A, E, R>,
 ): QueryFamily<Arg, A, E, R> => {
-  const { key, run, enabled, initialData, initialDataUpdatedAt, ...options } = definition;
+  const { key, run, enabled, initialData, initialDataUpdatedAt, persist, ...options } = definition;
+  const codec = persist === undefined ? undefined : persistCodec(persist.schema);
   const instance = Atom.family((arg: Arg) =>
     makeAtom<A, E, R>({
       key: key(arg) as QueryKey.Tagged<A, E>,
@@ -217,6 +232,7 @@ export const make: {
               updatedAt:
                 initialDataUpdatedAt === undefined ? undefined : () => initialDataUpdatedAt(arg),
             },
+      persist: codec,
     }),
   );
   const skipped = makeSkipped<A, E>();
@@ -238,8 +254,9 @@ export const single: {
   ): DefinedQueryAtom<A, E, R>;
   <A, E = never, R = never>(definition: SingleDefinition<A, E, R>): QueryAtom<A, E, R>;
 } = (<A, E = never, R = never>(definition: SingleDefinition<A, E, R>): QueryAtom<A, E, R> => {
-  const { key, run, initialData, initialDataUpdatedAt, ...options } = definition;
+  const { key, run, initialData, initialDataUpdatedAt, persist, ...options } = definition;
   return makeAtom({
+    persist: persist === undefined ? undefined : persistCodec(persist.schema),
     key: key as QueryKey.Tagged<A, E>,
     run,
     options,
@@ -279,6 +296,7 @@ export const makeAtom = <A, E, R, W = never, Extra extends object = {}>(
     readonly options: QueryOptions<E>;
     readonly initialData: InitialData<A> | undefined;
     readonly behavior?: QueryDescriptor<A, E, R>["behavior"];
+    readonly persist?: QueryDescriptor<A, E, R>["persist"];
   },
   extra?: {
     readonly fields?: Extra | undefined;
@@ -327,6 +345,7 @@ export const makeAtom = <A, E, R, W = never, Extra extends object = {}>(
     options: descriptor.options,
     initialData: descriptor.initialData,
     behavior: descriptor.behavior,
+    persist: descriptor.persist,
     ...(extra?.fields ?? ({} as Extra)),
   } as const) as unknown as QueryAtom<A, E, R> & Extra;
   return self;

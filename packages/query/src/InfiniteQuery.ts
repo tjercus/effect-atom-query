@@ -20,9 +20,10 @@
  *
  * @since 0.1.0
  */
-import { Effect, Option } from "effect";
+import { Effect, Option, Schema } from "effect";
 import { Atom } from "effect/reactivity";
-import type { BehaviorContext, QueryEntry } from "./internal/queryEntry.ts";
+import type { BehaviorContext, PersistCodec, QueryEntry } from "./internal/queryEntry.ts";
+import { persistCodec } from "./internal/persistCodec.ts";
 import * as Query from "./Query.ts";
 import type * as QueryKey from "./QueryKey.ts";
 import type * as QueryResult from "./QueryResult.ts";
@@ -91,6 +92,10 @@ export interface Definition<Arg, Page, Param, E, R>
   readonly run: (arg: Arg, pageParam: Param) => Effect.Effect<Page, E, R>;
   readonly initialPageParam: Param | ((arg: Arg) => Param);
   readonly enabled?: boolean | ((arg: Arg) => boolean) | undefined;
+  /** Opt into persistence with schemas for pages and page params. */
+  readonly persist?:
+    | { readonly page: Schema.Codec<Page, any>; readonly pageParam: Schema.Codec<Param, any> }
+    | undefined;
 }
 
 /**
@@ -131,13 +136,24 @@ export const make = <Arg, Page, Param, E = never, R = never>(
     getNextPageParam,
     getPreviousPageParam,
     maxPages,
+    persist,
     ...options
   } = definition;
+  const codec =
+    persist === undefined
+      ? undefined
+      : persistCodec<InfiniteData<Page, Param>>(
+          Schema.Struct({
+            pages: Schema.Array(persist.page),
+            pageParams: Schema.Array(persist.pageParam),
+          }),
+        );
   const instance = Atom.family((arg: Arg) =>
     makeAtom<Page, Param, E, R>({
       key: key(arg) as QueryKey.Tagged<InfiniteData<Page, Param>, E>,
       fetchPage: (param) => run(arg, param),
       options: { ...options, enabled: typeof enabled === "function" ? enabled(arg) : enabled },
+      persist: codec,
       config: {
         initialPageParam:
           typeof initialPageParam === "function"
@@ -291,6 +307,7 @@ const makeAtom = <Page, Param, E, R>(descriptor: {
   readonly fetchPage: (param: Param) => Effect.Effect<Page, E, R>;
   readonly options: Query.QueryOptions<E>;
   readonly config: Config<Page, Param>;
+  readonly persist: PersistCodec<InfiniteData<Page, Param>> | undefined;
 }): InfiniteQueryAtom<Page, Param, E, R> => {
   const fetchBehavior = behavior(descriptor.config, descriptor.fetchPage);
   return Query.makeAtom<
@@ -306,6 +323,7 @@ const makeAtom = <Page, Param, E, R>(descriptor: {
       options: descriptor.options,
       initialData: undefined,
       behavior: fetchBehavior,
+      persist: descriptor.persist,
     },
     {
       fields: { infinite: descriptor.config },

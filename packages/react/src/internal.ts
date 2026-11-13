@@ -30,6 +30,28 @@ export const suspendOn = (fiber: Fiber.Fiber<any, any>): Promise<void> => {
 const defectOrError = <B, E>(result: QueryResult.Failure<B, E>): unknown =>
   QueryResult.isDefect(result) ? Cause.squash(result.cause) : Option.getOrThrow(result.error);
 
+const restored = new WeakMap<object, Promise<void>>();
+
+/** A stable promise resolving when the client's persister has finished restoring. */
+export const suspendUntilRestored = (restoring: {
+  readonly isRestoring: () => boolean;
+  readonly subscribe: (listener: () => void) => () => void;
+}): Promise<void> => {
+  let promise = restored.get(restoring);
+  if (promise === undefined) {
+    promise = new Promise<void>((resolve) => {
+      const unsubscribe = restoring.subscribe(() => {
+        if (restoring.isRestoring()) return;
+        unsubscribe();
+        restored.delete(restoring);
+        resolve();
+      });
+    });
+    restored.set(restoring, promise);
+  }
+  return promise;
+};
+
 /** Whether a result should be thrown to the nearest error boundary. */
 export const shouldThrow = <B, E>(
   result: QueryResult.QueryResult<B, E>,
@@ -112,6 +134,9 @@ export const useBaseQuery = <A, E, B>(
   }, [boundary]);
 
   const result = observer.getOptimisticResult(query, observerOptions);
+  if (suspense && result.isPending && client.runtime.restoring.isRestoring()) {
+    throw suspendUntilRestored(client.runtime.restoring);
+  }
   if (suspense && result.isPending) {
     const fiber = observer.fetchOptimistic(query, observerOptions);
     if (fiber !== undefined) throw suspendOn(fiber);

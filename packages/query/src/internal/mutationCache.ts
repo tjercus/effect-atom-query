@@ -99,6 +99,17 @@ export class MutationCache {
     return entry;
   }
 
+  /** Re-create a paused execution from storage (see `QueryPersister`). */
+  restore(
+    key: MutationKey,
+    variables: unknown,
+    submittedAt: number,
+  ): MutationEntry<any, any, any, any> {
+    const entry = this.build({ key });
+    entry.restore(variables, submittedAt);
+    return entry;
+  }
+
   remove(entry: MutationEntry<any, any, any, any>): void {
     this.entries.delete(entry);
     entry.dispose();

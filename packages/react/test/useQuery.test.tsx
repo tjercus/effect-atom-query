@@ -230,6 +230,18 @@ describe("useQuery", () => {
     });
   });
 
+  it("tolerates a new atom with the same key on every render", async () => {
+    const { client } = setup();
+    const runs = counter();
+    const { result } = renderHook(
+      () => useQuery(Query.single({ key: ["inline"], run: Effect.sync(runs.next) })),
+      { wrapper: wrapper(client) },
+    );
+    await waitFor(() => expect(result.current.data).toEqual(Option.some(1)));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(runs.count).toBe(1);
+  });
+
   it("refetch() forces a new fetch", async () => {
     const { client } = setup();
     const runs = counter();

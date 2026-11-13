@@ -1,6 +1,7 @@
 /**
  * One mutation execution (one `mutate` call). Internal.
  */
+import type { Schema } from "effect";
 import {
   Cause,
   type Context,
@@ -69,6 +70,12 @@ export interface MutationOptions<I, A, E, R, C> {
   readonly scope?: string | ((input: I) => string) | undefined;
   readonly gcTime?: Duration.Input | undefined;
   readonly meta?: Readonly<Record<string, unknown>> | undefined;
+  /**
+   * Persist this mutation while it is paused offline (`QueryPersister`), so it
+   * can be resumed after a reload. Requires a `key`, and a `run` registered
+   * with `setMutationDefaults` for that key, since functions cannot be stored.
+   */
+  readonly persist?: { readonly variables: Schema.Codec<I, any> } | undefined;
 }
 
 /** @internal */
@@ -123,6 +130,8 @@ export class MutationEntry<I, A, E, C> {
   private fiber: Fiber.Fiber<A, E> | undefined;
   private gcFiber: Fiber.Fiber<void> | undefined;
   private removed = false;
+  /** Restored from storage and waiting for `resumePausedMutations`. */
+  private awaitingResume = false;
 
   constructor(
     options: MutationOptions<I, A, E, any, C>,
@@ -165,6 +174,29 @@ export class MutationEntry<I, A, E, C> {
     this.state = f(this.state);
     for (const listener of Array.from(this.listeners)) listener();
     this.runtime.onChange();
+  }
+
+  /** Seed a restored, paused execution; it runs on {@link resume}. */
+  restore(variables: I, submittedAt: number): void {
+    this.awaitingResume = true;
+    this.setState(() => ({
+      ...idleState,
+      status: "pending",
+      variables: Option.some(variables),
+      submittedAt,
+      isPaused: true,
+    }));
+  }
+
+  get isAwaitingResume(): boolean {
+    return this.awaitingResume;
+  }
+
+  /** Run a restored execution with its stored variables. */
+  resume(): Fiber.Fiber<A, E> | undefined {
+    if (!this.awaitingResume || Option.isNone(this.state.variables)) return this.fiber;
+    this.awaitingResume = false;
+    return this.execute(this.state.variables.value);
   }
 
   /** Start executing. Returns the fiber settling with the mutation's outcome. */

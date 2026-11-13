@@ -17,7 +17,7 @@ import {
 import { AsyncResult, type Reactivity } from "effect/reactivity";
 import type * as FocusManager from "../FocusManager.ts";
 import type * as OnlineManager from "../OnlineManager.ts";
-import type * as QueryKey from "../QueryKey.ts";
+import * as QueryKey from "../QueryKey.ts";
 import type * as QueryResult from "../QueryResult.ts";
 import { replaceEqualDeep } from "./structuralSharing.ts";
 
@@ -168,6 +168,33 @@ export interface QueryDescriptor<A, E, R> {
    * direction (used by infinite queries).
    */
   readonly behavior?: ((context: BehaviorContext<A>) => Effect.Effect<A, E, R>) | undefined;
+  /** Present when the query opted into persistence. */
+  readonly persist?: PersistCodec<A> | undefined;
+}
+
+/**
+ * JSON codec of a persisted query's data (derived from its `Schema`).
+ * @internal
+ */
+export interface PersistCodec<A> {
+  readonly encode: (data: A) => unknown;
+  readonly decode: (json: unknown) => A;
+}
+
+/** A persisted query waiting to be claimed by its query atom. @internal */
+export interface PreloadedQuery {
+  readonly queryKey: unknown;
+  readonly data: unknown;
+  readonly dataUpdatedAt: number;
+}
+
+/** Whether a persister is restoring; mounts do not fetch meanwhile. @internal */
+export interface RestoringState {
+  readonly isRestoring: () => boolean;
+  readonly subscribe: (listener: () => void) => () => void;
+  readonly start: () => void;
+  /** Ends restoring: entries claim restored data and run held-back mount fetches. */
+  readonly finish: () => void;
 }
 
 /** @internal */
@@ -238,6 +265,9 @@ export interface ClientRuntime {
   readonly focus: FocusManager.Service;
   readonly online: OnlineManager.Service;
   readonly reactivity: Reactivity.Reactivity | undefined;
+  readonly restoring: RestoringState;
+  /** Restored, not yet claimed queries, by `QueryKey.toJsonKey`. */
+  readonly preloaded: Map<string, PreloadedQuery>;
 }
 
 // ---------------------------------------------------------------------------
@@ -329,6 +359,7 @@ export class QueryEntry<A, E> {
     this.runtime = runtime;
     this.options = resolveOptions(runtime.defaultsFor(key), descriptor.options);
     this.state = this.initialStateOf(descriptor);
+    this.claimPersisted();
     this.registerReactivity();
     // Entries nobody observes (e.g. built during a render that never committed) are collected.
     this.scheduleGc();
@@ -339,7 +370,46 @@ export class QueryEntry<A, E> {
     if (descriptor === this.descriptor) return;
     this.descriptor = descriptor;
     this.refreshOptions();
+    this.claimPersisted();
     if (this.unregisterReactivity === undefined) this.registerReactivity();
+  }
+
+  /**
+   * Adopt restored data for this key, if the query is persisted and has no
+   * data yet. Undecodable data (e.g. after a schema change) is dropped.
+   */
+  claimPersisted(): void {
+    const codec = this.descriptor.persist;
+    if (codec === undefined || Option.isSome(this.state.data)) return;
+    const jsonKey = QueryKey.toJsonKey(this.key);
+    const preloaded = this.runtime.preloaded.get(jsonKey);
+    if (preloaded === undefined) return;
+    this.runtime.preloaded.delete(jsonKey);
+    let data: A;
+    try {
+      data = codec.decode(preloaded.data);
+    } catch {
+      return;
+    }
+    this.setState((s) => ({
+      ...s,
+      status: "success",
+      data: Option.some(data),
+      dataUpdatedAt: preloaded.dataUpdatedAt,
+      cause: Option.none(),
+    }));
+  }
+
+  /** Restoring finished: claim data, then do the mount fetches that were held back. */
+  onRestored(): void {
+    this.claimPersisted();
+    if (this.state.fetchStatus !== "idle") return;
+    for (const record of this.records) {
+      if (this.shouldFetchOnMount(record.options)) {
+        this.fetch();
+        return;
+      }
+    }
   }
 
   /** Re-resolve options, e.g. after `setQueryDefaults`. */
@@ -560,6 +630,7 @@ export class QueryEntry<A, E> {
   /** Whether an observer mounting now would start a fetch. */
   shouldFetchOnMount(options: ObserveOptions = {}): boolean {
     if (!this.isEnabledFor(options)) return false;
+    if (this.runtime.restoring.isRestoring()) return false;
     if (this.state.fetchStatus !== "idle") return false;
     if (Option.isNone(this.state.data)) {
       const retryOnMount = options.retryOnMount ?? this.options.retryOnMount;

@@ -91,3 +91,24 @@ const partialMatch = (a: unknown, b: unknown): boolean => {
   }
   return Equal.equals(a, b);
 };
+
+/**
+ * A canonical JSON string for a key (object properties sorted), used as the
+ * storage key of persisted queries. Keys of persisted queries must be
+ * JSON-compatible.
+ *
+ * @since 0.1.0
+ * @category conversions
+ */
+export const toJsonKey = (key: QueryKey | ReadonlyArray<unknown>): string =>
+  JSON.stringify(canonical(key));
+
+const canonical = (u: unknown): unknown => {
+  if (Array.isArray(u)) return u.map(canonical);
+  if (isPlainContainer(u)) {
+    const out: Record<string, unknown> = {};
+    for (const k of Object.keys(u).sort()) out[k] = canonical(u[k]);
+    return out;
+  }
+  return u;
+};

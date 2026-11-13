@@ -1,6 +1,6 @@
 # TanStack Query → effect-native-query feature matrix
 
-✅ marks implemented features (phases 1–5, 2026-11-13).
+✅ marks implemented features (phases 1–6, 2026-11-13; v1 scope complete).
 
 Source: TanStack Query v5 React docs (important defaults, `useQuery`,
 `useMutation`, `QueryClient`, network mode). The **Phase** column refers to
@@ -36,7 +36,7 @@ Source: TanStack Query v5 React docs (important defaults, `useQuery`,
 | ✅ `initialData` / `initialDataUpdatedAt` | seeds the cache entry; `data` typed non-optional              |
 | `meta`                                    | `meta: Record<string, unknown>` passed to cache callbacks     |
 | `queryKeyHashFn`                          | not needed (`Hash`/`Equal`); possible escape hatch            |
-| `persister` / `schema`                    | phase 6 (Schema required to persist)                          |
+| ✅ `persister` / `schema`                 | phase 6 (Schema required to persist)                          |
 | `subscribed`                              | `subscribed: false` → read without observing                  |
 | ✅ `maxPages` (infinite)                  | phase 5                                                       |
 
@@ -53,21 +53,21 @@ Source: TanStack Query v5 React docs (important defaults, `useQuery`,
 
 ## React API
 
-| TanStack                                                                            | effect-native-query                                             | Phase   |
-| ----------------------------------------------------------------------------------- | --------------------------------------------------------------- | ------- |
-| ✅ `QueryClientProvider`, `useQueryClient`                                          | same (wraps `RegistryProvider`)                                 | 2       |
-| ✅ `useQuery`                                                                       | `useQuery`                                                      | 2       |
-| ✅ `useQueries` (+`combine`)                                                        | `useQueries`                                                    | 2       |
-| ✅ `useIsFetching`                                                                  | `useIsFetching`                                                 | 2       |
-| ✅ `useMutation`                                                                    | `useMutation`: `mutate` + `mutateEffect` (no `mutateAsync`, D4) | 4       |
-| ✅ `useMutationState`, `useIsMutating`                                              | same                                                            | 4       |
-| ✅ `useSuspenseQuery`, `useSuspenseQueries`                                         | same (`useAtomSuspense`)                                        | 5       |
-| ✅ `useInfiniteQuery`, `useSuspenseInfiniteQuery`                                   | same                                                            | 5       |
-| ✅ `usePrefetchQuery`, `usePrefetchInfiniteQuery`                                   | same                                                            | 5       |
-| ✅ `QueryErrorResetBoundary`, `useQueryErrorResetBoundary`                          | same                                                            | 5       |
-| `HydrationBoundary`                                                                 | same (atom-react `HydrationBoundary`)                           | post-v1 |
-| `useIsRestoring`, `IsRestoringProvider`                                             | same                                                            | 6       |
-| `queryOptions` ✅, `infiniteQueryOptions` ✅, `mutationOptions` (= `Mutation.make`) | thin aliases over `Query.single` etc. (D1)                      | 1       |
+| TanStack                                                                            | effect-native-query                                                | Phase   |
+| ----------------------------------------------------------------------------------- | ------------------------------------------------------------------ | ------- |
+| ✅ `QueryClientProvider`, `useQueryClient`                                          | same (wraps `RegistryProvider`)                                    | 2       |
+| ✅ `useQuery`                                                                       | `useQuery`                                                         | 2       |
+| ✅ `useQueries` (+`combine`)                                                        | `useQueries`                                                       | 2       |
+| ✅ `useIsFetching`                                                                  | `useIsFetching`                                                    | 2       |
+| ✅ `useMutation`                                                                    | `useMutation`: `mutate` + `mutateEffect` (no `mutateAsync`, D4)    | 4       |
+| ✅ `useMutationState`, `useIsMutating`                                              | same                                                               | 4       |
+| ✅ `useSuspenseQuery`, `useSuspenseQueries`                                         | same (`useAtomSuspense`)                                           | 5       |
+| ✅ `useInfiniteQuery`, `useSuspenseInfiniteQuery`                                   | same                                                               | 5       |
+| ✅ `usePrefetchQuery`, `usePrefetchInfiniteQuery`                                   | same                                                               | 5       |
+| ✅ `QueryErrorResetBoundary`, `useQueryErrorResetBoundary`                          | same                                                               | 5       |
+| `HydrationBoundary`                                                                 | same (atom-react `HydrationBoundary`)                              | post-v1 |
+| ✅ `useIsRestoring`                                                                 | `useIsRestoring`; no provider needed (the client tracks restoring) | 6       |
+| `queryOptions` ✅, `infiniteQueryOptions` ✅, `mutationOptions` (= `Mutation.make`) | thin aliases over `Query.single` etc. (D1)                         | 1       |
 
 ## QueryClient (every method returns `Effect`, with no Promise facade, D4; getters return `Option`, D2)
 
@@ -80,7 +80,7 @@ Source: TanStack Query v5 React docs (important defaults, `useQuery`,
 | ✅ `cancelQueries` (`revert`), `resetQueries`, `removeQueries`, `clear`     | 3 / 4              |
 | ✅ `isFetching`, `isMutating`                                               | 2 / 4              |
 | ✅ `setQueryDefaults`, `setMutationDefaults`, `getDefaultOptions`, …        | 4                  |
-| `resumePausedMutations`                                                     | 6                  |
+| ✅ `resumePausedMutations`                                                  | 6                  |
 | ✅ `fetchInfiniteQuery`, `prefetchInfiniteQuery`, `ensureInfiniteQueryData` | 5                  |
 | ✅ `mount` / `unmount` (focus/online listener refcount)                     | 3 (scoped `Layer`) |
 

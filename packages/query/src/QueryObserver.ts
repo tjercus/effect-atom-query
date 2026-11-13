@@ -24,6 +24,7 @@ import type {
 import { replaceEqualDeep } from "./internal/structuralSharing.ts";
 import * as Query from "./Query.ts";
 import type * as QueryClient from "./QueryClient.ts";
+import * as QueryKey from "./QueryKey.ts";
 import * as QueryResult from "./QueryResult.ts";
 
 /**
@@ -161,11 +162,13 @@ export class QueryObserver<A, E, B = A> {
     this.query = query;
     this.options = options;
     if (this.listeners.size === 0) return;
-    if (previousQuery !== query) {
+    if (previousQuery !== query && !sameKey(previousQuery, query)) {
       this.detach();
       this.attach();
       this.notify();
     } else {
+      // Same atom, or a new atom for the same key: update in place.
+      if (previousQuery !== query && Query.isQueryAtom(query)) this.client.cache.build<A, E>(query);
       this.handle?.update(observeOptions(options));
       if (
         !wasEnabled &&
@@ -312,6 +315,9 @@ export class QueryObserver<A, E, B = A> {
     return output;
   }
 }
+
+const sameKey = <A, E>(a: Observable<A, E>, b: Observable<A, E>): boolean =>
+  Query.isQueryAtom(a) && Query.isQueryAtom(b) && QueryKey.equals(a.key, b.key);
 
 const observeOptions = (options: Options<any, any>): ObserveOptions => ({
   enabled: options.enabled,

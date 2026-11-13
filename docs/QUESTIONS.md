@@ -24,7 +24,7 @@
    Alternatively, keys could be required to be `Schema`-encodable, which would
    make persistence keys trivially serialisable but adds ceremony. The current
    lean is to require a Schema only for persisted queries.
-4. **Persistence storage targets for v1.** The default is localStorage and
+4. **Persistence storage targets for v1.** _(Resolved in phase 6: any `KeyValueStore`, which covers localStorage, IndexedDB, memory, file system, SQL, and AsyncStorage via a custom store.)_ The default is localStorage and
    IndexedDB through `KeyValueStore` layers. Is React Native (AsyncStorage)
    needed?
 5. **Devtools.** No devtools are planned for v1. A minimal inspector panel
