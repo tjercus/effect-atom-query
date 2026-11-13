@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import { AtomRegistry } from "effect/reactivity";
-import { QueryClient } from "../src/index.ts";
+import { FocusManager, OnlineManager, QueryClient } from "../src/index.ts";
 
 /**
  * Let forked fibers and registry tasks run. Effect's scheduler uses
@@ -20,7 +20,13 @@ export const settle = Effect.promise(async () => {
  */
 export const setup = (options?: QueryClient.Options) =>
   Effect.gen(function* () {
-    const client = yield* QueryClient.make(options);
+    // Fresh managers per test, detached from any environment events.
+    const focus = FocusManager.make({ setup: () => () => {}, isFocused: () => true });
+    const online = OnlineManager.make({ setup: () => () => {} });
+    const client = yield* QueryClient.make(options).pipe(
+      Effect.provideService(FocusManager.FocusManager, focus),
+      Effect.provideService(OnlineManager.OnlineManager, online),
+    );
     const registry = AtomRegistry.make({
       initialValues: [QueryClient.initialValue(client)],
       scheduleTask: (f) => {
@@ -34,7 +40,7 @@ export const setup = (options?: QueryClient.Options) =>
       },
     });
     yield* Effect.addFinalizer(() => Effect.sync(() => registry.dispose()));
-    return { client, registry };
+    return { client, registry, focus, online };
   });
 
 /** A counter for how often a query ran. */

@@ -1,6 +1,6 @@
 # TanStack Query → effect-native-query feature matrix
 
-✅ marks implemented features (phases 1–2, 2026-11-13).
+✅ marks implemented features (phases 1–3, 2026-11-13).
 
 Source: TanStack Query v5 React docs (important defaults, `useQuery`,
 `useMutation`, `QueryClient`, network mode). The **Phase** column refers to
@@ -8,23 +8,23 @@ Source: TanStack Query v5 React docs (important defaults, `useQuery`,
 
 ## Important defaults
 
-| TanStack default                    | Value                                       | Effect-native equivalent                                                                | Phase |
-| ----------------------------------- | ------------------------------------------- | --------------------------------------------------------------------------------------- | ----- |
-| ✅ `staleTime`                      | `0` (also `Infinity`, `'static'`)           | `Duration` (`Duration.zero` default), `Duration.infinity`, `"static"`                   | 1     |
-| ✅ `gcTime`                         | 5 min (`Infinity` on server)                | `Atom.setIdleTTL(Duration.minutes(5))`                                                  | 1     |
-| ✅ `retry`                          | 3 (client), 0 (server)                      | `Schedule.recurs(3)`                                                                    | 1     |
-| ✅ `retryDelay`                     | `min(1000·2^n, 30s)`                        | `Schedule.exponential("1 second").pipe(Schedule.either(Schedule.spaced("30 seconds")))` | 1     |
-| `retryOnMount`                      | `true`                                      | same flag                                                                               | 3     |
-| ✅ `refetchOnMount`                 | `true` (`"always"`)                         | same values                                                                             | 1     |
-| `refetchOnWindowFocus`              | `true` (`"always"`)                         | FocusManager signal (`Atom.windowFocusSignal`)                                          | 3     |
-| `refetchOnReconnect`                | `true` (`false` if `networkMode: 'always'`) | OnlineManager signal                                                                    | 3     |
-| `refetchInterval` / `…InBackground` | `false` / `false`                           | `Duration` or `Schedule`                                                                | 3     |
-| ✅ `structuralSharing`              | `true`                                      | `Equal` check + `replaceEqualDeep`                                                      | 2     |
-| ✅ `throwOnError`                   | `false`                                     | `false`; defects are always thrown                                                      | 2     |
-| `networkMode`                       | `'online'`                                  | `'online' \| 'always' \| 'offlineFirst'` using a `Latch`                                | 3     |
-| ✅ `enabled` / `skipToken`          | `true`                                      | boolean, `(get) => boolean`, or `skipToken`                                             | 1     |
-| `notifyOnChangeProps`               | tracked                                     | derived atoms + `select` (Proxy tracking is a stretch goal)                             | 7     |
-| Mutation `retry`                    | 0                                           | `Schedule` (none by default)                                                            | 4     |
+| TanStack default                       | Value                                       | Effect-native equivalent                                                                | Phase |
+| -------------------------------------- | ------------------------------------------- | --------------------------------------------------------------------------------------- | ----- |
+| ✅ `staleTime`                         | `0` (also `Infinity`, `'static'`)           | `Duration` (`Duration.zero` default), `Duration.infinity`, `"static"`                   | 1     |
+| ✅ `gcTime`                            | 5 min (`Infinity` on server)                | `Atom.setIdleTTL(Duration.minutes(5))`                                                  | 1     |
+| ✅ `retry`                             | 3 (client), 0 (server)                      | `Schedule.recurs(3)`                                                                    | 1     |
+| ✅ `retryDelay`                        | `min(1000·2^n, 30s)`                        | `Schedule.exponential("1 second").pipe(Schedule.either(Schedule.spaced("30 seconds")))` | 1     |
+| ✅ `retryOnMount`                      | `true`                                      | same flag                                                                               | 3     |
+| ✅ `refetchOnMount`                    | `true` (`"always"`)                         | same values                                                                             | 1     |
+| ✅ `refetchOnWindowFocus`              | `true` (`"always"`)                         | FocusManager signal (`Atom.windowFocusSignal`)                                          | 3     |
+| ✅ `refetchOnReconnect`                | `true` (`false` if `networkMode: 'always'`) | OnlineManager signal                                                                    | 3     |
+| ✅ `refetchInterval` / `…InBackground` | `false` / `false`                           | `Duration` or `Schedule`                                                                | 3     |
+| ✅ `structuralSharing`                 | `true`                                      | `Equal` check + `replaceEqualDeep`                                                      | 2     |
+| ✅ `throwOnError`                      | `false`                                     | `false`; defects are always thrown                                                      | 2     |
+| ✅ `networkMode`                       | `'online'`                                  | `'online' \| 'always' \| 'offlineFirst'` using a `Latch`                                | 3     |
+| ✅ `enabled` / `skipToken`             | `true`                                      | boolean, `(get) => boolean`, or `skipToken`                                             | 1     |
+| `notifyOnChangeProps`                  | tracked                                     | derived atoms + `select` (Proxy tracking is a stretch goal)                             | 7     |
+| Mutation `retry`                       | 0                                           | `Schedule` (none by default)                                                            | 4     |
 
 ## Query options
 
@@ -71,18 +71,18 @@ Source: TanStack Query v5 React docs (important defaults, `useQuery`,
 
 ## QueryClient (every method returns `Effect`, with no Promise facade, D4; getters return `Option`, D2)
 
-| Method                                                                   | Phase              |
-| ------------------------------------------------------------------------ | ------------------ |
-| ✅ `fetchQuery` / `query`, `prefetchQuery`, `ensureQueryData`            | 1                  |
-| ✅ `getQueryData`, `getQueryState` (`getQueriesData` later)              | 1                  |
-| `setQueryData`, `setQueriesData` (updater; `undefined` = no-op)          | 4                  |
-| `invalidateQueries` (`refetchType`), `refetchQueries` (`cancelRefetch`)  | 4                  |
-| `cancelQueries` (`revert`), `resetQueries`, `removeQueries`, `clear`     | 3 / 4              |
-| `isFetching`, `isMutating`                                               | 2 / 4              |
-| `setQueryDefaults`, `setMutationDefaults`, `getDefaultOptions`, …        | 4                  |
-| `resumePausedMutations`                                                  | 6                  |
-| `fetchInfiniteQuery`, `prefetchInfiniteQuery`, `ensureInfiniteQueryData` | 5                  |
-| `mount` / `unmount` (focus/online listener refcount)                     | 3 (scoped `Layer`) |
+| Method                                                                            | Phase              |
+| --------------------------------------------------------------------------------- | ------------------ |
+| ✅ `fetchQuery` / `query`, `prefetchQuery`, `ensureQueryData`                     | 1                  |
+| ✅ `getQueryData`, `getQueryState` (`getQueriesData` later)                       | 1                  |
+| `setQueryData`, `setQueriesData` (updater; `undefined` = no-op)                   | 4                  |
+| `invalidateQueries` (`refetchType`), `refetchQueries` (`cancelRefetch`)           | 4                  |
+| ✅ `cancelQueries` (`revert`), `removeQueries`, `clear` (`resetQueries`: phase 4) | 3 / 4              |
+| `isFetching`, `isMutating`                                                        | 2 / 4              |
+| `setQueryDefaults`, `setMutationDefaults`, `getDefaultOptions`, …                 | 4                  |
+| `resumePausedMutations`                                                           | 6                  |
+| `fetchInfiniteQuery`, `prefetchInfiniteQuery`, `ensureInfiniteQueryData`          | 5                  |
+| ✅ `mount` / `unmount` (focus/online listener refcount)                           | 3 (scoped `Layer`) |
 
 ## Query filters
 

@@ -5,7 +5,7 @@
 > interruption as cancellation, and Effect Atoms (`effect/reactivity`) as the
 > reactive cache.
 
-Status: **v0.4, 2026-11-13. Phases 1–2 done**; see §8 for implementation notes. Decisions D1–D4 are settled and the
+Status: **v0.5, 2026-11-13. Phases 1–3 done**; see §8 for implementation notes. Decisions D1–D4 are settled and the
 remaining open questions are in [QUESTIONS.md](./QUESTIONS.md). The TanStack-to-Effect feature mapping is in
 [FEATURE-MATRIX.md](./FEATURE-MATRIX.md).
 
@@ -340,7 +340,7 @@ Each phase ends with green `vp check` and `vp run -r test`, plus a playground pa
 | 0   | **Scaffold** ✅                | Vite+ monorepo, TS 7, Effect 4.1.4, atom-react, smoke tests, playground                                                                                                                                                                                         |
 | 1   | **Core query** ✅              | `QueryKey` (normalise, hash, partial match), `QueryClient` service and layer, `QueryCache`, `Query.make`, fetch dedup, `AsyncResult` to `QueryResult` projection, staleTime, gcTime, retry Schedule, `enabled`/`skipToken`, `TestClock` tests for every default |
 | 2   | **React basics** ✅            | `QueryClientProvider`, `useQueryClient`, `useQuery`, `useQueries`, `useIsFetching`, `select`, `placeholderData` (incl. `keepPreviousData`), `initialData`, structural sharing (`replaceEqualDeep`), StrictMode safety                                           |
-| 3   | **Triggers**                   | FocusManager, OnlineManager, `networkMode` (online/always/offlineFirst), refetchOnMount/Focus/Reconnect, `refetchInterval`, cancellation via `cancel` with revert                                                                                               |
+| 3   | **Triggers** ✅                | FocusManager, OnlineManager, `networkMode` (online/always/offlineFirst), refetchOnMount/Focus/Reconnect, `refetchInterval`, cancellation via `cancel` with revert                                                                                               |
 | 4   | **Mutations and invalidation** | `Mutation.make`, `useMutation`, `invalidate`/`refetch`/`reset`/`remove`/`setQueryData`/`setQueriesData`, Reactivity integration, optimistic updates (both styles), `useMutationState`, `useIsMutating`, mutation `scope`                                        |
 | 5   | **Suspense and infinite**      | `useSuspenseQuery`/`Queries`/`InfiniteQuery`, `QueryErrorResetBoundary`, `useInfiniteQuery` with sequential refetch and `maxPages`, `usePrefetchQuery`                                                                                                          |
 | 6   | **Persistence and offline**    | Schema-based `QueryPersister` (KeyValueStore: localStorage/IndexedDB), `buster`/`maxAge`, `useIsRestoring`, paused-mutation persistence and `resumePausedMutations`                                                                                             |
@@ -478,3 +478,53 @@ Decisions made while building it:
 
 Not done yet, by plan: tracked-props render optimisation (phase 7), and
 refetch on window focus or reconnect (phase 3).
+
+### Phase 3: triggers, network mode, cancellation
+
+New in core: `FocusManager` and `OnlineManager` are `Context.Reference`
+services whose default is a shared browser-backed instance. Each has
+`make({ setup, ... })`, a `layer`, and the Effect accessors `setFocused` /
+`setOnline`. `QueryClient.cancelQueries(filters, { revert })` was also added.
+The new query and observer options are `refetchOnWindowFocus`,
+`refetchOnReconnect`, `refetchInterval`, `refetchIntervalInBackground`,
+`networkMode` and `retryOnMount`.
+
+Decisions made while building it:
+
+- **The managers are services with defaults, not module globals.** The
+  defaults reproduce TanStack's singletons: `visibilitychange` for focus, and
+  `online`/`offline` events for connectivity, starting out online.
+  - Tests and React Native provide their own instances through a layer.
+  - The client reads both at construction and subscribes for its lifetime,
+    like TanStack's `QueryClient.mount()`.
+  - We use these services rather than `Atom.windowFocusSignal`, so the
+    behaviour is configurable per client and testable.
+- **Observers are records on the entry.** Each record carries its own mount,
+  focus, reconnect and interval options. `QueryObserver.setOptions` updates
+  its record in place. A trigger refetches when any enabled observer asks for
+  it, and every refetch is deduplicated.
+- **Polling** uses one timer fiber per observer, rescheduled after every fetch
+  settles. A function `refetchInterval` is re-evaluated against the latest
+  result. In the background the timer re-arms instead of fetching, unless
+  `refetchIntervalInBackground` is set.
+- **Network mode** wraps every attempt in a pause step:
+  - `online` pauses before every attempt.
+  - `offlineFirst` pauses only before retries.
+  - `always` never pauses.
+
+  The pause sets `fetchStatus: "paused"` and waits for the online signal
+  through `Effect.callback`. The same fiber then continues, so reconnecting
+  resumes the fetch rather than starting a new one. `isFetching` and
+  `useIsFetching` count only `fetching`, not `paused`.
+
+- **Cancellation** is fiber interruption. With `revert` (the default), the
+  state goes back to its snapshot from before the fetch started. Callers
+  joined through `fetchQuery` are interrupted. Fetches are **not** cancelled
+  automatically when the last observer leaves; they finish and populate the
+  cache. TanStack only cancels in that case when the `AbortSignal` was
+  consumed, and with Effect we cannot tell.
+- **Tests:** 50 core tests (`TestClock`, a fresh manager per test) and 20
+  React tests, including real `visibilitychange` / `online` / `offline`
+  events in happy-dom. In headless Chromium the playground's 1-second clock
+  polls, shows `paused` while the browser context is offline, and resumes on
+  reconnect.

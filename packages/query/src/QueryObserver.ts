@@ -15,7 +15,12 @@
  */
 import { Option } from "effect";
 import { AsyncResult } from "effect/reactivity";
-import type { QueryEntry } from "./internal/queryEntry.ts";
+import type {
+  ObserveOptions,
+  ObserverHandle,
+  QueryEntry,
+  RefetchInterval,
+} from "./internal/queryEntry.ts";
 import { replaceEqualDeep } from "./internal/structuralSharing.ts";
 import * as Query from "./Query.ts";
 import type * as QueryClient from "./QueryClient.ts";
@@ -39,6 +44,15 @@ export interface Options<A, B = A> {
   readonly enabled?: boolean | undefined;
   /** Overrides the definition's `refetchOnMount`. */
   readonly refetchOnMount?: boolean | "always" | undefined;
+  /** Overrides the definition's `refetchOnWindowFocus`. */
+  readonly refetchOnWindowFocus?: boolean | "always" | undefined;
+  /** Overrides the definition's `refetchOnReconnect`. */
+  readonly refetchOnReconnect?: boolean | "always" | undefined;
+  /** Poll while this observer is mounted. */
+  readonly refetchInterval?: RefetchInterval<any> | undefined;
+  readonly refetchIntervalInBackground?: boolean | undefined;
+  /** Overrides the definition's `retryOnMount`. */
+  readonly retryOnMount?: boolean | undefined;
   /** Derive the data this observer sees. Does not change the cache. Keep it referentially stable. */
   readonly select?: ((data: A) => B) | undefined;
   readonly placeholderData?: PlaceholderData<A> | undefined;
@@ -64,6 +78,7 @@ export class QueryObserver<A, E, B = A> {
   private readonly listeners = new Set<() => void>();
   private entry: QueryEntry<A, E> | undefined;
   private detachEntry: (() => void) | undefined;
+  private handle: ObserverHandle | undefined;
   private fetchedAtMount = 0;
 
   /** Last non-placeholder raw data shown, for `keepPreviousData`. */
@@ -114,19 +129,18 @@ export class QueryObserver<A, E, B = A> {
       }
       this.notify();
     });
-    const release = entry.addObserver({
-      enabled: this.options.enabled,
-      refetchOnMount: this.options.refetchOnMount,
-    });
+    const handle = entry.addObserver(observeOptions(this.options));
+    this.handle = handle;
     this.detachEntry = () => {
       unsubscribe();
-      release();
+      handle.release();
     };
   }
 
   private detach(): void {
     this.detachEntry?.();
     this.detachEntry = undefined;
+    this.handle = undefined;
     this.entry = undefined;
   }
 
@@ -146,8 +160,15 @@ export class QueryObserver<A, E, B = A> {
       this.detach();
       this.attach();
       this.notify();
-    } else if (!wasEnabled && this.isEnabled() && this.entry?.shouldFetchOnMount(options)) {
-      this.entry.fetch();
+    } else {
+      this.handle?.update(observeOptions(options));
+      if (
+        !wasEnabled &&
+        this.isEnabled() &&
+        this.entry?.shouldFetchOnMount(observeOptions(options))
+      ) {
+        this.entry.fetch();
+      }
     }
   }
 
@@ -179,7 +200,7 @@ export class QueryObserver<A, E, B = A> {
     }
     const entry = this.client.cache.build<A, E>(query);
     const mounted = this.entry === entry;
-    const optimisticFetch = !mounted && entry.shouldFetchOnMount(options);
+    const optimisticFetch = !mounted && entry.shouldFetchOnMount(observeOptions(options));
     const enabled = options.enabled ?? entry.options.enabled;
     const fetchedAtMount = mounted ? this.fetchedAtMount : entry.fetchCount;
     const isStale = entry.isStale();
@@ -255,6 +276,16 @@ export class QueryObserver<A, E, B = A> {
     return output;
   }
 }
+
+const observeOptions = (options: Options<any, any>): ObserveOptions => ({
+  enabled: options.enabled,
+  refetchOnMount: options.refetchOnMount,
+  refetchOnWindowFocus: options.refetchOnWindowFocus,
+  refetchOnReconnect: options.refetchOnReconnect,
+  refetchInterval: options.refetchInterval,
+  refetchIntervalInBackground: options.refetchIntervalInBackground,
+  retryOnMount: options.retryOnMount,
+});
 
 /**
  * @since 0.1.0

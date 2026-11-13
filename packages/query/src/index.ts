@@ -6,6 +6,12 @@
  */
 
 /** @since 0.1.0 */
+export * as FocusManager from "./FocusManager.ts";
+
+/** @since 0.1.0 */
+export * as OnlineManager from "./OnlineManager.ts";
+
+/** @since 0.1.0 */
 export * as Query from "./Query.ts";
 
 /** @since 0.1.0 */

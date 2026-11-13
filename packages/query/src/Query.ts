@@ -281,7 +281,7 @@ const makeAtom = <A, E, R>(descriptor: {
         const entry = client.cache.build<A, E>(self);
         current = entry;
         const fetchedAtMount = entry.fetchCount;
-        const release = entry.addObserver();
+        const observer = entry.addObserver();
         const unsubscribe = entry.subscribe(() => {
           // The entry was removed from the cache: rebuild against a fresh one.
           if (entry.isRemoved) {
@@ -292,7 +292,7 @@ const makeAtom = <A, E, R>(descriptor: {
         });
         get.addFinalizer(() => {
           unsubscribe();
-          release();
+          observer.release();
           if (current === entry) current = undefined;
         });
         return entry.toResult({ fetchedAtMount });

@@ -73,12 +73,29 @@ function Items() {
   );
 }
 
+// Polls every second while the tab is visible; pauses offline (networkMode "online").
+const serverClock = Query.single({
+  key: ["server-clock"],
+  run: Effect.sync(() => new Date().toLocaleTimeString()).pipe(Effect.delay("100 millis")),
+  refetchInterval: "1 second",
+});
+
+function Clock() {
+  const clock = useQuery(serverClock);
+  return (
+    <p data-testid="clock">
+      clock: {clock.isSuccess ? clock.data.value : "…"} ({clock.fetchStatus})
+    </p>
+  );
+}
+
 export function App() {
   const fetching = useIsFetching();
   return (
     <main style={{ fontFamily: "system-ui", maxWidth: 480, margin: "2rem auto" }}>
       <h1>effect-native-query playground</h1>
       <p>{fetching > 0 ? `fetching ${fetching}…` : "idle"}</p>
+      <Clock />
       <Items />
     </main>
   );

@@ -5,6 +5,8 @@
  */
 
 export {
+  FocusManager,
+  OnlineManager,
   Query,
   QueryClient,
   QueryKey,

@@ -15,6 +15,8 @@ import {
   Schedule,
 } from "effect";
 import { AsyncResult } from "effect/reactivity";
+import type * as FocusManager from "../FocusManager.ts";
+import type * as OnlineManager from "../OnlineManager.ts";
 import type * as QueryKey from "../QueryKey.ts";
 import type * as QueryResult from "../QueryResult.ts";
 import { replaceEqualDeep } from "./structuralSharing.ts";
@@ -29,12 +31,38 @@ export type StaleTime = Duration.Input | "static";
 /** @internal */
 export type RetryOption<E> = boolean | number | Schedule.Schedule<unknown, E>;
 
+/**
+ * How fetches react to connectivity:
+ * - `online` (default): fetches and retries wait while offline (`fetchStatus: "paused"`).
+ * - `always`: ignore connectivity; `refetchOnReconnect` defaults to `false`.
+ * - `offlineFirst`: run the first attempt regardless; pause retries while offline.
+ * @internal
+ */
+export type NetworkMode = "online" | "always" | "offlineFirst";
+
+/** @internal */
+export type RefetchInterval<E> =
+  | Duration.Input
+  | false
+  | ((result: QueryResult.QueryResult<any, E>) => Duration.Input | false);
+
 /** @internal */
 export interface QueryOptions<E> {
   readonly staleTime?: StaleTime | undefined;
   readonly gcTime?: Duration.Input | undefined;
   readonly retry?: RetryOption<E> | undefined;
   readonly refetchOnMount?: boolean | "always" | undefined;
+  /** Refetch active stale queries when the window regains focus. Default `true`. */
+  readonly refetchOnWindowFocus?: boolean | "always" | undefined;
+  /** Refetch active stale queries on reconnect. Default `true` (`false` for `networkMode: "always"`). */
+  readonly refetchOnReconnect?: boolean | "always" | undefined;
+  /** Poll while observed. Recomputed from the result after every fetch when a function. */
+  readonly refetchInterval?: RefetchInterval<E> | undefined;
+  /** Keep polling while the window is unfocused. Default `false`. */
+  readonly refetchIntervalInBackground?: boolean | undefined;
+  readonly networkMode?: NetworkMode | undefined;
+  /** Fetch on mount when the query has errored and has no data. Default `true`. */
+  readonly retryOnMount?: boolean | undefined;
   readonly enabled?: boolean | undefined;
   /**
    * Keep references of unchanged parts of new data (`true`, default), replace
@@ -52,6 +80,12 @@ export interface ResolvedOptions<E> {
   readonly gcTime: Duration.Duration;
   readonly retry: Option.Option<Schedule.Schedule<unknown, E>>;
   readonly refetchOnMount: boolean | "always";
+  readonly refetchOnWindowFocus: boolean | "always";
+  readonly refetchOnReconnect: boolean | "always";
+  readonly refetchInterval: RefetchInterval<E>;
+  readonly refetchIntervalInBackground: boolean;
+  readonly networkMode: NetworkMode;
+  readonly retryOnMount: boolean;
   readonly enabled: boolean;
   readonly structuralSharing: boolean | ((oldData: unknown, newData: unknown) => unknown);
 }
@@ -82,11 +116,23 @@ export const resolveOptions = <E>(
   options: QueryOptions<E>,
 ): ResolvedOptions<E> => {
   const staleTime = options.staleTime ?? defaults.staleTime ?? 0;
+  const networkMode = options.networkMode ?? defaults.networkMode ?? "online";
   return {
     staleTime: staleTime === "static" ? "static" : Duration.fromInputUnsafe(staleTime),
     gcTime: Duration.fromInputUnsafe(options.gcTime ?? defaults.gcTime ?? "5 minutes"),
     retry: resolveRetry(options.retry ?? (defaults.retry as RetryOption<E> | undefined) ?? 3),
     refetchOnMount: options.refetchOnMount ?? defaults.refetchOnMount ?? true,
+    refetchOnWindowFocus: options.refetchOnWindowFocus ?? defaults.refetchOnWindowFocus ?? true,
+    refetchOnReconnect:
+      options.refetchOnReconnect ?? defaults.refetchOnReconnect ?? networkMode !== "always",
+    refetchInterval:
+      options.refetchInterval ??
+      (defaults.refetchInterval as RefetchInterval<E> | undefined) ??
+      false,
+    refetchIntervalInBackground:
+      options.refetchIntervalInBackground ?? defaults.refetchIntervalInBackground ?? false,
+    networkMode,
+    retryOnMount: options.retryOnMount ?? defaults.retryOnMount ?? true,
     enabled: options.enabled ?? defaults.enabled ?? true,
     structuralSharing: options.structuralSharing ?? defaults.structuralSharing ?? true,
   };
@@ -124,6 +170,26 @@ export interface InitialData<A> {
 export interface ObserveOptions {
   readonly enabled?: boolean | undefined;
   readonly refetchOnMount?: boolean | "always" | undefined;
+  readonly refetchOnWindowFocus?: boolean | "always" | undefined;
+  readonly refetchOnReconnect?: boolean | "always" | undefined;
+  readonly refetchInterval?: RefetchInterval<any> | undefined;
+  readonly refetchIntervalInBackground?: boolean | undefined;
+  readonly retryOnMount?: boolean | undefined;
+}
+
+/**
+ * A registered observer. `update` swaps its options (e.g. a re-render with a
+ * new `refetchInterval`); `release` unregisters it.
+ * @internal
+ */
+export interface ObserverHandle {
+  readonly update: (options: ObserveOptions) => void;
+  readonly release: () => void;
+}
+
+interface ObserverRecord {
+  options: ObserveOptions;
+  intervalFiber: Fiber.Fiber<void> | undefined;
 }
 
 /**
@@ -140,6 +206,8 @@ export interface ClientRuntime {
   readonly remove: (entry: QueryEntry<any, any>) => void;
   /** Cache-wide change notification (batched by the cache). */
   readonly onChange: () => void;
+  readonly focus: FocusManager.Service;
+  readonly online: OnlineManager.Service;
 }
 
 // ---------------------------------------------------------------------------
@@ -186,6 +254,12 @@ export interface FetchOptions<E> {
   readonly retry?: RetryOption<E> | undefined;
 }
 
+/** @internal */
+export interface CancelOptions {
+  /** Restore the state from before the fetch started. Default `true`. */
+  readonly revert?: boolean | undefined;
+}
+
 // ---------------------------------------------------------------------------
 // entry
 // ---------------------------------------------------------------------------
@@ -194,10 +268,13 @@ export interface FetchOptions<E> {
 export class QueryEntry<A, E> {
   state: QueryState<A, E> = initialState;
   options: ResolvedOptions<E>;
-  observers = 0;
 
+  private readonly records = new Set<ObserverRecord>();
   private readonly listeners = new Set<() => void>();
   private fetchId = 0;
+  /** State before the running fetch started, for `cancel({ revert: true })`. */
+  private revertState: QueryState<A, E> | undefined;
+  private revertOnInterrupt = false;
   private fetchFiber: Fiber.Fiber<A, E> | undefined;
   private gcFiber: Fiber.Fiber<void> | undefined;
   private staleFiber: Fiber.Fiber<void> | undefined;
@@ -258,32 +335,130 @@ export class QueryEntry<A, E> {
 
   // -- observers ------------------------------------------------------------
 
-  get isActive(): boolean {
-    return this.observers > 0;
+  get observers(): number {
+    return this.records.size;
   }
 
-  /** Registers an observer. Fetches on mount when appropriate. Returns a release function. */
-  addObserver(options?: ObserveOptions): () => void {
-    this.observers++;
+  get isActive(): boolean {
+    return this.records.size > 0;
+  }
+
+  /** Registers an observer. Fetches on mount when appropriate. */
+  addObserver(options: ObserveOptions = {}): ObserverHandle {
+    const record: ObserverRecord = { options, intervalFiber: undefined };
+    this.records.add(record);
     this.cancelGc();
     if (this.shouldFetchOnMount(options)) this.fetch();
+    this.scheduleInterval(record);
     let released = false;
-    return () => {
-      if (released) return;
-      released = true;
-      this.observers--;
-      if (this.observers === 0) this.scheduleGc();
+    return {
+      update: (next) => {
+        if (released) return;
+        const before = record.options;
+        record.options = next;
+        if (
+          before.refetchInterval !== next.refetchInterval ||
+          before.refetchIntervalInBackground !== next.refetchIntervalInBackground ||
+          before.enabled !== next.enabled
+        ) {
+          this.scheduleInterval(record);
+        }
+      },
+      release: () => {
+        if (released) return;
+        released = true;
+        this.clearInterval(record);
+        this.records.delete(record);
+        if (this.records.size === 0) this.scheduleGc();
+      },
     };
   }
 
+  private isEnabledFor(options: ObserveOptions): boolean {
+    return options.enabled ?? this.options.enabled;
+  }
+
+  /** `true` / `"always"` / `false` trigger semantics shared by mount, focus and reconnect. */
+  private shouldRefetchOn(mode: boolean | "always"): boolean {
+    if (this.options.staleTime === "static") return false;
+    return mode === "always" || (mode && this.isStale());
+  }
+
+  /** The window regained focus: refetch if any enabled observer asks for it. */
+  onWindowFocus(): void {
+    if (this.state.fetchStatus !== "idle") return;
+    for (const record of this.records) {
+      if (!this.isEnabledFor(record.options)) continue;
+      const mode = record.options.refetchOnWindowFocus ?? this.options.refetchOnWindowFocus;
+      if (this.shouldRefetchOn(mode)) {
+        this.fetch();
+        return;
+      }
+    }
+  }
+
+  /** The network came back. Paused fetches continue by themselves; this refetches stale data. */
+  onReconnect(): void {
+    if (this.state.fetchStatus !== "idle") return;
+    for (const record of this.records) {
+      if (!this.isEnabledFor(record.options)) continue;
+      const mode = record.options.refetchOnReconnect ?? this.options.refetchOnReconnect;
+      if (this.shouldRefetchOn(mode)) {
+        this.fetch();
+        return;
+      }
+    }
+  }
+
+  // -- polling --------------------------------------------------------------
+
+  private scheduleInterval(record: ObserverRecord): void {
+    this.clearInterval(record);
+    if (this.removed || !this.isEnabledFor(record.options)) return;
+    const option = record.options.refetchInterval ?? this.options.refetchInterval;
+    const input = typeof option === "function" ? option(this.toResult()) : option;
+    if (input === false) return;
+    const interval = Duration.fromInputUnsafe(input);
+    if (!Duration.isFinite(interval) || Duration.toMillis(interval) <= 0) return;
+    const inBackground =
+      record.options.refetchIntervalInBackground ?? this.options.refetchIntervalInBackground;
+    record.intervalFiber = this.runtime.runFork(
+      Effect.sleep(interval).pipe(
+        Effect.andThen(
+          Effect.sync(() => {
+            record.intervalFiber = undefined;
+            if (!this.records.has(record)) return;
+            if (inBackground || this.runtime.focus.isFocused()) {
+              // The fetch's exit reschedules every observer's interval.
+              this.fetch();
+            } else {
+              this.scheduleInterval(record);
+            }
+          }),
+        ),
+      ),
+    );
+  }
+
+  private clearInterval(record: ObserverRecord): void {
+    record.intervalFiber?.interruptUnsafe();
+    record.intervalFiber = undefined;
+  }
+
   /** Whether an observer mounting now would start a fetch. */
-  shouldFetchOnMount(options?: ObserveOptions): boolean {
-    if (!(options?.enabled ?? this.options.enabled)) return false;
+  shouldFetchOnMount(options: ObserveOptions = {}): boolean {
+    if (!this.isEnabledFor(options)) return false;
     if (this.state.fetchStatus !== "idle") return false;
-    if (Option.isNone(this.state.data)) return true;
-    const refetchOnMount = options?.refetchOnMount ?? this.options.refetchOnMount;
-    if (refetchOnMount === "always") return this.options.staleTime !== "static";
-    return refetchOnMount && this.isStale();
+    if (Option.isNone(this.state.data)) {
+      const retryOnMount = options.retryOnMount ?? this.options.retryOnMount;
+      return !(this.state.status === "error" && !retryOnMount);
+    }
+    return this.shouldRefetchOn(options.refetchOnMount ?? this.options.refetchOnMount);
+  }
+
+  /** Whether a fetch could run right now, given `networkMode` and connectivity. */
+  get canFetch(): boolean {
+    return this.options.networkMode !== "online" || this.runtime.online.isOnline();
   }
 
   // -- staleness ------------------------------------------------------------
@@ -321,8 +496,39 @@ export class QueryEntry<A, E> {
 
   // -- fetching -------------------------------------------------------------
 
+  /** A fetch is running (not paused). */
   get isFetching(): boolean {
-    return this.state.fetchStatus !== "idle";
+    return this.state.fetchStatus === "fetching";
+  }
+
+  /** Interrupt the running fetch, if any. Resolves once it has stopped. */
+  cancel(options?: CancelOptions): Fiber.Fiber<A, E> | undefined {
+    const fiber = this.fetchFiber;
+    if (fiber === undefined) return undefined;
+    this.revertOnInterrupt = options?.revert ?? true;
+    fiber.interruptUnsafe();
+    return fiber;
+  }
+
+  private setFetchStatus(id: number, fetchStatus: QueryResult.FetchStatus): void {
+    if (id !== this.fetchId || this.state.fetchStatus === fetchStatus) return;
+    this.setState((s) => ({ ...s, fetchStatus }));
+  }
+
+  /** Waits until online, showing `fetchStatus: "paused"` meanwhile. */
+  private pauseWhileOffline(id: number): Effect.Effect<void> {
+    return Effect.suspend(() => {
+      if (this.runtime.online.isOnline()) return Effect.void;
+      this.setFetchStatus(id, "paused");
+      return Effect.callback<void>((resume) => {
+        const unsubscribe = this.runtime.online.subscribe((online) => {
+          if (!online) return;
+          unsubscribe();
+          resume(Effect.void);
+        });
+        return Effect.sync(unsubscribe);
+      }).pipe(Effect.andThen(Effect.sync(() => this.setFetchStatus(id, "fetching"))));
+    });
   }
 
   /**
@@ -338,6 +544,8 @@ export class QueryEntry<A, E> {
     }
 
     const id = ++this.fetchId;
+    this.revertState = this.state;
+    this.revertOnInterrupt = false;
     this.setState((s) => ({
       ...s,
       fetchStatus: "fetching",
@@ -345,7 +553,15 @@ export class QueryEntry<A, E> {
       failureReason: Option.none(),
     }));
 
-    const attempt = this.descriptor.run.pipe(
+    const { networkMode } = this.options;
+    let attemptNumber = 0;
+    const attempt = Effect.suspend(() => {
+      const n = attemptNumber++;
+      const pause = networkMode === "online" || (networkMode === "offlineFirst" && n > 0);
+      return pause
+        ? Effect.andThen(this.pauseWhileOffline(id), this.descriptor.run)
+        : this.descriptor.run;
+    }).pipe(
       Effect.tapError((error) =>
         Effect.sync(() => {
           if (id !== this.fetchId) return;
@@ -390,8 +606,9 @@ export class QueryEntry<A, E> {
       }));
       this.scheduleStaleTimer();
     } else if (Cause.hasInterruptsOnly(exit.cause)) {
-      // Cancelled: keep the previous data/error, just stop fetching.
-      this.setState((s) => ({ ...s, fetchStatus: "idle" }));
+      // Cancelled: back to the state before the fetch (`revert`), or keep progress.
+      const revertTo = this.revertOnInterrupt ? this.revertState : undefined;
+      this.setState((s) => ({ ...(revertTo ?? s), fetchStatus: "idle" }));
     } else {
       this.setState((s) => ({
         ...s,
@@ -403,7 +620,10 @@ export class QueryEntry<A, E> {
       }));
     }
 
-    if (this.observers === 0) this.scheduleGc();
+    this.revertState = undefined;
+    this.revertOnInterrupt = false;
+    for (const record of this.records) this.scheduleInterval(record);
+    if (this.records.size === 0) this.scheduleGc();
   }
 
   /** Structural sharing: unchanged data keeps its references, so subscribers can skip work. */
@@ -429,7 +649,7 @@ export class QueryEntry<A, E> {
         Effect.andThen(
           Effect.sync(() => {
             this.gcFiber = undefined;
-            if (this.observers === 0 && this.fetchFiber === undefined) this.runtime.remove(this);
+            if (this.records.size === 0 && this.fetchFiber === undefined) this.runtime.remove(this);
           }),
         ),
       ),
@@ -451,6 +671,7 @@ export class QueryEntry<A, E> {
     this.removed = true;
     this.cancelGc();
     this.cancelStaleTimer();
+    for (const record of this.records) this.clearInterval(record);
     this.fetchFiber?.interruptUnsafe();
     this.fetchFiber = undefined;
     this.notify();
@@ -469,7 +690,7 @@ export class QueryEntry<A, E> {
     readonly enabled?: boolean | undefined;
   }): QueryResult.QueryResult<A, E> {
     const state: QueryState<A, E> = meta?.optimisticFetch
-      ? { ...this.state, fetchStatus: "fetching" }
+      ? { ...this.state, fetchStatus: this.canFetch ? "fetching" : "paused" }
       : this.state;
     return project(state, {
       isStale: this.isStale(),

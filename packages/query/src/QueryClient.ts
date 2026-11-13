@@ -13,8 +13,10 @@
  */
 import { Context, Effect, Fiber, Layer, Option, type Scope } from "effect";
 import { Atom, AtomRegistry } from "effect/reactivity";
+import * as FocusManager from "./FocusManager.ts";
 import { type QueryFilters, QueryCache } from "./internal/queryCache.ts";
 import {
+  type CancelOptions,
   type ClientRuntime,
   type QueryEntry,
   type QueryOptions,
@@ -22,11 +24,13 @@ import {
   type StaleTime,
   resolveOptions,
 } from "./internal/queryEntry.ts";
+import * as OnlineManager from "./OnlineManager.ts";
 import type * as Query from "./Query.ts";
 import type * as QueryKey from "./QueryKey.ts";
 import type * as QueryResult from "./QueryResult.ts";
 
 export type { QueryFilters } from "./internal/queryCache.ts";
+export type { CancelOptions, NetworkMode, RefetchInterval } from "./internal/queryEntry.ts";
 
 /**
  * Defaults applied to every query of a client.
@@ -97,6 +101,12 @@ export interface Service {
   };
   /** Number of matching queries that are fetching. */
   readonly isFetching: (filters?: QueryFilters) => Effect.Effect<number>;
+  /**
+   * Interrupt the fetches of matching queries. By default each query goes
+   * back to its state from before the fetch (`revert: true`). Completes once
+   * the fetches have stopped.
+   */
+  readonly cancelQueries: (filters?: QueryFilters, options?: CancelOptions) => Effect.Effect<void>;
   /** Remove matching queries from the cache, interrupting their fetches. */
   readonly removeQueries: (filters?: QueryFilters) => Effect.Effect<void>;
   /** Remove every query. */
@@ -132,6 +142,8 @@ export const make: (options?: Options) => Effect.Effect<Service, never, Scope.Sc
   Effect.fnUntraced(function* (options?: Options) {
     const context = yield* Effect.context<never>();
     const clock = yield* Effect.clockWith(Effect.succeed);
+    const focus = yield* FocusManager.FocusManager;
+    const online = yield* OnlineManager.OnlineManager;
     const cache = new QueryCache();
     const runtime: ClientRuntime = {
       defaults: options?.defaultOptions?.queries ?? {},
@@ -142,9 +154,25 @@ export const make: (options?: Options) => Effect.Effect<Service, never, Scope.Sc
         ),
       remove: (entry) => cache.remove(entry),
       onChange: () => cache.notifyChange(),
+      focus,
+      online,
     };
     cache.setRuntime(runtime);
-    yield* Effect.addFinalizer(() => Effect.sync(() => cache.clear()));
+
+    // Like TanStack's `QueryClient.mount()`: listen while the client lives.
+    const unsubscribeFocus = focus.subscribe((focused) => {
+      if (focused) for (const entry of cache.all()) entry.onWindowFocus();
+    });
+    const unsubscribeOnline = online.subscribe((isOnline) => {
+      if (isOnline) for (const entry of cache.all()) entry.onReconnect();
+    });
+    yield* Effect.addFinalizer(() =>
+      Effect.sync(() => {
+        unsubscribeFocus();
+        unsubscribeOnline();
+        cache.clear();
+      }),
+    );
 
     const fetchEntry = <A, E, R>(query: AnyQuery<A, E, R>, options?: FetchQueryOptions<E>) =>
       Effect.contextWith((callerContext: Context.Context<R>) => {
@@ -191,6 +219,15 @@ export const make: (options?: Options) => Effect.Effect<Service, never, Scope.Sc
     const isFetching: Service["isFetching"] = (filters) =>
       Effect.sync(() => cache.findAll(filters).filter((entry) => entry.isFetching).length);
 
+    const cancelQueries: Service["cancelQueries"] = (filters, options) =>
+      Effect.suspend(() => {
+        const fibers = cache.findAll(filters).flatMap((entry) => {
+          const fiber = entry.cancel(options);
+          return fiber === undefined ? [] : [fiber];
+        });
+        return Effect.forEach(fibers, Fiber.interrupt, { discard: true });
+      });
+
     const removeQueries: Service["removeQueries"] = (filters) =>
       Effect.sync(() => {
         for (const entry of cache.findAll(filters)) cache.remove(entry);
@@ -203,6 +240,7 @@ export const make: (options?: Options) => Effect.Effect<Service, never, Scope.Sc
       getQueryData,
       getQueryState,
       isFetching,
+      cancelQueries,
       removeQueries,
       clear: Effect.sync(() => cache.clear()),
       cache,
