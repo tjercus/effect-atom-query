@@ -5,7 +5,7 @@
  * @since 0.1.0
  */
 import { Cause, type DateTime, Option } from "effect";
-import type { AsyncResult } from "effect/reactivity";
+import { AsyncResult } from "effect/reactivity";
 
 /**
  * Whether any data or error has arrived yet.
@@ -190,3 +190,39 @@ export const match = <A, E, X, Y, Z>(
  */
 export const isDefect = <A, E>(self: QueryResult<A, E>): boolean =>
   self.status === "error" && !Cause.hasFails(self.cause);
+
+/**
+ * Map the data of a result, keeping every flag. `result` is rebuilt to match.
+ *
+ * @since 0.1.0
+ * @category combinators
+ */
+export const map = <A, E, B>(self: QueryResult<A, E>, f: (a: A) => B): QueryResult<B, E> => {
+  switch (self.status) {
+    case "pending":
+      return self as unknown as Pending<B, E>;
+    case "success": {
+      const value = f(self.data.value);
+      return {
+        ...self,
+        result: AsyncResult.success<B, E>(value, {
+          waiting: self.isFetching,
+          timestamp: AsyncResult.isSuccess(self.result) ? self.result.timestamp : undefined,
+        }),
+        data: Option.some(value) as Option.Some<B>,
+        failureReason: self.failureReason,
+      } as Success<B, E>;
+    }
+    case "error": {
+      const data = Option.map(self.data, f);
+      return {
+        ...self,
+        result: AsyncResult.failure<B, E>(self.cause, {
+          previousSuccess: Option.map(data, (value) => AsyncResult.success<B, E>(value)),
+          waiting: self.isFetching,
+        }),
+        data,
+      } as Failure<B, E>;
+    }
+  }
+};

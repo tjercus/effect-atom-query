@@ -1,6 +1,6 @@
 # TanStack Query → effect-native-query feature matrix
 
-✅ marks implemented features (phases 1–3, 2026-11-13).
+✅ marks implemented features (phases 1–4, 2026-11-13).
 
 Source: TanStack Query v5 React docs (important defaults, `useQuery`,
 `useMutation`, `QueryClient`, network mode). The **Phase** column refers to
@@ -24,7 +24,7 @@ Source: TanStack Query v5 React docs (important defaults, `useQuery`,
 | ✅ `networkMode`                       | `'online'`                                  | `'online' \| 'always' \| 'offlineFirst'` using a `Latch`                                | 3     |
 | ✅ `enabled` / `skipToken`             | `true`                                      | boolean, `(get) => boolean`, or `skipToken`                                             | 1     |
 | `notifyOnChangeProps`                  | tracked                                     | derived atoms + `select` (Proxy tracking is a stretch goal)                             | 7     |
-| Mutation `retry`                       | 0                                           | `Schedule` (none by default)                                                            | 4     |
+| ✅ Mutation `retry`                    | 0                                           | `Schedule` (none by default)                                                            | 4     |
 
 ## Query options
 
@@ -59,8 +59,8 @@ Source: TanStack Query v5 React docs (important defaults, `useQuery`,
 | ✅ `useQuery`                                                | `useQuery`                                                      | 2       |
 | ✅ `useQueries` (+`combine`)                                 | `useQueries`                                                    | 2       |
 | ✅ `useIsFetching`                                           | `useIsFetching`                                                 | 2       |
-| `useMutation`                                                | `useMutation`: `mutate` + `mutateEffect` (no `mutateAsync`, D4) | 4       |
-| `useMutationState`, `useIsMutating`                          | same                                                            | 4       |
+| ✅ `useMutation`                                             | `useMutation`: `mutate` + `mutateEffect` (no `mutateAsync`, D4) | 4       |
+| ✅ `useMutationState`, `useIsMutating`                       | same                                                            | 4       |
 | `useSuspenseQuery`, `useSuspenseQueries`                     | same (`useAtomSuspense`)                                        | 5       |
 | `useInfiniteQuery`, `useSuspenseInfiniteQuery`               | same                                                            | 5       |
 | `usePrefetchQuery`, `usePrefetchInfiniteQuery`               | same                                                            | 5       |
@@ -71,18 +71,18 @@ Source: TanStack Query v5 React docs (important defaults, `useQuery`,
 
 ## QueryClient (every method returns `Effect`, with no Promise facade, D4; getters return `Option`, D2)
 
-| Method                                                                            | Phase              |
-| --------------------------------------------------------------------------------- | ------------------ |
-| ✅ `fetchQuery` / `query`, `prefetchQuery`, `ensureQueryData`                     | 1                  |
-| ✅ `getQueryData`, `getQueryState` (`getQueriesData` later)                       | 1                  |
-| `setQueryData`, `setQueriesData` (updater; `undefined` = no-op)                   | 4                  |
-| `invalidateQueries` (`refetchType`), `refetchQueries` (`cancelRefetch`)           | 4                  |
-| ✅ `cancelQueries` (`revert`), `removeQueries`, `clear` (`resetQueries`: phase 4) | 3 / 4              |
-| `isFetching`, `isMutating`                                                        | 2 / 4              |
-| `setQueryDefaults`, `setMutationDefaults`, `getDefaultOptions`, …                 | 4                  |
-| `resumePausedMutations`                                                           | 6                  |
-| `fetchInfiniteQuery`, `prefetchInfiniteQuery`, `ensureInfiniteQueryData`          | 5                  |
-| ✅ `mount` / `unmount` (focus/online listener refcount)                           | 3 (scoped `Layer`) |
+| Method                                                                     | Phase              |
+| -------------------------------------------------------------------------- | ------------------ |
+| ✅ `fetchQuery` / `query`, `prefetchQuery`, `ensureQueryData`              | 1                  |
+| ✅ `getQueryData`, `getQueryState`, `getQueriesData`                       | 1                  |
+| ✅ `setQueryData`, `setQueriesData` (updater returning `None` = no-op)     | 4                  |
+| ✅ `invalidateQueries` (`refetchType`), `refetchQueries` (`cancelRefetch`) | 4                  |
+| ✅ `cancelQueries` (`revert`), `resetQueries`, `removeQueries`, `clear`    | 3 / 4              |
+| ✅ `isFetching`, `isMutating`                                              | 2 / 4              |
+| ✅ `setQueryDefaults`, `setMutationDefaults`, `getDefaultOptions`, …       | 4                  |
+| `resumePausedMutations`                                                    | 6                  |
+| `fetchInfiniteQuery`, `prefetchInfiniteQuery`, `ensureInfiniteQueryData`   | 5                  |
+| ✅ `mount` / `unmount` (focus/online listener refcount)                    | 3 (scoped `Layer`) |
 
 ## Query filters
 

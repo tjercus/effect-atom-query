@@ -25,3 +25,12 @@ export * as QueryResult from "./QueryResult.ts";
 
 /** @since 0.1.0 */
 export * as QueryObserver from "./QueryObserver.ts";
+
+/** @since 0.1.0 */
+export * as Mutation from "./Mutation.ts";
+
+/** @since 0.1.0 */
+export * as MutationObserver from "./MutationObserver.ts";
+
+/** @since 0.1.0 */
+export * as MutationResult from "./MutationResult.ts";

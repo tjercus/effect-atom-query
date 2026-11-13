@@ -14,7 +14,7 @@ import {
   Option,
   Schedule,
 } from "effect";
-import { AsyncResult } from "effect/reactivity";
+import { AsyncResult, type Reactivity } from "effect/reactivity";
 import type * as FocusManager from "../FocusManager.ts";
 import type * as OnlineManager from "../OnlineManager.ts";
 import type * as QueryKey from "../QueryKey.ts";
@@ -46,6 +46,11 @@ export type RefetchInterval<E> =
   | false
   | ((result: QueryResult.QueryResult<any, E>) => Duration.Input | false);
 
+/** Keys in Effect's `Reactivity` service (as used by `AtomHttpApi`, `AtomRpc`, `Reactivity.mutation`). @internal */
+export type ReactivityKeys =
+  | ReadonlyArray<unknown>
+  | Readonly<Record<string, ReadonlyArray<unknown>>>;
+
 /** @internal */
 export interface QueryOptions<E> {
   readonly staleTime?: StaleTime | undefined;
@@ -64,6 +69,13 @@ export interface QueryOptions<E> {
   /** Fetch on mount when the query has errored and has no data. Default `true`. */
   readonly retryOnMount?: boolean | undefined;
   readonly enabled?: boolean | undefined;
+  /**
+   * Invalidate (and refetch, when active) this query whenever these keys are
+   * invalidated in Effect's `Reactivity` service, if the client has one.
+   */
+  readonly reactivityKeys?: ReactivityKeys | undefined;
+  /** Free-form metadata, available to filters' predicates. */
+  readonly meta?: Readonly<Record<string, unknown>> | undefined;
   /**
    * Keep references of unchanged parts of new data (`true`, default), replace
    * data wholesale (`false`), or merge with a custom function.
@@ -197,7 +209,8 @@ interface ObserverRecord {
  * @internal
  */
 export interface ClientRuntime {
-  readonly defaults: QueryOptions<unknown>;
+  /** Client defaults merged with `setQueryDefaults` entries matching `key`. */
+  readonly defaultsFor: (key: QueryKey.QueryKey) => QueryOptions<unknown>;
   readonly now: () => number;
   readonly runFork: <A, E>(
     effect: Effect.Effect<A, E, any>,
@@ -208,6 +221,7 @@ export interface ClientRuntime {
   readonly onChange: () => void;
   readonly focus: FocusManager.Service;
   readonly online: OnlineManager.Service;
+  readonly reactivity: Reactivity.Reactivity | undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -292,15 +306,9 @@ export class QueryEntry<A, E> {
     this.key = key;
     this.descriptor = descriptor;
     this.runtime = runtime;
-    this.options = resolveOptions(runtime.defaults, descriptor.options);
-    if (descriptor.initialData !== undefined) {
-      this.state = {
-        ...initialState,
-        status: "success",
-        data: Option.some(descriptor.initialData.data()),
-        dataUpdatedAt: descriptor.initialData.updatedAt?.() ?? runtime.now(),
-      };
-    }
+    this.options = resolveOptions(runtime.defaultsFor(key), descriptor.options);
+    this.state = this.initialStateOf(descriptor);
+    this.registerReactivity();
     // Entries nobody observes (e.g. built during a render that never committed) are collected.
     this.scheduleGc();
   }
@@ -309,7 +317,80 @@ export class QueryEntry<A, E> {
   setDescriptor(descriptor: QueryDescriptor<A, E, any>): void {
     if (descriptor === this.descriptor) return;
     this.descriptor = descriptor;
-    this.options = resolveOptions(this.runtime.defaults, descriptor.options);
+    this.refreshOptions();
+    if (this.unregisterReactivity === undefined) this.registerReactivity();
+  }
+
+  /** Re-resolve options, e.g. after `setQueryDefaults`. */
+  refreshOptions(): void {
+    this.options = resolveOptions(this.runtime.defaultsFor(this.key), this.descriptor.options);
+  }
+
+  private initialStateOf(descriptor: QueryDescriptor<A, E, any>): QueryState<A, E> {
+    if (descriptor.initialData === undefined) return initialState;
+    return {
+      ...initialState,
+      status: "success",
+      data: Option.some(descriptor.initialData.data()),
+      dataUpdatedAt: descriptor.initialData.updatedAt?.() ?? this.runtime.now(),
+    };
+  }
+
+  private unregisterReactivity: (() => void) | undefined;
+
+  private registerReactivity(): void {
+    const keys = this.descriptor.options.reactivityKeys;
+    const reactivity = this.runtime.reactivity;
+    if (keys === undefined || reactivity === undefined) return;
+    this.unregisterReactivity = reactivity.registerUnsafe(keys, () => {
+      this.invalidate();
+      if (this.isActive && !this.isDisabled && this.options.staleTime !== "static") {
+        this.fetch({ cancelRefetch: true });
+      }
+    });
+  }
+
+  // -- imperative updates (QueryClient) -------------------------------------
+
+  /** Mark stale regardless of `staleTime` (except `"static"`). */
+  invalidate(): void {
+    if (this.state.isInvalidated) return;
+    this.cancelStaleTimer();
+    this.setState((s) => ({ ...s, isInvalidated: true }));
+  }
+
+  /** Write data directly (`setQueryData`). Keeps a running fetch running. */
+  setData(data: A, updatedAt: number = this.runtime.now()): void {
+    this.cancelStaleTimer();
+    this.setState((s) => ({
+      ...s,
+      status: "success",
+      data: this.shareData(s.data, data),
+      dataUpdatedAt: updatedAt,
+      dataUpdateCount: s.dataUpdateCount + 1,
+      cause: Option.none(),
+      isInvalidated: false,
+    }));
+    this.scheduleStaleTimer();
+  }
+
+  /** Back to the initial state (`initialData` if any), dropping a running fetch. */
+  reset(): void {
+    this.fetchFiber?.interruptUnsafe();
+    this.fetchFiber = undefined;
+    this.fetchId++;
+    this.revertState = undefined;
+    this.cancelStaleTimer();
+    this.setState(() => this.initialStateOf(this.descriptor));
+  }
+
+  /**
+   * TanStack's `isDisabled`: with observers, all of them are disabled;
+   * without, the query never fetched (nothing to refetch).
+   */
+  get isDisabled(): boolean {
+    if (this.records.size > 0) return !this.isActive;
+    return this.fetchCount === 0 && this.state.dataUpdatedAt === 0;
   }
 
   // -- subscriptions --------------------------------------------------------
@@ -339,8 +420,10 @@ export class QueryEntry<A, E> {
     return this.records.size;
   }
 
+  /** Has at least one enabled observer. */
   get isActive(): boolean {
-    return this.records.size > 0;
+    for (const record of this.records) if (this.isEnabledFor(record.options)) return true;
+    return false;
   }
 
   /** Registers an observer. Fetches on mount when appropriate. */
@@ -672,6 +755,8 @@ export class QueryEntry<A, E> {
     this.cancelGc();
     this.cancelStaleTimer();
     for (const record of this.records) this.clearInterval(record);
+    this.unregisterReactivity?.();
+    this.unregisterReactivity = undefined;
     this.fetchFiber?.interruptUnsafe();
     this.fetchFiber = undefined;
     this.notify();

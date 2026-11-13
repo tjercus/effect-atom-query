@@ -264,7 +264,7 @@ export class QueryObserver<A, E, B = A> {
     }
     const select = options.select;
     if (select === undefined) return result as unknown as QueryResult.QueryResult<B, E>;
-    return mapData(result, (a) => this.select(select, a));
+    return QueryResult.map(result, (a) => this.select(select, a));
   }
 
   private select(fn: (a: A) => B, input: A): B {
@@ -315,39 +315,6 @@ const asPlaceholder = <A, E>(
   data: Option.some(data) as Option.Some<A>,
   error: Option.none() as Option.None<E>,
 });
-
-const mapData = <A, E, B>(
-  self: QueryResult.QueryResult<A, E>,
-  f: (a: A) => B,
-): QueryResult.QueryResult<B, E> => {
-  switch (self.status) {
-    case "pending":
-      return self as unknown as QueryResult.Pending<B, E>;
-    case "success": {
-      const value = f(self.data.value);
-      return {
-        ...self,
-        result: AsyncResult.success<B, E>(value, {
-          waiting: self.isFetching,
-          timestamp: AsyncResult.isSuccess(self.result) ? self.result.timestamp : undefined,
-        }),
-        data: Option.some(value) as Option.Some<B>,
-        failureReason: self.failureReason,
-      } as QueryResult.Success<B, E>;
-    }
-    case "error": {
-      const data = Option.map(self.data, f);
-      return {
-        ...self,
-        result: AsyncResult.failure<B, E>(self.cause, {
-          previousSuccess: Option.map(data, (value) => AsyncResult.success<B, E>(value)),
-          waiting: self.isFetching,
-        }),
-        data,
-      } as QueryResult.Failure<B, E>;
-    }
-  }
-};
 
 /**
  * One entry of a {@link QueriesObserver}.

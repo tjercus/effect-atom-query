@@ -6,6 +6,9 @@
 
 export {
   FocusManager,
+  Mutation,
+  MutationObserver,
+  MutationResult,
   OnlineManager,
   Query,
   QueryClient,
@@ -24,6 +27,18 @@ export {
 
 /** @since 0.1.0 */
 export { useIsFetching } from "./useIsFetching.ts";
+
+/** @since 0.1.0 */
+export {
+  type Mutate,
+  type MutateEffect,
+  type UseMutationOptions,
+  type UseMutationResult,
+  useMutation,
+} from "./useMutation.ts";
+
+/** @since 0.1.0 */
+export { useIsMutating, useMutationState } from "./useMutationState.ts";
 
 /** @since 0.1.0 */
 export {

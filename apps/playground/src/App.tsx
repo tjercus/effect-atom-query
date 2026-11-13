@@ -1,6 +1,7 @@
 import { Query, useIsFetching, useQuery } from "@effect-native-query/react";
 import { Effect, Option, Schema } from "effect";
 import { useState } from "react";
+import { Todos } from "./Todos.tsx";
 
 class PageNotFound extends Schema.TaggedError<PageNotFound>()("PageNotFound", {
   page: Schema.Number,
@@ -96,6 +97,7 @@ export function App() {
       <h1>effect-native-query playground</h1>
       <p>{fetching > 0 ? `fetching ${fetching}…` : "idle"}</p>
       <Clock />
+      <Todos />
       <Items />
     </main>
   );

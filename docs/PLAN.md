@@ -5,7 +5,7 @@
 > interruption as cancellation, and Effect Atoms (`effect/reactivity`) as the
 > reactive cache.
 
-Status: **v0.5, 2026-11-13. Phases 1–3 done**; see §8 for implementation notes. Decisions D1–D4 are settled and the
+Status: **v0.6, 2026-11-13. Phases 1–4 done**; see §8 for implementation notes. Decisions D1–D4 are settled and the
 remaining open questions are in [QUESTIONS.md](./QUESTIONS.md). The TanStack-to-Effect feature mapping is in
 [FEATURE-MATRIX.md](./FEATURE-MATRIX.md).
 
@@ -335,17 +335,17 @@ defaults (`gcTime: Infinity`, `retry: 0`). These reuse the same Schemas.
 
 Each phase ends with green `vp check` and `vp run -r test`, plus a playground page.
 
-| #   | Phase                          | Deliverables                                                                                                                                                                                                                                                    |
-| --- | ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0   | **Scaffold** ✅                | Vite+ monorepo, TS 7, Effect 4.1.4, atom-react, smoke tests, playground                                                                                                                                                                                         |
-| 1   | **Core query** ✅              | `QueryKey` (normalise, hash, partial match), `QueryClient` service and layer, `QueryCache`, `Query.make`, fetch dedup, `AsyncResult` to `QueryResult` projection, staleTime, gcTime, retry Schedule, `enabled`/`skipToken`, `TestClock` tests for every default |
-| 2   | **React basics** ✅            | `QueryClientProvider`, `useQueryClient`, `useQuery`, `useQueries`, `useIsFetching`, `select`, `placeholderData` (incl. `keepPreviousData`), `initialData`, structural sharing (`replaceEqualDeep`), StrictMode safety                                           |
-| 3   | **Triggers** ✅                | FocusManager, OnlineManager, `networkMode` (online/always/offlineFirst), refetchOnMount/Focus/Reconnect, `refetchInterval`, cancellation via `cancel` with revert                                                                                               |
-| 4   | **Mutations and invalidation** | `Mutation.make`, `useMutation`, `invalidate`/`refetch`/`reset`/`remove`/`setQueryData`/`setQueriesData`, Reactivity integration, optimistic updates (both styles), `useMutationState`, `useIsMutating`, mutation `scope`                                        |
-| 5   | **Suspense and infinite**      | `useSuspenseQuery`/`Queries`/`InfiniteQuery`, `QueryErrorResetBoundary`, `useInfiniteQuery` with sequential refetch and `maxPages`, `usePrefetchQuery`                                                                                                          |
-| 6   | **Persistence and offline**    | Schema-based `QueryPersister` (KeyValueStore: localStorage/IndexedDB), `buster`/`maxAge`, `useIsRestoring`, paused-mutation persistence and `resumePausedMutations`                                                                                             |
-| —   | **v1.0 release**               | phases 1–6                                                                                                                                                                                                                                                      |
-| 7   | **Post-v1**                    | SSR (dehydrate/hydrate, `HydrationBoundary`, server defaults), tracked-props optimisation, docs site, playground examples matching the TanStack examples, bundle-size budget, optional devtools inspector                                                       |
+| #   | Phase                             | Deliverables                                                                                                                                                                                                                                                    |
+| --- | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0   | **Scaffold** ✅                   | Vite+ monorepo, TS 7, Effect 4.1.4, atom-react, smoke tests, playground                                                                                                                                                                                         |
+| 1   | **Core query** ✅                 | `QueryKey` (normalise, hash, partial match), `QueryClient` service and layer, `QueryCache`, `Query.make`, fetch dedup, `AsyncResult` to `QueryResult` projection, staleTime, gcTime, retry Schedule, `enabled`/`skipToken`, `TestClock` tests for every default |
+| 2   | **React basics** ✅               | `QueryClientProvider`, `useQueryClient`, `useQuery`, `useQueries`, `useIsFetching`, `select`, `placeholderData` (incl. `keepPreviousData`), `initialData`, structural sharing (`replaceEqualDeep`), StrictMode safety                                           |
+| 3   | **Triggers** ✅                   | FocusManager, OnlineManager, `networkMode` (online/always/offlineFirst), refetchOnMount/Focus/Reconnect, `refetchInterval`, cancellation via `cancel` with revert                                                                                               |
+| 4   | **Mutations and invalidation** ✅ | `Mutation.make`, `useMutation`, `invalidate`/`refetch`/`reset`/`remove`/`setQueryData`/`setQueriesData`, Reactivity integration, optimistic updates (both styles), `useMutationState`, `useIsMutating`, mutation `scope`                                        |
+| 5   | **Suspense and infinite**         | `useSuspenseQuery`/`Queries`/`InfiniteQuery`, `QueryErrorResetBoundary`, `useInfiniteQuery` with sequential refetch and `maxPages`, `usePrefetchQuery`                                                                                                          |
+| 6   | **Persistence and offline**       | Schema-based `QueryPersister` (KeyValueStore: localStorage/IndexedDB), `buster`/`maxAge`, `useIsRestoring`, paused-mutation persistence and `resumePausedMutations`                                                                                             |
+| —   | **v1.0 release**                  | phases 1–6                                                                                                                                                                                                                                                      |
+| 7   | **Post-v1**                       | SSR (dehydrate/hydrate, `HydrationBoundary`, server defaults), tracked-props optimisation, docs site, playground examples matching the TanStack examples, bundle-size budget, optional devtools inspector                                                       |
 
 ---
 
@@ -528,3 +528,72 @@ Decisions made while building it:
   events in happy-dom. In headless Chromium the playground's 1-second clock
   polls, shows `paused` while the browser context is offline, and resumes on
   reconnect.
+
+### Phase 4: mutations and invalidation
+
+New in core:
+
+| Module                                                   | Contents                                                                                                                                                                                                                                                            |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Mutation.ts`                                            | `Mutation.make` returns a `MutationAtom`: a writable atom; write an input to run it, `Atom.Reset` to clear it. Also `Mutation.optimistic(query, mutation, apply)`                                                                                                   |
+| `MutationResult.ts`                                      | `Idle \| Pending \| Success \| Failure`, using `Option`s and `result: AsyncResult`                                                                                                                                                                                  |
+| `MutationObserver.ts`                                    | per-component state of the latest execution; `mutate`, `mutateEffect`, `reset`, plain UI callbacks                                                                                                                                                                  |
+| `internal/mutationEntry.ts`, `internal/mutationCache.ts` | one entry per execution; callbacks, retry, offline pause, scopes (`Semaphore`), gc, `setMutationDefaults`                                                                                                                                                           |
+| `QueryClient`                                            | `invalidateQueries` (`refetchType`), `refetchQueries`, `resetQueries`, `setQueryData` / `setQueriesData` (with `Option` updaters), `getQueriesData`, `setQueryDefaults` / `getQueryDefaults`, `setMutationDefaults` / `getMutationDefaults`, `mutate`, `isMutating` |
+
+`@effect-native-query/react` adds `useMutation`, `useMutationState` and
+`useIsMutating`.
+
+Decisions made while building it:
+
+- **Callbacks are Effects.** `onMutate`, `onSuccess`, `onError` and
+  `onSettled` run inside the mutation's fiber with the client's services and
+  the `QueryClient` itself, which the client adds to its own context. Cache
+  work such as `cancelQueries`, `getQueryData` and `setQueryData` is
+  therefore ordinary Effect code. Callbacks cannot fail (`E = never`); handle
+  errors or let them become defects. `onError` receives the full `Cause`.
+- **`invalidates`** is declarative: query keys to invalidate after success.
+  The mutation stays `pending` until the active matching queries have
+  refetched, so a UI never shows "saved" next to stale data. TanStack users
+  get this by returning `invalidateQueries` from `onSettled`.
+- **Two styles of optimistic update:**
+  1. **Cache:** snapshot in `onMutate`, then restore it in `onError`.
+  2. **UI:** `Mutation.optimistic(query, mutation, apply)` is a derived atom
+     that folds every pending execution's `variables` over the query's data.
+     Nothing is written to the cache, so nothing has to be rolled back.
+     `useMutationState` covers the same need for lists.
+
+  The draft plan also mentioned `Atom.optimistic`. It was dropped because
+  query atoms are read-only views and `Mutation.optimistic` covers the use
+  case.
+
+- **Hook-level callbacks are UI callbacks.** The `onSuccess` and friends in
+  `useMutation`, and the per-call callbacks of `mutate`, are plain functions.
+  They run only for this component's latest execution, and only while it is
+  mounted. Definition callbacks always run.
+- **`mutateEffect` replaces `mutateAsync` (D4).** It runs with the caller's
+  services, so `R` is checked. `mutate` is fire-and-forget on the client
+  runtime.
+- **Scopes:** executions with the same `scope` id run one at a time
+  (`Semaphore(1)`). An execution waiting its turn shows `isPaused: true`,
+  matching TanStack. `onMutate` runs immediately rather than queued, so
+  optimistic updates appear at once.
+- **Bridge to `Reactivity`.** If the client's context has Effect's
+  `Reactivity` service:
+  - Queries with `reactivityKeys` are invalidated, and refetched when active,
+    on `Reactivity.invalidate(keys)`. This is what `Reactivity.mutation`,
+    `AtomHttpApi` and `AtomRpc` mutations emit.
+  - Mutations with `reactivityKeys` emit such an invalidation after success.
+- **Typing:** `MutationAtom.options` is loosely typed, so atoms fit
+  `MutationAtom<I, any, any, any, any>`. The typed `run` is exposed for `R`.
+- **Cache-write details:**
+  - `setQueryData(key)` on a key with no definition creates an entry whose
+    `run` dies with a clear message, until a real query atom for that key
+    attaches.
+  - `invalidateQueries` and `refetchQueries` skip queries that are disabled,
+    as TanStack's `isDisabled` defines it, and queries with `"static"`
+    staleness.
+- **Tests:** 65 core tests and 26 React tests. In headless Chromium, the
+  playground todo list shows an optimistic row, settles after the
+  invalidation refetch, clears its input through a UI callback, and shows a
+  typed rejection whose overlay disappears. No console warnings.
