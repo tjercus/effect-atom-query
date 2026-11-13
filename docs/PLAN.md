@@ -1,0 +1,480 @@
+# effect-native-query — Plan
+
+> A TanStack Query–style server-state library for React, written as idiomatic
+> Effect: typed errors, services and layers, `Schedule`-based retries, fiber
+> interruption as cancellation, and Effect Atoms (`effect/reactivity`) as the
+> reactive cache.
+
+Status: **v0.4, 2026-11-13. Phases 1–2 done**; see §8 for implementation notes. Decisions D1–D4 are settled and the
+remaining open questions are in [QUESTIONS.md](./QUESTIONS.md). The TanStack-to-Effect feature mapping is in
+[FEATURE-MATRIX.md](./FEATURE-MATRIX.md).
+
+---
+
+## 1. Goals and non-goals
+
+### Goals
+
+1. **Behavioural parity** with TanStack Query v5's
+   [important defaults](https://tanstack.com/query/latest/docs/framework/react/guides/important-defaults),
+   meaning stale-while-revalidate, refetch on mount/focus/reconnect, gc of
+   inactive queries, retries with backoff, structural sharing and request
+   deduplication.
+2. **Idiomatic Effect throughout.**
+   - Query functions are `Effect<A, E, R>`, not `Promise`s.
+   - `E` is preserved end to end, so `error` is typed, not `unknown`.
+   - `R` is satisfied by a `Layer` given to the client runtime, so queries can depend on `HttpClient`, repositories, auth and so on.
+   - Retries are `Schedule`s, cancellation is fiber interruption, and timers use `Clock`, which makes them testable with `TestClock`.
+3. **Atoms as the cache substrate.** Each query entry is an Effect Atom living in
+   an `AtomRegistry`. React subscribes through `@effect/atom-react`. We build on
+   what atoms already provide and do not re-implement it:
+   - `Atom.family` for keyed instances
+   - `Atom.setIdleTTL` for gcTime
+   - `Atom.swr` for staleTime and revalidate-on-mount/focus
+   - `Atom.refreshOnWindowFocus` and `Atom.makeRefreshOnSignal`
+   - `Reactivity` keys for invalidation
+   - `Atom.fn` for mutations
+   - `Atom.optimistic` and `Atom.optimisticFn`
+   - `Atom.pull` for infinite queries
+   - `Atom.serializable` (with `Schema`) for persistence, and later `Hydration` for SSR
+   - `useAtomSuspense` for Suspense
+4. **No `undefined` in the public API (D2).** Absent values are `Option`.
+   This covers `data`, `error`, `failureReason`, `getQueryData`,
+   `pageParam`s and so on.
+5. **Effect-only imperative API (D4).** Every `QueryClient` method returns an
+   `Effect`. There is no Promise or sync facade. React code that has to run
+   one (for example in an event handler) uses `useQueryClientRuntime()` or a
+   hook-provided runner.
+6. **A familiar React surface.** Hook names and semantics should feel like
+   TanStack's (`useQuery`, `useMutation`, `useInfiniteQuery`,
+   `useSuspenseQuery`, `useIsFetching`, …) so migrating is mostly mechanical.
+7. **Deterministic tests.** Every timing-related default (stale, gc, retry,
+   polling) is covered by `@effect/vitest` and `TestClock`, with no real timers.
+
+### Non-goals (v1)
+
+- **SSR / hydration** is post-v1 (D3). Persistence already needs Schema-based
+  serialisation, so adding hydration later costs little.
+- A Promise-based imperative client API (D4).
+- Framework adapters other than React (Vue, Solid, Svelte). The core stays
+  framework-agnostic so they remain possible later.
+- A full devtools UI. A minimal inspector is a stretch goal.
+- Byte-for-byte TanStack API compatibility. We match **behaviour** and naming,
+  but we prefer Effect-native types (`Duration`, `Schedule`, `Option`,
+  `AsyncResult`) over primitives.
+
+---
+
+## 2. Toolchain (already scaffolded)
+
+| Concern         | Choice                                                                                       |
+| --------------- | -------------------------------------------------------------------------------------------- |
+| Toolchain       | **Vite+ 1.6** (`vp`): dev, build, pack (tsdown), test (Vitest 5), lint (oxlint), fmt (oxfmt) |
+| Language        | **TypeScript 7.0.2** (native/Go compiler; d.ts emitted via `tsgo`)                           |
+| Effect          | **effect 4.1.4**, atoms from `effect/reactivity`                                             |
+| React bindings  | **@effect/atom-react 4.1.4**, React 19.3                                                     |
+| Testing         | `@effect/vitest`, `@testing-library/react`, `happy-dom`                                      |
+| Package manager | pnpm 12 workspaces with a catalog in `pnpm-workspace.yaml`                                   |
+
+Layout:
+
+```
+packages/
+  query/      @effect-native-query/query   framework-agnostic core (Effect + atoms)
+  react/      @effect-native-query/react   React hooks, provider, boundaries
+apps/
+  playground/ Vite+ React app for manual testing and examples
+docs/         this plan
+```
+
+During development, workspace packages resolve to their TypeScript sources
+through the custom export condition `@effect-native-query/source`, which is set
+in `tsconfig.base.json` (`customConditions`) and in each Vite config
+(`resolve.conditions`). Published builds use `dist/`.
+
+Commands: `vp check` (fmt, lint, types), `vp run -r test`, `vp run -r build`,
+`vp run dev` (playground).
+
+---
+
+## 3. Architecture
+
+```
+┌──────────────────────────── React (@effect-native-query/react) ───────────────────────────┐
+│ QueryClientProvider ─ RegistryProvider   useQuery / useSuspenseQuery / useQueries         │
+│ useMutation / useMutationState / useIsFetching / useIsMutating / useInfiniteQuery         │
+│ HydrationBoundary   QueryErrorResetBoundary   usePrefetchQuery                            │
+└───────────────┬───────────────────────────────────────────────────────────────────────────┘
+                │ useAtomValue / useAtomSet / useAtomSuspense / useAtomMount
+┌───────────────▼──────────────────── Core (@effect-native-query/query) ────────────────────┐
+│ Query.make(def) ──► Atom.family(key ⇒ entry atom)                                         │
+│   entry atom = runtime.atom(fetchEffect)                                                  │
+│                ▸ swr(staleTime) ▸ setIdleTTL(gcTime) ▸ refresh-on-signals ▸ reactivity     │
+│ Mutation.make(def) ──► runtime.fn(mutationEffect) ▸ Reactivity.mutation(keys)             │
+│ InfiniteQuery.make(def) ──► pages atom (Atom.pull or custom page reducer)                 │
+│                                                                                           │
+│ QueryClient (Context.Service)                                                             │
+│   ├─ QueryCache: MutableHashMap<QueryKey, QueryEntry>  (observers, state, fetch fiber)    │
+│   ├─ MutationCache                                                                         │
+│   ├─ defaults (staleTime, gcTime, retry Schedule, networkMode, …)                         │
+│   └─ imperative API as Effects: invalidate / refetch / cancel / reset / remove /           │
+│      setQueryData / getQueryData / fetchQuery / prefetch / ensureQueryData               │
+│                                                                                           │
+│ FocusManager (service, Atom signal)   OnlineManager (service, Atom signal + latch)        │
+└───────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 3.1 Query keys
+
+- A `QueryKey` is a readonly tuple: `readonly [string, ...unknown[]]`.
+- Identity uses **Effect `Equal`/`Hash`**. Plain objects and arrays inside keys
+  are compared structurally, through a `QueryKey.make` normaliser that converts
+  them to `Data` structures with sorted object keys, which matches TanStack's
+  stable hashing. `Schema.Class` / `Data.Class` instances can be used directly.
+- **Partial matching** for filters: key `['todos']` matches
+  `['todos', {page: 1}]`. `exact: true` disables prefix matching.
+- Typed key factories (recommended pattern):
+  `const todoKeys = QueryKey.factory('todos', { list: (f: Filters) => [f], detail: (id: TodoId) => [id] })`.
+
+### 3.2 Query definitions
+
+```ts
+// D1: atom-first. Queries are module-level families; hooks take the atom.
+export const todoQuery = Query.make({
+  key: (id: TodoId) => ["todos", id],
+  run: (id) => TodoRepo.pipe(Effect.flatMap((r) => r.get(id))), // Effect<Todo, TodoNotFound | HttpError, TodoRepo>
+  staleTime: Duration.seconds(30),
+  // optional: gcTime, retry: Schedule, select, placeholder, initialData, networkMode, refetchInterval, …
+});
+```
+
+`Query.make` returns a `QueryFamily<Arg, A, E>`:
+
+- `todoQuery(id)` gives an `Atom<QueryResult<A, E>>`, memoised by `Atom.family`
+  through the normalised key.
+- `todoQuery.key(id)` gives the `QueryKey`, used for filters and `setQueryData`.
+- `todoQuery.options` carries the static options, usable in the spirit of
+  `queryOptions()`.
+
+**Thin compat layer (D1):** `queryOptions({ key, run, ... })` is an alias for
+`Query.make` applied to a single key (`Query.single`), which helps when
+porting TanStack code. Inline `useQuery({ queryKey, queryFn })` is **not**
+supported.
+
+`R` is resolved by the **client runtime** (`Atom.runtime(layer)`), which the
+user creates once: `QueryClient.layer({ defaults })` merged with app layers.
+
+### 3.3 Query entry lifecycle (state machine)
+
+Each entry stores:
+
+- `AsyncResult<A, E>`, Effect's equivalent of `status`, with `waiting` serving as `fetchStatus`
+- `dataUpdatedAt`, `errorUpdatedAt`, `failureCount`, `failureReason`
+- `isInvalidated`
+- `fetchStatus: 'idle' | 'fetching' | 'paused'`
+- the in-flight `Fiber`, which provides deduplication: concurrent fetches join the same fiber
+
+Transitions:
+
+| Trigger                               | Behaviour                                                                           |
+| ------------------------------------- | ----------------------------------------------------------------------------------- |
+| first observer mounts                 | fetch if no data, or if stale and `refetchOnMount` (default `true`)                 |
+| window focus (FocusManager signal)    | refetch active, stale queries (`refetchOnWindowFocus`, default `true`)              |
+| reconnect (OnlineManager signal)      | refetch active, stale queries (`refetchOnReconnect`, default `true`)                |
+| `invalidate(filter)` / Reactivity key | mark invalidated; refetch active matches (`refetchType: 'active'`)                  |
+| `refetchInterval`                     | `Schedule.spaced`, paused in the background unless `…InBackground`                  |
+| last observer unmounts                | start the gcTime idle TTL (default 5 min, via `Atom.setIdleTTL`); dispose on expiry |
+| failure                               | retry via `Schedule` (default 3 retries, exponential backoff capped at 30 s)        |
+| offline and `networkMode: 'online'`   | fetch fiber waits on an online `Latch`, and `fetchStatus` becomes `paused`          |
+| `cancel(filter)`                      | `Fiber.interrupt`; revert to the previous state (`revert: true`)                    |
+
+Cancellation is free: interrupting the fiber aborts `HttpClient` requests
+through their internal `AbortSignal`. Users who call `fetch` directly can use
+`Effect.tryPromise({ try: (signal) => fetch(url, { signal }) })`.
+
+### 3.4 Result shape
+
+The core atom value is a `QueryResult<A, E>`, a thin projection over
+`AsyncResult` with TanStack-style derived fields. **D2:** we keep the TanStack
+flags but never use `undefined`. Absent values are `Option`. The result is a
+discriminated union on `status`, so narrowing refines the `Option`s:
+
+```ts
+interface QueryResult<A, E> {
+  readonly result: AsyncResult<A, E>    // the source of truth; pattern-match with AsyncResult.builder
+  readonly status: "pending" | "error" | "success"
+  readonly fetchStatus: "fetching" | "paused" | "idle"
+  readonly data: Option<A>
+  readonly error: Option<E>             // typed E; defects/interrupts are a separate channel
+  readonly isPending / isSuccess / isError / isFetching / isLoading / isRefetching / isPaused
+  readonly isStale / isPlaceholderData / isFetched / isFetchedAfterMount
+  readonly dataUpdatedAt: Option<DateTime.Utc>
+  readonly errorUpdatedAt: Option<DateTime.Utc>
+  readonly failureCount: number
+  readonly failureReason: Option<E>
+}
+
+// narrowing via status / isSuccess:
+//   success → data: Option.Some<A>     (use `r.data.value`)
+//   error   → error: Option.Some<E>,  data: Option<A>  (stale data may still be present)
+//   pending → data: Option.None (unless placeholder), error: Option.None
+// useSuspenseQuery / initialData variants → data: A (always present, so not an Option)
+```
+
+Defects (`Cause.Die`) are **not** mixed into `error`. By default they are
+rethrown to the nearest React error boundary, because an unexpected bug should
+not look like a handled `E`.
+
+### 3.5 Structural sharing and `select`
+
+- Default: when new data is `Equal.equals` to the old data, keep the old reference.
+- JSON-like data: port TanStack's `replaceEqualDeep`, so unchanged subtrees keep
+  their references. This can be turned off with `structuralSharing: false` or
+  replaced with a custom function.
+- `select` runs in a derived `Atom.map` per observer. It does not affect the
+  cache, and it is memoised on the selector reference.
+- **Render optimisation:** TanStack tracks which props a component reads.
+  We get the same effect with field-level derived atoms (`useQuery(q, { select })`)
+  plus `Atom.withEquality`. A Proxy-based tracked result is an optional stretch
+  goal.
+
+### 3.6 FocusManager and OnlineManager
+
+These are Effect services with a default browser `Layer`:
+
+- FocusManager listens to `visibilitychange` and reuses `Atom.windowFocusSignal`.
+- OnlineManager listens to `online`/`offline` and exposes an atom plus a `Latch`.
+
+Both can be overridden (React Native, tests) through `setFocused` /
+`setOnline`, or by providing a different layer.
+
+### 3.7 Mutations
+
+```ts
+const addTodo = Mutation.make({
+  key: ["todos", "add"],                   // optional, used by useMutationState / useIsMutating
+  run: (input: NewTodo) => TodoRepo.add(input),
+  invalidates: (input, result) => [todoKeys.all], // integrates with Reactivity and QueryClient.invalidate
+  onMutate / onSuccess / onError / onSettled,     // each is an Effect, so they can use services
+  retry: Schedule, // default: no retry
+  scope: "todos",  // same scope id runs serially (Semaphore(1) per scope)
+})
+```
+
+- Built on `runtime.fn`, so its state is an `AsyncResult` atom.
+- `useMutation` returns:
+  - `mutate(input, callbacks?)`, fire and forget, run on the client runtime
+  - `mutateEffect(input)`, an `Effect<A, E>` for composition. Per D4 there is
+    no `mutateAsync` Promise.
+  - `reset` and the state fields
+- **Optimistic updates**, two styles:
+  1. Cache style: `onMutate` calls `client.cancel` and `client.setQueryData`, and returns a snapshot that `onError` rolls back (TanStack parity).
+  2. Atom style: `Atom.optimistic` / `Atom.optimisticFn`, which roll back automatically.
+- The MutationCache tracks every mutation, for `useMutationState`, `useIsMutating`
+  and `resumePausedMutations` (offline).
+
+### 3.8 Infinite queries
+
+`InfiniteQuery.make({ key, run: (pageParam) => Effect, initialPageParam, getNextPageParam, getPreviousPageParam?, maxPages? })`
+
+- The value is `{ pages: A[], pageParams: P[] }` plus `hasNextPage`,
+  `fetchNextPage`, `fetchPreviousPage`, `isFetchingNextPage`, and so on.
+- On refetch, pages are re-fetched **sequentially** from the first, as in
+  TanStack. This is why we probably cannot use `Atom.pull` as-is; prototype in
+  phase 5.
+
+### 3.9 Persistence and offline (v1), SSR (post-v1)
+
+**Persistence (v1, phase 6):**
+
+- A `persistQueryClient` equivalent: a `QueryPersister` service backed by
+  `KeyValueStore`, with layers for localStorage, sessionStorage and IndexedDB.
+- Options: `buster` (cache version), `maxAge` (default 24 h; requires
+  `gcTime >= maxAge`), throttled writes (`Schedule`), and a
+  `dehydrateOptions.shouldDehydrateQuery` filter.
+- Each persisted query declares `schema: { data: Schema<A>, error?: Schema<E> }`.
+  This uses `Atom.serializable`, so a restored value is decoded and type-safe.
+  Queries without a schema are not persisted, and the type system enforces it.
+- `useIsRestoring` / `IsRestoringProvider`: while the cache is restoring,
+  queries hold `fetchStatus: 'idle'` and Suspense hooks suspend.
+- **Offline mutations:** paused mutations (`networkMode: 'online'` while
+  offline) are persisted with their input, which needs a Schema, and the
+  mutation `key`. `resumePausedMutations` replays them on reconnect. Replay
+  uses `setMutationDefaults(key, { run })`, because functions cannot be
+  persisted.
+
+**SSR / hydration (post-v1):** `dehydrate` and `hydrate` on
+`effect/reactivity/Hydration`, the atom-react `HydrationBoundary`, and server
+defaults (`gcTime: Infinity`, `retry: 0`). These reuse the same Schemas.
+
+---
+
+## 4. React package surface
+
+| Hook / component                                            | Built on                                                                               |
+| ----------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `QueryClientProvider` (`client`, optional `layer`)          | `RegistryProvider` + context holding the client                                        |
+| `useQueryClient()`                                          | context                                                                                |
+| `useQuery(query, options?)`                                 | `useAtomValue(query(arg))` + mount/observer bookkeeping                                |
+| `useSuspenseQuery`                                          | `useAtomSuspense`; `data: A` is non-optional                                           |
+| `useQueries({ queries, combine })` / `useSuspenseQueries`   | array of atoms → combined derived atom                                                 |
+| `useInfiniteQuery` / `useSuspenseInfiniteQuery`             | InfiniteQuery atoms                                                                    |
+| `useMutation`                                               | `useAtomSet(mutation, { mode: "promise" })` + state atom                               |
+| `useMutationState({ filters, select })`                     | MutationCache atom                                                                     |
+| `useIsFetching(filters?)` / `useIsMutating(filters?)`       | derived count atoms on the caches                                                      |
+| `usePrefetchQuery` / `usePrefetchInfiniteQuery`             | `registry.mount` during render                                                         |
+| `QueryErrorResetBoundary` / `useQueryErrorResetBoundary`    | resets errored queries on boundary retry                                               |
+| `HydrationBoundary` (post-v1)                               | `@effect/atom-react` HydrationBoundary                                                 |
+| `useIsRestoring` / `IsRestoringProvider`                    | persistence restore flag                                                               |
+| `skipToken` / `enabled`                                     | a disabled query atom that never runs                                                  |
+| `queryOptions` / `infiniteQueryOptions` / `mutationOptions` | thin compat aliases for `Query.single` / `InfiniteQuery.single` / `Mutation.make` (D1) |
+
+---
+
+## 5. Milestones
+
+Each phase ends with green `vp check` and `vp run -r test`, plus a playground page.
+
+| #   | Phase                          | Deliverables                                                                                                                                                                                                                                                    |
+| --- | ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0   | **Scaffold** ✅                | Vite+ monorepo, TS 7, Effect 4.1.4, atom-react, smoke tests, playground                                                                                                                                                                                         |
+| 1   | **Core query** ✅              | `QueryKey` (normalise, hash, partial match), `QueryClient` service and layer, `QueryCache`, `Query.make`, fetch dedup, `AsyncResult` to `QueryResult` projection, staleTime, gcTime, retry Schedule, `enabled`/`skipToken`, `TestClock` tests for every default |
+| 2   | **React basics** ✅            | `QueryClientProvider`, `useQueryClient`, `useQuery`, `useQueries`, `useIsFetching`, `select`, `placeholderData` (incl. `keepPreviousData`), `initialData`, structural sharing (`replaceEqualDeep`), StrictMode safety                                           |
+| 3   | **Triggers**                   | FocusManager, OnlineManager, `networkMode` (online/always/offlineFirst), refetchOnMount/Focus/Reconnect, `refetchInterval`, cancellation via `cancel` with revert                                                                                               |
+| 4   | **Mutations and invalidation** | `Mutation.make`, `useMutation`, `invalidate`/`refetch`/`reset`/`remove`/`setQueryData`/`setQueriesData`, Reactivity integration, optimistic updates (both styles), `useMutationState`, `useIsMutating`, mutation `scope`                                        |
+| 5   | **Suspense and infinite**      | `useSuspenseQuery`/`Queries`/`InfiniteQuery`, `QueryErrorResetBoundary`, `useInfiniteQuery` with sequential refetch and `maxPages`, `usePrefetchQuery`                                                                                                          |
+| 6   | **Persistence and offline**    | Schema-based `QueryPersister` (KeyValueStore: localStorage/IndexedDB), `buster`/`maxAge`, `useIsRestoring`, paused-mutation persistence and `resumePausedMutations`                                                                                             |
+| —   | **v1.0 release**               | phases 1–6                                                                                                                                                                                                                                                      |
+| 7   | **Post-v1**                    | SSR (dehydrate/hydrate, `HydrationBoundary`, server defaults), tracked-props optimisation, docs site, playground examples matching the TanStack examples, bundle-size budget, optional devtools inspector                                                       |
+
+---
+
+## 6. Testing strategy
+
+- **Core:** `it.effect` with `TestClock.adjust` for stale, gc, retry and
+  interval behaviour. A fake `FocusManager`/`OnlineManager` layer drives focus
+  and online events.
+- **React:** `@testing-library/react` in happy-dom, rendering inside
+  `QueryClientProvider` with a test layer. Each test checks render counts to
+  catch over-rendering.
+- **Conformance suite:** port the relevant TanStack `query-core` and
+  `react-query` test cases as behavioural specs, adapted to Effect APIs.
+  Track parity in FEATURE-MATRIX.md.
+- **Type tests:** `expectTypeOf` for `E` and `R` inference, data narrowing after
+  `isSuccess`, and non-optional `data` for Suspense and `initialData`.
+
+## 7. Risks
+
+| Risk                                                                                    | Mitigation                                                                                                     |
+| --------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `effect/reactivity` is marked `@stability unstable`; APIs may shift in 4.x minors       | Pin via the catalog, isolate atom usage behind internal modules, add an upgrade checklist                      |
+| TS 7 API is experimental (tsdown warns); some tooling (language-service plugin) may lag | `vp check` uses tsgolint; fall back to `typescript@5.9` for d.ts emit only if needed                           |
+| Imperative cache (filters, `setQueryData`) vs. atom family identity                     | QueryCache is the single index (key to entry); atoms are views, so filters iterate the cache, not the registry |
+| Infinite-query refetch semantics don't map to `Atom.pull`                               | Custom page reducer atom; prototype early in phase 5                                                           |
+| StrictMode double-mount creating duplicate fetches                                      | Fiber deduplication per entry, observer refcount in `QueryCache`                                               |
+
+---
+
+## 8. Implementation notes
+
+### Phase 1: core query
+
+What exists in `packages/query/src`:
+
+| Module                   | Contents                                                                                                                                                                                                                                                                       |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `QueryKey.ts`            | `QueryKey`, `Tagged<A, E>` (type-only brand so `getQueryData(todo.key(1))` is typed), `equals`, `matches` (TanStack partial matching)                                                                                                                                          |
+| `QueryResult.ts`         | `QueryResult<A, E>` = `Pending`, `Success` or `Failure`, discriminated on `status`; `Option`s everywhere (D2); `result: AsyncResult`; `match`, `isDefect`                                                                                                                      |
+| `Query.ts`               | `Query.make({ key, run, ...options })` returns a memoised family; `Query.single` / `queryOptions`; `skipToken`; `isQueryAtom`                                                                                                                                                  |
+| `QueryClient.ts`         | `QueryClient` service; `make` (scoped), `layer`, `layerRegistry`; `current` / `initialValue` / `fromAtomContext` bind a client to an `AtomRegistry`; `fetchQuery`, `prefetchQuery`, `ensureQueryData`, `getQueryData`, `getQueryState`, `isFetching`, `removeQueries`, `clear` |
+| `internal/queryEntry.ts` | per-key state machine: observers, fetch fiber (deduplicated), retry via `Schedule` (with `failureCount` / `failureReason`), stale timer, gc timer                                                                                                                              |
+| `internal/queryCache.ts` | `MutableHashMap<QueryKey, QueryEntry>`, `QueryFilters`, `matchQuery`                                                                                                                                                                                                           |
+
+Decisions made while building it:
+
+- **Keys use Effect `Equal`/`Hash` directly.** In Effect 4, `Equal.equals` is
+  structural for plain objects and arrays, so no normalisation step is needed.
+  `Atom.family` memoises query atoms on the same structural equality.
+- **The cache is plain Effect and the atoms are views.** Each `QueryEntry`
+  holds mutable state and listeners. A query atom (`Atom.readable`) does three
+  things while it is built: it registers an observer (fetch-on-mount, blocking
+  gc), subscribes to the entry and calls `setSelf` on changes, and releases
+  both in a finalizer. `registry.refresh(atom)` calls the atom's refresh hook,
+  which forces a refetch with `cancelRefetch`. If the entry is removed while
+  the atom is mounted, the atom rebuilds against a fresh entry.
+- **Binding a client to a registry.** `QueryClient.current` is a keep-alive
+  `Atom<Option<QueryClient>>` that is set through registry initial values.
+  Reading a query atom without a bound client throws `MissingQueryClientError`.
+- **Services (`R`).** The client captures its construction context, so
+  atom-triggered fetches use the services of the layer the client was built
+  in. `fetchQuery` and friends merge in the caller's context, which keeps
+  `R` checked statically on the Effect API. Atoms cannot check `R`
+  statically: a missing service is a defect at runtime. A later option is a
+  TanStack-style `Register` interface that declares the app's services
+  globally.
+- **Timers use `Clock`.** Stale and gc timers and retry delays are fibers on
+  the client's context, so tests drive them with `TestClock`.
+  `packages/query/test/Query.test.ts` covers every default with no real waits.
+- **Defects are not retried.** `Effect.retry` only retries typed failures. A
+  defect settles immediately as `status: "error"` with `error: None`, and
+  `QueryResult.isDefect` is true.
+- `staleTime: "static"` never goes stale and ignores `refetchOnMount: "always"`.
+  Invalidation semantics arrive with phase 4.
+
+### Phase 2: React basics
+
+New in core:
+
+| Module                          | Contents                                                                                                                                                                                                     |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `QueryObserver.ts`              | `QueryObserver` (one per component): per-observer `enabled` / `refetchOnMount` / `select` / `placeholderData`, `isFetchedAfterMount`, optimistic first-render result, `refetch`; `QueriesObserver` for lists |
+| `internal/structuralSharing.ts` | port of TanStack's `replaceEqualDeep`                                                                                                                                                                        |
+| `Query.ts`                      | `initialData` / `initialDataUpdatedAt`, `DefinedQueryAtom`, `DefinedQueryResult`, `keepPreviousData`, `isSkipped`                                                                                            |
+
+`@effect-native-query/react`: `QueryClientProvider` (`client` or `runtime`
+prop), `useQueryClient`, `useQuery`, `useQueries` (+ `queriesEntry` for typed
+`select`), `useIsFetching`. It re-exports the core namespaces.
+
+Decisions made while building it:
+
+- **`useQuery` uses an observer, not `useAtomValue`.** A query atom is shared
+  by everything that reads it, so it cannot carry per-component options or
+  refetch on every component mount. The hook works like TanStack's:
+  - A `QueryObserver` is created per component.
+  - `useSyncExternalStore` subscribes to a version counter.
+  - `setOptions` runs in an effect.
+  - Render returns `getOptimisticResult`. On the first render it already
+    shows `fetching`, so there is no idle-pending flash.
+
+  Query atoms remain the input, and they also work directly through
+  `useAtomValue` (one shared observer). `QueryClientProvider` binds the client
+  to its `RegistryProvider` for this purpose.
+
+- **`QueryClientProvider` does not own the client.** It accepts a client or a
+  `ManagedRuntime` that provides `QueryClient` (resolved with `runSync`), and
+  the caller disposes the runtime. The registry is keyed by client identity.
+- **Structural sharing** is on by default: an `Equal.equals` check, then
+  `replaceEqualDeep`. Results of `select` are shared too and memoised on the
+  `(select, data)` reference pair.
+- **Entries nobody observes are garbage collected from creation.** This covers
+  entries built during a render that never commits.
+- **Cache-wide notifications** (`cache.subscribe`, used by `useIsFetching`)
+  are batched on a microtask, so they never fire during a render.
+- **Errors in React:**
+  - Defects are always thrown to the nearest error boundary, as `Cause.squash`.
+  - Typed errors are thrown only with `throwOnError` (a boolean or a predicate).
+  - Nothing is thrown while a fetch is still running.
+- **Typing details:**
+  - `QueryAtom.options` is typed `QueryOptions<any>`, so `E` stays
+    covariant and heterogeneous query lists type-check.
+  - `throwOnError` uses the bivariance trick for the same reason.
+  - Hook options use `NoInfer`, so only the atom drives type inference.
+  - `initialData` gives a `DefinedQueryAtom`, whose result has
+    `data: Option.Some<A>`.
+- **Tests:** 33 core tests and 17 React tests (happy-dom). The playground was
+  also smoke-tested in headless Chromium: StrictMode, `keepPreviousData`
+  across pages, the fetching indicator, and a typed error page, with no
+  console warnings.
+
+Not done yet, by plan: tracked-props render optimisation (phase 7), and
+refetch on window focus or reconnect (phase 3).
