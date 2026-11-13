@@ -13,7 +13,7 @@
  *
  * @since 0.1.0
  */
-import { Option } from "effect";
+import { type Fiber, Option } from "effect";
 import { AsyncResult } from "effect/reactivity";
 import type {
   ObserveOptions,
@@ -53,6 +53,11 @@ export interface Options<A, B = A> {
   readonly refetchIntervalInBackground?: boolean | undefined;
   /** Overrides the definition's `retryOnMount`. */
   readonly retryOnMount?: boolean | undefined;
+  /**
+   * This observer's staleness threshold for mount / focus / reconnect
+   * refetches and `isStale` (TanStack's per-observer `staleTime`).
+   */
+  readonly staleTime?: Query.QueryOptions<unknown>["staleTime"];
   /** Derive the data this observer sees. Does not change the cache. Keep it referentially stable. */
   readonly select?: ((data: A) => B) | undefined;
   readonly placeholderData?: PlaceholderData<A> | undefined;
@@ -203,7 +208,8 @@ export class QueryObserver<A, E, B = A> {
     const optimisticFetch = !mounted && entry.shouldFetchOnMount(observeOptions(options));
     const enabled = options.enabled ?? entry.options.enabled;
     const fetchedAtMount = mounted ? this.fetchedAtMount : entry.fetchCount;
-    const isStale = entry.isStale();
+    const staleTime = entry.staleTimeFor(observeOptions(options));
+    const isStale = entry.isStale(staleTime);
     const usesPrevious = typeof options.placeholderData === "function";
     return this.memo(
       [
@@ -218,11 +224,41 @@ export class QueryObserver<A, E, B = A> {
         usesPrevious ? this.previousData : undefined,
       ],
       () => {
-        const raw = entry.toResult({ fetchedAtMount, optimisticFetch, enabled });
+        const raw = entry.toResult({ fetchedAtMount, optimisticFetch, enabled, staleTime });
         if (Option.isSome(raw.data)) this.previousData = raw.data;
         return this.applyPlaceholderAndSelect(raw, options);
       },
     );
+  }
+
+  /**
+   * Start the fetch mounting would start, or join the running one, without
+   * subscribing (for Suspense). `undefined` when there is nothing to wait for.
+   */
+  fetchOptimistic(
+    query: Observable<A, E>,
+    options: Options<A, B> = {},
+  ): Fiber.Fiber<A, E> | undefined {
+    if (!Query.isQueryAtom(query)) return undefined;
+    const entry = this.client.cache.build<A, E>(query);
+    if (entry.state.fetchStatus !== "idle") return entry.fetch();
+    if (!entry.shouldFetchOnMount(observeOptions(options))) return undefined;
+    return entry.fetch();
+  }
+
+  /** The cache entry of `query`, if any (for derived state such as paging). */
+  entryOf(query: Observable<A, E>): QueryEntry<A, E> | undefined {
+    if (!Query.isQueryAtom(query)) return undefined;
+    return Option.getOrUndefined(this.client.cache.get<A, E>(query.key));
+  }
+
+  /** Infinite queries: load the next / previous page (supersedes a running fetch). */
+  fetchPage(direction: "forward" | "backward"): void {
+    if (!Query.isQueryAtom(this.query)) return;
+    (this.entry ?? this.client.cache.build<A, E>(this.query)).fetch({
+      direction,
+      cancelRefetch: true,
+    });
   }
 
   /** Force a refetch (joins nothing; supersedes a running fetch when data exists). */
@@ -285,6 +321,7 @@ const observeOptions = (options: Options<any, any>): ObserveOptions => ({
   refetchInterval: options.refetchInterval,
   refetchIntervalInBackground: options.refetchIntervalInBackground,
   retryOnMount: options.retryOnMount,
+  staleTime: options.staleTime,
 });
 
 /**
@@ -402,5 +439,14 @@ export class QueriesObserver {
 
   refetch(index: number): void {
     this.observers[index]?.refetch();
+  }
+
+  /** Start (or join) the fetches mounting would start, for Suspense. */
+  fetchOptimistic(inputs: ReadonlyArray<QueriesInput>): ReadonlyArray<Fiber.Fiber<any, any>> {
+    this.ensure(inputs);
+    return inputs.flatMap((input, i) => {
+      const fiber = this.observers[i]!.fetchOptimistic(input.query, input.options);
+      return fiber === undefined ? [] : [fiber];
+    });
   }
 }

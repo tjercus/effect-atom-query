@@ -163,6 +163,20 @@ export interface QueryDescriptor<A, E, R> {
   readonly run: Effect.Effect<A, E, R>;
   readonly options: QueryOptions<E>;
   readonly initialData?: InitialData<A> | undefined;
+  /**
+   * Replaces `run` with a function of the current data and the requested
+   * direction (used by infinite queries).
+   */
+  readonly behavior?: ((context: BehaviorContext<A>) => Effect.Effect<A, E, R>) | undefined;
+}
+
+/** @internal */
+export type FetchDirection = "forward" | "backward";
+
+/** @internal */
+export interface BehaviorContext<A> {
+  readonly data: Option.Option<A>;
+  readonly direction: FetchDirection | undefined;
 }
 
 /**
@@ -187,6 +201,8 @@ export interface ObserveOptions {
   readonly refetchInterval?: RefetchInterval<any> | undefined;
   readonly refetchIntervalInBackground?: boolean | undefined;
   readonly retryOnMount?: boolean | undefined;
+  /** This observer's notion of staleness for mount / focus / reconnect refetches. */
+  readonly staleTime?: StaleTime | undefined;
 }
 
 /**
@@ -242,6 +258,8 @@ export interface QueryState<A, E> {
   readonly failureCount: number;
   readonly failureReason: Option.Option<E>;
   readonly isInvalidated: boolean;
+  /** Direction of the running (or last) fetch, for infinite queries. */
+  readonly fetchDirection: FetchDirection | undefined;
 }
 
 const initialState: QueryState<never, never> = {
@@ -256,6 +274,7 @@ const initialState: QueryState<never, never> = {
   failureCount: 0,
   failureReason: Option.none(),
   isInvalidated: false,
+  fetchDirection: undefined,
 };
 
 /** @internal */
@@ -266,6 +285,8 @@ export interface FetchOptions<E> {
   readonly context?: Context.Context<any> | undefined;
   /** Override the entry's retry policy for this fetch. */
   readonly retry?: RetryOption<E> | undefined;
+  /** For infinite queries: fetch the next / previous page instead of refetching all. */
+  readonly direction?: FetchDirection | undefined;
 }
 
 /** @internal */
@@ -462,9 +483,17 @@ export class QueryEntry<A, E> {
   }
 
   /** `true` / `"always"` / `false` trigger semantics shared by mount, focus and reconnect. */
-  private shouldRefetchOn(mode: boolean | "always"): boolean {
-    if (this.options.staleTime === "static") return false;
-    return mode === "always" || (mode && this.isStale());
+  private shouldRefetchOn(mode: boolean | "always", observer: ObserveOptions = {}): boolean {
+    const staleTime = this.staleTimeFor(observer);
+    if (staleTime === "static") return false;
+    return mode === "always" || (mode && this.isStale(staleTime));
+  }
+
+  /** An observer's `staleTime` override, resolved. */
+  staleTimeFor(observer: ObserveOptions): Duration.Duration | "static" {
+    const staleTime = observer.staleTime;
+    if (staleTime === undefined) return this.options.staleTime;
+    return staleTime === "static" ? "static" : Duration.fromInputUnsafe(staleTime);
   }
 
   /** The window regained focus: refetch if any enabled observer asks for it. */
@@ -473,7 +502,7 @@ export class QueryEntry<A, E> {
     for (const record of this.records) {
       if (!this.isEnabledFor(record.options)) continue;
       const mode = record.options.refetchOnWindowFocus ?? this.options.refetchOnWindowFocus;
-      if (this.shouldRefetchOn(mode)) {
+      if (this.shouldRefetchOn(mode, record.options)) {
         this.fetch();
         return;
       }
@@ -486,7 +515,7 @@ export class QueryEntry<A, E> {
     for (const record of this.records) {
       if (!this.isEnabledFor(record.options)) continue;
       const mode = record.options.refetchOnReconnect ?? this.options.refetchOnReconnect;
-      if (this.shouldRefetchOn(mode)) {
+      if (this.shouldRefetchOn(mode, record.options)) {
         this.fetch();
         return;
       }
@@ -536,7 +565,7 @@ export class QueryEntry<A, E> {
       const retryOnMount = options.retryOnMount ?? this.options.retryOnMount;
       return !(this.state.status === "error" && !retryOnMount);
     }
-    return this.shouldRefetchOn(options.refetchOnMount ?? this.options.refetchOnMount);
+    return this.shouldRefetchOn(options.refetchOnMount ?? this.options.refetchOnMount, options);
   }
 
   /** Whether a fetch could run right now, given `networkMode` and connectivity. */
@@ -634,16 +663,19 @@ export class QueryEntry<A, E> {
       fetchStatus: "fetching",
       failureCount: 0,
       failureReason: Option.none(),
+      fetchDirection: options?.direction,
     }));
 
     const { networkMode } = this.options;
+    const behavior = this.descriptor.behavior;
+    const run = behavior
+      ? Effect.suspend(() => behavior({ data: this.state.data, direction: options?.direction }))
+      : this.descriptor.run;
     let attemptNumber = 0;
     const attempt = Effect.suspend(() => {
       const n = attemptNumber++;
       const pause = networkMode === "online" || (networkMode === "offlineFirst" && n > 0);
-      return pause
-        ? Effect.andThen(this.pauseWhileOffline(id), this.descriptor.run)
-        : this.descriptor.run;
+      return pause ? Effect.andThen(this.pauseWhileOffline(id), run) : run;
     }).pipe(
       Effect.tapError((error) =>
         Effect.sync(() => {
@@ -773,12 +805,13 @@ export class QueryEntry<A, E> {
     readonly fetchedAtMount?: number | undefined;
     readonly optimisticFetch?: boolean | undefined;
     readonly enabled?: boolean | undefined;
+    readonly staleTime?: Duration.Duration | "static" | undefined;
   }): QueryResult.QueryResult<A, E> {
     const state: QueryState<A, E> = meta?.optimisticFetch
       ? { ...this.state, fetchStatus: this.canFetch ? "fetching" : "paused" }
       : this.state;
     return project(state, {
-      isStale: this.isStale(),
+      isStale: this.isStale(meta?.staleTime),
       isEnabled: meta?.enabled ?? this.options.enabled,
       fetchedAtMount: meta?.fetchedAtMount ?? 0,
     });

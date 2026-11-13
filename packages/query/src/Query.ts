@@ -18,6 +18,7 @@ import { type Effect, Option } from "effect";
 import { AsyncResult, Atom } from "effect/reactivity";
 import type {
   InitialData,
+  QueryDescriptor,
   QueryEntry,
   QueryOptions as InternalQueryOptions,
 } from "./internal/queryEntry.ts";
@@ -266,53 +267,73 @@ export const queryOptions = single;
  */
 export const keepPreviousData = <A>(previous: Option.Option<A>): Option.Option<A> => previous;
 
-const makeAtom = <A, E, R>(descriptor: {
-  readonly key: QueryKey.Tagged<A, E>;
-  readonly run: Effect.Effect<A, E, R>;
-  readonly options: QueryOptions<E>;
-  readonly initialData: InitialData<A> | undefined;
-}): QueryAtom<A, E, R> => {
+/**
+ * Builds a query atom from a full descriptor. With `write`, the atom is
+ * writable (infinite queries accept page directions).
+ * @internal
+ */
+export const makeAtom = <A, E, R, W = never, Extra extends object = {}>(
+  descriptor: {
+    readonly key: QueryKey.Tagged<A, E>;
+    readonly run: Effect.Effect<A, E, R>;
+    readonly options: QueryOptions<E>;
+    readonly initialData: InitialData<A> | undefined;
+    readonly behavior?: QueryDescriptor<A, E, R>["behavior"];
+  },
+  extra?: {
+    readonly fields?: Extra | undefined;
+    readonly write?: ((entry: QueryEntry<A, E>, value: W) => void) | undefined;
+  },
+): QueryAtom<A, E, R> & Extra => {
   // The entry of the current build, so `refresh` can reach it.
   let current: QueryEntry<A, E> | undefined;
-  const self: QueryAtom<A, E, R> = Object.assign(
-    Atom.readable<QueryResult.QueryResult<A, E>>(
-      (get) => {
-        const client = QueryClient.fromAtomContext(get);
-        const entry = client.cache.build<A, E>(self);
-        current = entry;
-        const fetchedAtMount = entry.fetchCount;
-        const observer = entry.addObserver();
-        const unsubscribe = entry.subscribe(() => {
-          // The entry was removed from the cache: rebuild against a fresh one.
-          if (entry.isRemoved) {
-            get.refreshSelf();
-          } else {
-            get.setSelf(entry.toResult({ fetchedAtMount }));
-          }
-        });
-        get.addFinalizer(() => {
-          unsubscribe();
-          observer.release();
-          if (current === entry) current = undefined;
-        });
-        return entry.toResult({ fetchedAtMount });
-      },
-      () => {
-        current?.fetch({ cancelRefetch: true });
-      },
-    ),
-    {
-      [TypeId]: TypeId,
-      key: descriptor.key,
-      run: descriptor.run,
-      options: descriptor.options,
-      initialData: descriptor.initialData,
-    } as const,
-  );
+  const read = (get: Atom.AtomContext): QueryResult.QueryResult<A, E> => {
+    const client = QueryClient.fromAtomContext(get);
+    const entry = client.cache.build<A, E>(self);
+    current = entry;
+    const fetchedAtMount = entry.fetchCount;
+    const observer = entry.addObserver();
+    const unsubscribe = entry.subscribe(() => {
+      // The entry was removed from the cache: rebuild against a fresh one.
+      if (entry.isRemoved) {
+        get.refreshSelf();
+      } else {
+        get.setSelf(entry.toResult({ fetchedAtMount }));
+      }
+    });
+    get.addFinalizer(() => {
+      unsubscribe();
+      observer.release();
+      if (current === entry) current = undefined;
+    });
+    return entry.toResult({ fetchedAtMount });
+  };
+  const refresh = () => {
+    current?.fetch({ cancelRefetch: true });
+  };
+  const write = extra?.write;
+  const atom =
+    write === undefined
+      ? Atom.readable(read, refresh)
+      : Atom.writable<QueryResult.QueryResult<A, E>, W>(
+          read,
+          (ctx, value) => write(QueryClient.fromAtomContext(ctx).cache.build<A, E>(self), value),
+          refresh,
+        );
+  const self: QueryAtom<A, E, R> & Extra = Object.assign(atom, {
+    [TypeId]: TypeId,
+    key: descriptor.key,
+    run: descriptor.run,
+    options: descriptor.options,
+    initialData: descriptor.initialData,
+    behavior: descriptor.behavior,
+    ...(extra?.fields ?? ({} as Extra)),
+  } as const) as unknown as QueryAtom<A, E, R> & Extra;
   return self;
 };
 
-const makeSkipped = <A, E>(): SkippedQueryAtom<A, E> =>
+/** @internal */
+export const makeSkipped = <A, E>(): SkippedQueryAtom<A, E> =>
   Object.assign(
     Atom.readable(() => QueryResult.disabled<A, E>(AsyncResult.initial())),
     { [TypeId]: TypeId, skipped: true } as const,

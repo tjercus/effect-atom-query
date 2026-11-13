@@ -5,7 +5,7 @@
 > interruption as cancellation, and Effect Atoms (`effect/reactivity`) as the
 > reactive cache.
 
-Status: **v0.6, 2026-11-13. Phases 1–4 done**; see §8 for implementation notes. Decisions D1–D4 are settled and the
+Status: **v0.7, 2026-11-13. Phases 1–5 done**; see §8 for implementation notes. Decisions D1–D4 are settled and the
 remaining open questions are in [QUESTIONS.md](./QUESTIONS.md). The TanStack-to-Effect feature mapping is in
 [FEATURE-MATRIX.md](./FEATURE-MATRIX.md).
 
@@ -342,7 +342,7 @@ Each phase ends with green `vp check` and `vp run -r test`, plus a playground pa
 | 2   | **React basics** ✅               | `QueryClientProvider`, `useQueryClient`, `useQuery`, `useQueries`, `useIsFetching`, `select`, `placeholderData` (incl. `keepPreviousData`), `initialData`, structural sharing (`replaceEqualDeep`), StrictMode safety                                           |
 | 3   | **Triggers** ✅                   | FocusManager, OnlineManager, `networkMode` (online/always/offlineFirst), refetchOnMount/Focus/Reconnect, `refetchInterval`, cancellation via `cancel` with revert                                                                                               |
 | 4   | **Mutations and invalidation** ✅ | `Mutation.make`, `useMutation`, `invalidate`/`refetch`/`reset`/`remove`/`setQueryData`/`setQueriesData`, Reactivity integration, optimistic updates (both styles), `useMutationState`, `useIsMutating`, mutation `scope`                                        |
-| 5   | **Suspense and infinite**         | `useSuspenseQuery`/`Queries`/`InfiniteQuery`, `QueryErrorResetBoundary`, `useInfiniteQuery` with sequential refetch and `maxPages`, `usePrefetchQuery`                                                                                                          |
+| 5   | **Suspense and infinite** ✅      | `useSuspenseQuery`/`Queries`/`InfiniteQuery`, `QueryErrorResetBoundary`, `useInfiniteQuery` with sequential refetch and `maxPages`, `usePrefetchQuery`                                                                                                          |
 | 6   | **Persistence and offline**       | Schema-based `QueryPersister` (KeyValueStore: localStorage/IndexedDB), `buster`/`maxAge`, `useIsRestoring`, paused-mutation persistence and `resumePausedMutations`                                                                                             |
 | —   | **v1.0 release**                  | phases 1–6                                                                                                                                                                                                                                                      |
 | 7   | **Post-v1**                       | SSR (dehydrate/hydrate, `HydrationBoundary`, server defaults), tracked-props optimisation, docs site, playground examples matching the TanStack examples, bundle-size budget, optional devtools inspector                                                       |
@@ -597,3 +597,62 @@ Decisions made while building it:
   playground todo list shows an optimistic row, settles after the
   invalidation refetch, clears its input through a UI callback, and shows a
   typed rejection whose overlay disappears. No console warnings.
+
+### Phase 5: Suspense, error boundaries, infinite queries, prefetching
+
+New in core:
+
+- **`InfiniteQuery.ts`:**
+  - `InfiniteQuery.make` / `infiniteQueryOptions`, producing an
+    `InfiniteQueryAtom`, which is writable: write `"next"` or `"previous"`.
+  - `InfiniteData { pages, pageParams }`, `nextPageParam` /
+    `previousPageParam`, and `PagingState`.
+- **`QueryObserver`:** gains a per-observer `staleTime`, `fetchOptimistic`
+  (used by Suspense), `entryOf` and `fetchPage`.
+- **`Query.makeAtom` (internal):** builds query atoms with a fetch
+  `behavior` and an optional writer.
+
+New in React: `useSuspenseQuery`, `useSuspenseQueries`, `useInfiniteQuery`,
+`useSuspenseInfiniteQuery`, `QueryErrorResetBoundary` /
+`useQueryErrorResetBoundary`, `usePrefetchQuery` and
+`usePrefetchInfiniteQuery`. `useQuery` and `useQueries` now share one base
+implementation with the Suspense variants.
+
+Decisions made while building it:
+
+- **Infinite queries are ordinary query atoms with a fetch behavior.** The
+  entry calls the behavior with the current data and a direction:
+  - **Forward / backward** fetches one page and appends or prepends it,
+    respecting `maxPages`.
+  - **No direction** (initial load or any refetch: invalidation, focus,
+    `refresh`, polling) refetches every loaded page **in order**. It starts
+    from the first page param and follows `getNextPageParam` of the _fresh_
+    pages, as TanStack does.
+
+  The entry stores the direction (`fetchDirection`), from which
+  `isFetchingNextPage` and `isFetchNextPageError` are derived. Page params
+  are `Option`s, with `None` meaning no more pages (D2).
+
+- **Suspense:**
+  - The hook throws a stable per-fetch promise. It is derived from the fetch
+    fiber with `Fiber.await` and always resolves, so the re-render reads the
+    error.
+  - Suspense hooks raise a `staleTime` below 1 s to 1 s for their observer,
+    like TanStack, so the mount right after resolving does not refetch.
+  - Errors without data are thrown, and the result type is
+    `DefinedQueryResult`: data is always present.
+- **Error-reset protocol, the same as TanStack's.** While a boundary is not
+  reset, hooks that can throw (Suspense, or `throwOnError`) mount with
+  `retryOnMount: false`, so a re-render after an error rethrows instead of
+  looping. `reset()` from the boundary's retry lets the next mount refetch.
+  Hooks clear the reset after they commit.
+- **`usePrefetchQuery`** forks `prefetchQuery` during render when the key is
+  not cached. The suspending child then joins the in-flight fetch through
+  fetch deduplication.
+- **Tests:**
+  - 71 core tests and 34 React tests.
+  - A test setup file now runs testing-library's `cleanup` (Vitest globals
+    are off), which fixed DOM leaking between tests.
+  - In headless Chromium, the playground feed shows the Suspense fallback,
+    loads 4 pages through "load more", keeps the list visible while loading
+    the next page, and logs no console warnings.

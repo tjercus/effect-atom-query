@@ -47,3 +47,36 @@ export class ErrorBoundary extends React.Component<
     );
   }
 }
+
+/** An error boundary with a "retry" button that calls `onReset` and re-renders its children. */
+export class RetryBoundary extends React.Component<
+  { readonly children?: React.ReactNode; readonly onReset?: (() => void) | undefined },
+  { readonly error: unknown }
+> {
+  override state = { error: undefined as unknown };
+  static getDerivedStateFromError(error: unknown) {
+    return { error };
+  }
+  override render() {
+    if (this.state.error === undefined) return this.props.children;
+    return (
+      <div>
+        <p>
+          caught:{" "}
+          {this.state.error instanceof Error
+            ? this.state.error.message
+            : String(this.state.error as string)}
+        </p>
+        <button
+          type="button"
+          onClick={() => {
+            this.props.onReset?.();
+            this.setState({ error: undefined });
+          }}
+        >
+          retry
+        </button>
+      </div>
+    );
+  }
+}

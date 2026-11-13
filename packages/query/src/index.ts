@@ -34,3 +34,6 @@ export * as MutationObserver from "./MutationObserver.ts";
 
 /** @since 0.1.0 */
 export * as MutationResult from "./MutationResult.ts";
+
+/** @since 0.1.0 */
+export * as InfiniteQuery from "./InfiniteQuery.ts";

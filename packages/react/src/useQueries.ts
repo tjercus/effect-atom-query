@@ -1,7 +1,9 @@
 import { type Query, QueryObserver, type QueryResult } from "@effect-native-query/query";
 import * as React from "react";
+import { adjustOptions, shouldThrow, suspendOn, throwResult } from "./internal.ts";
 import { useQueryClient } from "./QueryClientProvider.tsx";
-import { throwIfNeeded, type UseQueryOptions, type UseQueryResult } from "./useQuery.ts";
+import { useQueryErrorResetBoundary } from "./QueryErrorResetBoundary.tsx";
+import type { UseQueryOptions, UseQueryResult } from "./useQuery.ts";
 
 /**
  * A query with per-entry options.
@@ -53,26 +55,29 @@ const normalize = (
     ? { ...input, options: input }
     : { query: input as QueryObserver.Observable<any, any>, options: {} };
 
-/**
- * Observe a dynamic list of queries. `combine` derives one value from all
- * results; it re-runs only when a result changes.
- *
- * ```tsx
- * const todos = useQueries({
- *   queries: ids.map((id) => todoQuery(id)),
- *   combine: (results) => results.flatMap((r) => (r.isSuccess ? [r.data.value] : [])),
- * })
- * ```
- *
- * @since 0.1.0
- * @category hooks
- */
-export function useQueries<const Q extends QueriesInput, C = QueriesResults<Q>>(options: {
-  readonly queries: Q;
-  readonly combine?: ((results: QueriesResults<Q>) => C) | undefined;
-}): C {
+const useBaseQueries = <Q extends QueriesInput, C>(
+  options: {
+    readonly queries: Q;
+    readonly combine?: ((results: QueriesResults<Q>) => C) | undefined;
+  },
+  suspense: boolean,
+): C => {
   const client = useQueryClient();
-  const inputs = options.queries.map(normalize);
+  const boundary = useQueryErrorResetBoundary();
+  const inputs = options.queries.map(normalize).map((input) => ({
+    ...input,
+    options: adjustOptions(
+      input,
+      {
+        suspense,
+        entryStaleTime:
+          suspense && !("skipped" in input.query)
+            ? client.cache.build(input.query as Query.QueryAtom<any, any, any>).options.staleTime
+            : undefined,
+      },
+      boundary,
+    ),
+  }));
   const observer = React.useMemo(
     () => new QueryObserver.QueriesObserver(client, inputs),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -88,9 +93,20 @@ export function useQueries<const Q extends QueriesInput, C = QueriesResults<Q>>(
   React.useEffect(() => {
     observer.setQueries(inputs);
   });
+  React.useEffect(() => {
+    boundary.clearReset();
+  }, [boundary]);
 
   const raw = observer.getOptimisticResults(inputs);
-  raw.forEach((result, i) => throwIfNeeded(result, inputs[i]!.throwOnError));
+  if (suspense && raw.some((result) => result.isPending)) {
+    const fibers = observer.fetchOptimistic(inputs);
+    if (fibers.length > 0) throw Promise.all(fibers.map(suspendOn));
+  }
+  raw.forEach((result, i) => {
+    if (shouldThrow(result, { suspense, throwOnError: inputs[i]!.throwOnError }, boundary)) {
+      throwResult(result);
+    }
+  });
 
   // Keep result references stable while nothing changed.
   const cache = React.useRef<{
@@ -115,4 +131,42 @@ export function useQueries<const Q extends QueriesInput, C = QueriesResults<Q>>(
         : (results as unknown as C);
   cache.current = { raw, results, combine: options.combine, combined };
   return combined;
+};
+
+/**
+ * Observe a dynamic list of queries. `combine` derives one value from all
+ * results; it re-runs only when a result changes.
+ *
+ * ```tsx
+ * const todos = useQueries({
+ *   queries: ids.map((id) => todoQuery(id)),
+ *   combine: (results) => results.flatMap((r) => (r.isSuccess ? [r.data.value] : [])),
+ * })
+ * ```
+ *
+ * @since 0.1.0
+ * @category hooks
+ */
+export function useQueries<const Q extends QueriesInput, C = QueriesResults<Q>>(options: {
+  readonly queries: Q;
+  readonly combine?: ((results: QueriesResults<Q>) => C) | undefined;
+}): C {
+  return useBaseQueries(options, false);
+}
+
+/**
+ * Suspense variant of {@link useQueries}: suspends until every query has
+ * data, fetching them in parallel.
+ *
+ * @since 0.1.0
+ * @category hooks
+ */
+export function useSuspenseQueries<
+  const Q extends ReadonlyArray<Query.QueryAtom<any, any, any> | QueriesEntry<any, any, any>>,
+  C = QueriesResults<Q>,
+>(options: {
+  readonly queries: Q;
+  readonly combine?: ((results: QueriesResults<Q>) => C) | undefined;
+}): C {
+  return useBaseQueries(options, true);
 }
