@@ -45,6 +45,46 @@ await screen.findByText("learn Effect");
 await runtime.dispose();
 ```
 
+### Mocking hooks
+
+To test a container component without a client, mock the hooks it uses and
+return results built with the constructors. They set every flag consistently,
+and are type-checked against the real result types:
+
+```ts
+vi.mock("./todoApi", () => ({
+  useTodosQuery: () => QueryResult.success([{ id: "1", title: "learn Effect" }]),
+  useSaveTodoMutation: () => ({ ...MutationResult.idle(), mutate: vi.fn() }),
+}));
+```
+
+| constructor                            | state                                |
+| -------------------------------------- | ------------------------------------ |
+| `QueryResult.pending()`                | first load running (`isLoading`)     |
+| `QueryResult.success(data)`            | loaded                               |
+| `QueryResult.failure(error)`           | first load failed with a typed error |
+| `MutationResult.idle()`                | not run yet                          |
+| `MutationResult.pending(input)`        | running                              |
+| `MutationResult.success(data, input)`  | succeeded                            |
+| `MutationResult.failure(error, input)` | failed with a typed error            |
+
+Timestamps are `None`. Spread to change a flag:
+`{ ...QueryResult.success(todos), isRefetching: true, isFetching: true }`.
+
+### A client for tests that use real hooks
+
+Turn off retries and window-focus refetches, so failures show up at once and
+tests do not refetch unexpectedly:
+
+```ts
+const TestQueryClient = QueryClient.layer({
+  defaultOptions: {
+    queries: { retry: false, refetchOnWindowFocus: false },
+  },
+});
+const runtime = ManagedRuntime.make(TestQueryClient.pipe(Layer.provideMerge(FakeRepo)));
+```
+
 ### Mocking hooks from another module
 
 Definitions live at module level, so a plain `invalidates` array is evaluated

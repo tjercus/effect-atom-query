@@ -122,18 +122,11 @@ export interface Failure<A, E> extends Base<A, E> {
  */
 export type QueryResult<A, E = never> = Pending<A, E> | Success<A, E> | Failure<A, E>;
 
-/**
- * The value of a disabled query that has nothing in the cache, for example one
- * created with `skipToken`.
- *
- * @since 0.1.0
- * @category constructors
- */
-export const disabled = <A, E>(initial: AsyncResult.AsyncResult<A, E>): QueryResult<A, E> => ({
-  result: initial,
-  status: "pending",
+const none = Option.none();
+
+const empty = {
   fetchStatus: "idle",
-  isPending: true,
+  isPending: false,
   isSuccess: false,
   isError: false,
   isLoading: false,
@@ -143,19 +136,106 @@ export const disabled = <A, E>(initial: AsyncResult.AsyncResult<A, E>): QueryRes
   isFetching: false,
   isPaused: false,
   isStale: false,
-  isEnabled: false,
+  isEnabled: true,
   isFetched: false,
   isFetchedAfterMount: false,
   isPlaceholderData: false,
-  data: Option.none() as Option.None<A>,
-  error: Option.none() as Option.None<E>,
-  dataUpdatedAt: Option.none(),
-  errorUpdatedAt: Option.none(),
+  data: none,
+  error: none,
+  dataUpdatedAt: none,
+  errorUpdatedAt: none,
   dataUpdateCount: 0,
   errorUpdateCount: 0,
   failureCount: 0,
-  failureReason: Option.none(),
+  failureReason: none,
+} as const;
+
+/**
+ * The value of a disabled query that has nothing in the cache, for example one
+ * created with `skipToken`.
+ *
+ * @since 0.1.0
+ * @category constructors
+ */
+export const disabled = <A, E>(initial: AsyncResult.AsyncResult<A, E>): QueryResult<A, E> => ({
+  ...empty,
+  result: initial,
+  status: "pending",
+  isPending: true,
+  isEnabled: false,
+  data: none as Option.None<A>,
+  error: none as Option.None<E>,
 });
+
+/**
+ * A query whose first load is running (`isLoading`). With the other
+ * constructors, for tests and stories that mock hooks or atoms:
+ *
+ * ```ts
+ * vi.mocked(useTodosQuery).mockReturnValue(QueryResult.success([todo]))
+ * ```
+ *
+ * Timestamps are `None`; spread to override a flag:
+ * `{ ...QueryResult.success(todos), isRefetching: true, isFetching: true }`.
+ *
+ * @since 1.1.0
+ * @category constructors
+ */
+export const pending = <A, E = never>(): Pending<A, E> => ({
+  ...empty,
+  result: AsyncResult.initial(true),
+  status: "pending",
+  fetchStatus: "fetching",
+  isPending: true,
+  isLoading: true,
+  isFetching: true,
+  data: none as Option.None<A>,
+  error: none as Option.None<E>,
+});
+
+/**
+ * A query whose last fetch succeeded with `data`. See {@link pending}.
+ *
+ * @since 1.1.0
+ * @category constructors
+ */
+export const success = <A, E = never>(data: A): Success<A, E> => ({
+  ...empty,
+  result: AsyncResult.success(data),
+  status: "success",
+  isSuccess: true,
+  isFetched: true,
+  isFetchedAfterMount: true,
+  data: Option.some(data) as Option.Some<A>,
+  error: none as Option.None<E>,
+  dataUpdateCount: 1,
+});
+
+/**
+ * A query whose first fetch failed with the typed `error` (`isLoadingError`).
+ * See {@link pending}.
+ *
+ * @since 1.1.0
+ * @category constructors
+ */
+export const failure = <A = never, E = unknown>(error: E): Failure<A, E> => {
+  const cause = Cause.fail(error);
+  return {
+    ...empty,
+    result: AsyncResult.failure(cause),
+    status: "error",
+    isError: true,
+    isLoadingError: true,
+    isFetched: true,
+    isFetchedAfterMount: true,
+    data: none as Option.Option<A>,
+    error: Option.some(error),
+    cause,
+    errorUpdateCount: 1,
+    failureCount: 1,
+    failureReason: Option.some(error),
+  };
+};
 
 /**
  * Pattern match on the status.

@@ -174,10 +174,12 @@ export const project = <I, A, E, C>(
   }
 };
 
-/** @internal */
-export const idle = <A, E, I, C>(): MutationResult<A, E, I, C> =>
+const state = <I, A, E, C>(
+  status: Status,
+  fields: Partial<MutationState<I, A, E, C>>,
+): MutationResult<A, E, I, C> =>
   project<I, A, E, C>({
-    status: "idle",
+    status,
     data: Option.none(),
     cause: Option.none(),
     variables: Option.none(),
@@ -187,4 +189,63 @@ export const idle = <A, E, I, C>(): MutationResult<A, E, I, C> =>
     isPaused: false,
     submittedAt: 0,
     ranAt: 0,
+    ...fields,
   });
+
+/**
+ * A mutation that has not run. With the other constructors, for tests and
+ * stories that mock `useMutation`:
+ *
+ * ```ts
+ * vi.mocked(useSaveTodo).mockReturnValue({
+ *   ...MutationResult.pending(todo),
+ *   mutate: vi.fn(),
+ * })
+ * ```
+ *
+ * @since 1.1.0
+ * @category constructors
+ */
+export const idle = <A, E = never, I = void, C = unknown>(): Idle<A, E, I, C> =>
+  state<I, A, E, C>("idle", {}) as Idle<A, E, I, C>;
+
+/**
+ * A mutation running with `input`. See {@link idle}.
+ *
+ * @since 1.1.0
+ * @category constructors
+ */
+export const pending = <A, E = never, I = void, C = unknown>(input: I): Pending<A, E, I, C> =>
+  state<I, A, E, C>("pending", { variables: Option.some(input) }) as Pending<A, E, I, C>;
+
+/**
+ * A mutation that succeeded with `data` for `input`. See {@link idle}.
+ *
+ * @since 1.1.0
+ * @category constructors
+ */
+export const success = <A, E = never, I = void, C = unknown>(
+  data: A,
+  input: I,
+): Success<A, E, I, C> =>
+  state<I, A, E, C>("success", {
+    data: Option.some(data),
+    variables: Option.some(input),
+  }) as Success<A, E, I, C>;
+
+/**
+ * A mutation that failed with the typed `error` for `input`. See {@link idle}.
+ *
+ * @since 1.1.0
+ * @category constructors
+ */
+export const failure = <A = never, E = unknown, I = void, C = unknown>(
+  error: E,
+  input: I,
+): Failure<A, E, I, C> =>
+  state<I, A, E, C>("error", {
+    cause: Option.some(Cause.fail(error)),
+    variables: Option.some(input),
+    failureCount: 1,
+    failureReason: Option.some(error),
+  }) as Failure<A, E, I, C>;
