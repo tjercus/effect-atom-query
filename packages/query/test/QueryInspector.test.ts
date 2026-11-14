@@ -1,6 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Effect, Option } from "effect";
-import { Mutation, Query, QueryInspector } from "../src/index.ts";
+import { Duration, Effect, Option } from "effect";
+import { TestClock } from "effect/testing";
+import { Mutation, Query, QueryInspector, QueryObserver } from "../src/index.ts";
 import { settle, setup } from "./utils.ts";
 
 describe("QueryInspector", () => {
@@ -54,6 +55,68 @@ describe("QueryInspector", () => {
       yield* QueryInspector.action(client, ["n"], "remove");
       expect(QueryInspector.queries(client)).toHaveLength(0);
       unsubscribe();
+    }),
+  );
+
+  it.effect("snapshots bigint keys, static and infinite times, and pending queries", () =>
+    Effect.gen(function* () {
+      const { client } = yield* setup();
+      const big = Query.single({
+        key: ["big", 10n],
+        run: Effect.succeed(1),
+        staleTime: "static",
+        gcTime: Duration.infinity,
+      });
+      yield* client.fetchQuery(big);
+      // not JSON-serialisable: falls back to a readable hash
+      const cyclic: { self?: unknown } = {};
+      cyclic.self = cyclic;
+      yield* client.fetchQuery(
+        Query.single({ key: ["cyclic", cyclic, 2n], run: Effect.succeed(2) }),
+      );
+      const pending = Query.single({ key: ["never"], run: Effect.never });
+      QueryObserver.make(client, pending).subscribe(() => {});
+      yield* settle;
+
+      const snapshots = QueryInspector.queries(client);
+      const b = snapshots.find((q) => q.key[0] === "big")!;
+      expect(b.hash).toBe('["big",{"~bigint":"10"}]');
+      expect(b.staleTime).toBe("static");
+      expect(b.gcTime).toBe(Number.POSITIVE_INFINITY);
+      expect(Option.isSome(b.dataUpdatedAt)).toBe(false); // TestClock starts at 0
+      expect(snapshots.find((q) => q.key[0] === "cyclic")!.hash).toBe(
+        "[cyclic,[object Object],2n]",
+      );
+      const p = snapshots.find((q) => q.hash === '["never"]')!;
+      expect(p).toMatchObject({ status: "pending", fetchStatus: "fetching", isActive: true });
+      expect(p.observers).toBe(1);
+    }),
+  );
+
+  it.effect("reset and cancel actions; run forks on the client's runtime", () =>
+    Effect.gen(function* () {
+      const { client } = yield* setup();
+      let n = 0;
+      const q = Query.single({
+        key: ["r"],
+        run: Effect.sync(() => ++n).pipe(Effect.delay("1 second")),
+      });
+      QueryInspector.run(client, client.prefetchQuery(q));
+      yield* settle;
+      expect(QueryInspector.queries(client)[0]!.fetchStatus).toBe("fetching");
+      yield* QueryInspector.action(client, ["r"], "cancel");
+      expect(QueryInspector.queries(client)[0]).toMatchObject({
+        status: "pending",
+        fetchStatus: "idle",
+      });
+
+      yield* client.setQueryData(q, 5);
+      expect(QueryInspector.queries(client)[0]!.data).toEqual(Option.some(5));
+      yield* QueryInspector.action(client, ["r"], "reset");
+      expect(QueryInspector.queries(client)[0]).toMatchObject({ status: "pending" });
+      expect(QueryInspector.queries(client)[0]!.data).toEqual(Option.none());
+      yield* TestClock.adjust("1 second");
+      expect(n).toBe(0); // cancelled fetch never completed; reset of an inactive query does not refetch
     }),
   );
 });

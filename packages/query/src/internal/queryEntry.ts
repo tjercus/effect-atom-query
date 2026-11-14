@@ -297,7 +297,8 @@ export interface QueryState<A, E> {
   readonly fetchDirection: FetchDirection | undefined;
 }
 
-const initialState: QueryState<never, never> = {
+/** @internal */
+export const initialState: QueryState<never, never> = {
   status: "pending",
   fetchStatus: "idle",
   data: Option.none(),

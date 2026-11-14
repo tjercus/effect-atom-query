@@ -2,7 +2,7 @@ import { assert, describe, expect, it } from "@effect/vitest";
 import { Cause, Effect, Fiber, Option, Schema } from "effect";
 import { Atom, Reactivity } from "effect/reactivity";
 import { TestClock } from "effect/testing";
-import { Mutation, MutationObserver, Query, QueryClient } from "../src/index.ts";
+import { Mutation, MutationObserver, MutationResult, Query, QueryClient } from "../src/index.ts";
 import { counter, settle, setup } from "./utils.ts";
 
 class Rejected extends Schema.TaggedError<Rejected>()("Rejected", { title: Schema.String }) {}
@@ -155,6 +155,188 @@ describe("mutations", () => {
     }),
   );
 
+  it.effect("Mutation.optimisticUpdate writes to the cache and rolls back on error", () =>
+    Effect.gen(function* () {
+      const { client, registry } = yield* setup();
+      const server = makeServer();
+      const todos = server.todosQuery;
+      const add = Mutation.make({
+        run: server.add,
+        ...Mutation.optimisticUpdate(todos, (list, title: string) => [...list, title]),
+      });
+      registry.mount(todos);
+      yield* TestClock.adjust("100 millis");
+      yield* settle;
+
+      const bad = yield* Effect.forkChild(client.mutate(add, "bad"));
+      yield* settle;
+      expect(registry.get(todos).data).toEqual(Option.some(["a", "bad"])); // optimistic
+      yield* TestClock.adjust("100 millis");
+      yield* settle;
+      expect(registry.get(todos).data).toEqual(Option.some(["a"])); // rolled back
+      expect(registry.get(todos).isFetching).toBe(true); // and refetching
+      yield* TestClock.adjust("100 millis");
+      expect((yield* Fiber.await(bad))._tag).toBe("Failure");
+      yield* settle;
+
+      const good = yield* Effect.forkChild(client.mutate(add, "b"));
+      yield* settle;
+      expect(registry.get(todos).data).toEqual(Option.some(["a", "b"]));
+      const fetches = server.fetches;
+      yield* TestClock.adjust("100 millis"); // saved on the server
+      yield* settle;
+      expect(registry.get(todos).isFetching).toBe(true); // refetching after success too
+      yield* TestClock.adjust("100 millis");
+      expect((yield* Fiber.await(good))._tag).toBe("Success");
+      yield* settle;
+      expect(server.fetches).toBe(fetches + 1);
+      expect(registry.get(todos).data).toEqual(Option.some(["a", "b"])); // from the server
+    }),
+  );
+
+  it.effect("Mutation.optimisticUpdate refetches after overlapping rollbacks", () =>
+    Effect.gen(function* () {
+      const { client, registry } = yield* setup();
+      const server = makeServer();
+      const todos = server.todosQuery;
+      const add = Mutation.make({
+        run: server.add,
+        ...Mutation.optimisticUpdate(todos, (list, title: string) => [...list, title]),
+      });
+      registry.mount(todos);
+      yield* TestClock.adjust("100 millis");
+      yield* settle;
+
+      // A snapshots [a]; B snapshots A's update [a, bad]. Both fail; B's
+      // rollback alone would bring back A's failed item.
+      const a = yield* Effect.forkChild(client.mutate(add, "bad"));
+      yield* settle;
+      const b = yield* Effect.forkChild(client.mutate(add, "bad"));
+      yield* settle;
+      expect(registry.get(todos).data).toEqual(Option.some(["a", "bad", "bad"]));
+      yield* TestClock.adjust("100 millis"); // both fail
+      yield* settle;
+      yield* TestClock.adjust("100 millis"); // the invalidation refetch lands
+      yield* settle;
+      yield* Fiber.await(a);
+      yield* Fiber.await(b);
+      expect(registry.get(todos).data).toEqual(Option.some(["a"]));
+    }),
+  );
+
+  it.effect("Mutation.optimisticUpdate brings back a success rolled back by another failure", () =>
+    Effect.gen(function* () {
+      const { client, registry } = yield* setup();
+      const server = makeServer();
+      const todos = server.todosQuery;
+      const add = Mutation.make({
+        // "slow" is saved on the server only after the other's rollback refetch
+        run: (title: string) =>
+          server.add(title).pipe(Effect.delay(title === "slow" ? "300 millis" : "0 millis")),
+        ...Mutation.optimisticUpdate(todos, (list, title: string) => [...list, title]),
+      });
+      registry.mount(todos);
+      yield* TestClock.adjust("100 millis");
+      yield* settle;
+
+      const bad = yield* Effect.forkChild(client.mutate(add, "bad"));
+      yield* settle;
+      const slow = yield* Effect.forkChild(client.mutate(add, "slow"));
+      yield* settle;
+      expect(registry.get(todos).data).toEqual(Option.some(["a", "bad", "slow"]));
+      yield* TestClock.adjust("100 millis"); // "bad" fails: rollback to [a]
+      yield* settle;
+      yield* TestClock.adjust("100 millis"); // its refetch lands, "slow" not saved yet
+      yield* settle;
+      expect((yield* Fiber.await(bad))._tag).toBe("Failure");
+      expect(registry.get(todos).data).toEqual(Option.some(["a"]));
+      yield* TestClock.adjust("200 millis"); // "slow" is saved
+      yield* settle;
+      yield* TestClock.adjust("100 millis"); // and its refetch lands
+      expect((yield* Fiber.await(slow))._tag).toBe("Success");
+      yield* settle;
+      expect(registry.get(todos).data).toEqual(Option.some(["a", "slow"]));
+    }),
+  );
+
+  it.effect("Mutation.optimisticUpdate does not cancel a first load", () =>
+    Effect.gen(function* () {
+      const { client, registry } = yield* setup();
+      const server = makeServer();
+      const add = Mutation.make({
+        run: server.add,
+        ...Mutation.optimisticUpdate(server.todosQuery, (list, title: string) => [...list, title]),
+      });
+      registry.mount(server.todosQuery);
+      yield* settle;
+      expect(registry.get(server.todosQuery).isLoading).toBe(true);
+      const fiber = yield* Effect.forkChild(client.mutate(add, "b"));
+      yield* settle;
+      expect(registry.get(server.todosQuery).isFetching).toBe(true); // still loading
+      yield* TestClock.adjust("100 millis");
+      yield* Fiber.await(fiber);
+      yield* settle;
+      const result = registry.get(server.todosQuery);
+      expect(result.isSuccess).toBe(true);
+      expect(server.fetches).toBe(1);
+    }),
+  );
+
+  it.effect("Mutation.optimisticUpdate cancels running fetches and targets family members", () =>
+    Effect.gen(function* () {
+      const { client, registry } = yield* setup();
+      let title = "server";
+      const todoQuery = Query.make({
+        key: (id: string) => ["todo", id],
+        run: (id: string) => Effect.sync(() => `${id}:${title}`).pipe(Effect.delay("100 millis")),
+      });
+      const rename = Mutation.make({
+        run: (input: { readonly id: string; readonly title: string }) =>
+          Effect.sync(() => {
+            title = input.title;
+          }).pipe(Effect.delay("100 millis")),
+        ...Mutation.optimisticUpdate(
+          (input: { readonly id: string; readonly title: string }) => todoQuery(input.id),
+          (_old, input) => `${input.id}:${input.title}`,
+        ),
+      });
+      registry.mount(todoQuery("1"));
+      registry.mount(todoQuery("2"));
+      yield* TestClock.adjust("100 millis");
+      yield* settle;
+
+      // a refetch started before the mutation must not overwrite the update
+      yield* Effect.forkChild(client.refetchQueries({ queryKey: ["todo", "1"] }));
+      yield* settle;
+      yield* Effect.forkChild(client.mutate(rename, { id: "1", title: "renamed" }));
+      yield* settle;
+      expect(registry.get(todoQuery("1")).data).toEqual(Option.some("1:renamed"));
+      yield* TestClock.adjust("100 millis");
+      yield* settle;
+      expect(registry.get(todoQuery("1")).data).toEqual(Option.some("1:renamed"));
+      expect(registry.get(todoQuery("2")).data).toEqual(Option.some("2:server")); // untouched
+    }),
+  );
+
+  it.effect("Mutation.optimisticUpdate does nothing while the query has no data", () =>
+    Effect.gen(function* () {
+      const { client, registry } = yield* setup();
+      const server = makeServer();
+      const add = Mutation.make({
+        run: server.add,
+        ...Mutation.optimisticUpdate(server.todosQuery, (list, title: string) => [...list, title]),
+      });
+      const fiber = yield* Effect.forkChild(client.mutate(add, "bad"));
+      yield* settle;
+      expect(Option.isNone(yield* client.getQueryData(server.todosQuery))).toBe(true);
+      yield* TestClock.adjust("100 millis");
+      yield* Fiber.await(fiber);
+      yield* settle;
+      expect(Option.isNone(yield* client.getQueryData(server.todosQuery))).toBe(true);
+      expect(registry.get(server.todosQuery).isPending).toBe(true);
+    }),
+  );
+
   it.effect("optimistic update via the UI with Mutation.optimistic", () =>
     Effect.gen(function* () {
       const { registry } = yield* setup();
@@ -249,6 +431,24 @@ describe("mutations", () => {
       yield* TestClock.adjust("2 seconds");
       yield* settle;
       expect(seen).toEqual([2]);
+    }),
+  );
+
+  it.effect("observer onError receives the typed failure, None for defects", () =>
+    Effect.gen(function* () {
+      const { client } = yield* setup();
+      const seen: Array<Option.Option<Rejected>> = [];
+      const m = Mutation.make({
+        run: (title: string) =>
+          title === "boom" ? Effect.die("boom") : Effect.fail(new Rejected({ title })),
+      });
+      const observer = MutationObserver.make(client, m);
+      observer.subscribe(() => {});
+      observer.mutate("bad", { onError: (_cause, _input, error) => seen.push(error) });
+      yield* settle;
+      observer.mutate("boom", { onError: (_cause, _input, error) => seen.push(error) });
+      yield* settle;
+      expect(seen).toEqual([Option.some(new Rejected({ title: "bad" })), Option.none()]);
     }),
   );
 
@@ -397,6 +597,139 @@ describe("cache writes and invalidation", () => {
         return [afterExternal, runs.count];
       }).pipe(Effect.provide(Reactivity.layer));
       expect(result).toEqual([2, 3]);
+    }),
+  );
+});
+
+describe("MutationObserver", () => {
+  it.effect("setOptions swaps the mutation and the UI callbacks", () =>
+    Effect.gen(function* () {
+      const { client } = yield* setup();
+      const seen: Array<string> = [];
+      const double = Mutation.make({ run: (n: number) => Effect.succeed(n * 2) });
+      const triple = Mutation.make({ run: (n: number) => Effect.succeed(n * 3) });
+      const observer = MutationObserver.make(client, double, {
+        onSuccess: (a) => seen.push(`old ${a}`),
+      });
+      observer.subscribe(() => {});
+      observer.setOptions(triple, { onSuccess: (a) => seen.push(`new ${a}`) });
+      observer.mutate(2);
+      yield* settle;
+      expect(seen).toEqual(["new 6"]);
+      observer.setOptions(double);
+      observer.mutate(2);
+      yield* settle;
+      expect(seen).toEqual(["new 6"]); // no callbacks any more
+      expect(observer.getCurrentResult().data).toEqual(Option.some(4));
+    }),
+  );
+
+  it.effect("subscribing after mutate attaches to the running execution", () =>
+    Effect.gen(function* () {
+      const { client } = yield* setup();
+      const m = Mutation.make({
+        run: (n: number) => Effect.succeed(n).pipe(Effect.delay("1 second")),
+      });
+      const settled: Array<number> = [];
+      const observer = MutationObserver.make(client, m, { onSuccess: (n) => settled.push(n) });
+      observer.mutate(1);
+      yield* settle;
+      const pending = observer.getCurrentResult();
+      expect(pending.status).toBe("pending");
+      expect(observer.getCurrentResult()).toBe(pending); // memoised per state
+
+      let notified = 0;
+      const unsubscribe = observer.subscribe(() => notified++);
+      const entry = client.mutationCache.all()[0]!;
+      expect(entry.observers).toBe(1);
+      yield* TestClock.adjust("1 second");
+      yield* settle;
+      expect(notified).toBeGreaterThan(0);
+      expect(observer.getCurrentResult().status).toBe("success");
+      expect(settled).toEqual([1]); // subscribed when it settled
+      unsubscribe();
+      expect(entry.observers).toBe(0);
+    }),
+  );
+
+  it.effect("mutateEffect runs with the caller's services and returns the result", () =>
+    Effect.gen(function* () {
+      const { client } = yield* setup();
+      const m = Mutation.make({
+        run: (n: number) =>
+          n > 0 ? Effect.succeed(n + 1) : Effect.fail(new Rejected({ title: String(n) })),
+      });
+      const observer = MutationObserver.make(client, m);
+      expect(yield* observer.mutateEffect(1)).toBe(2);
+      expect(observer.getCurrentResult().data).toEqual(Option.some(2));
+      const error = yield* Effect.flip(observer.mutateEffect(0));
+      expect(error).toEqual(new Rejected({ title: "0" }));
+      expect(observer.getCurrentResult().status).toBe("error");
+    }),
+  );
+
+  it.effect("reset forgets the latest execution and notifies", () =>
+    Effect.gen(function* () {
+      const { client } = yield* setup();
+      const m = Mutation.make({ run: (n: number) => Effect.succeed(n) });
+      const observer = MutationObserver.make(client, m);
+      let notified = 0;
+      observer.subscribe(() => notified++);
+      observer.mutate(7);
+      yield* settle;
+      expect(observer.getCurrentResult().status).toBe("success");
+      const entry = client.mutationCache.all()[0]!;
+      const before = notified;
+      observer.reset();
+      expect(notified).toBe(before + 1);
+      expect(observer.getCurrentResult().status).toBe("idle");
+      expect(entry.observers).toBe(0);
+      expect(MutationResult.isDefect(observer.getCurrentResult())).toBe(false);
+    }),
+  );
+
+  it.effect("MutationResult.isDefect tells defects from typed failures", () =>
+    Effect.gen(function* () {
+      const { client } = yield* setup();
+      const m = Mutation.make({
+        run: (kind: string) =>
+          kind === "die" ? Effect.die("boom") : Effect.fail(new Rejected({ title: kind })),
+      });
+      const observer = MutationObserver.make(client, m);
+      yield* Effect.exit(observer.mutateEffect("die"));
+      expect(MutationResult.isDefect(observer.getCurrentResult())).toBe(true);
+      yield* Effect.exit(observer.mutateEffect("typed"));
+      expect(MutationResult.isDefect(observer.getCurrentResult())).toBe(false);
+    }),
+  );
+});
+
+describe("Mutation.optimistic with overlapping executions", () => {
+  it.effect("applies pending inputs in submission order", () =>
+    Effect.gen(function* () {
+      const { client, registry } = yield* setup();
+      const list = Query.single({
+        key: ["overlap"],
+        run: Effect.succeed<ReadonlyArray<string>>([]),
+      });
+      const add = Mutation.make({
+        run: (title: string) => Effect.succeed(title).pipe(Effect.delay("1 second")),
+      });
+      const view = Mutation.optimistic(list, add, (items, title) => [...items, title]);
+      registry.mount(view);
+      yield* settle;
+      const a = MutationObserver.make(client, add);
+      const b = MutationObserver.make(client, add);
+      a.mutate("first");
+      yield* TestClock.adjust("1 millis");
+      b.mutate("second");
+      yield* settle;
+      expect(registry.get(view).data).toEqual(Option.some(["first", "second"]));
+      expect(Mutation.isMutationAtom(add)).toBe(true);
+      expect(Mutation.isMutationAtom(list)).toBe(false);
+      yield* TestClock.adjust("1 second");
+      yield* settle;
+      expect(registry.get(view).data).toEqual(Option.some([]));
     }),
   );
 });

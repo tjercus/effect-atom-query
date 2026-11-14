@@ -1,6 +1,6 @@
 {
   "name": "@effect-atom-query/query",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Server-state caching on Effect and Effect Atoms, in the style of TanStack Query.",
   "keywords": [
     "atom",
@@ -49,11 +49,12 @@
   "scripts": {
     "build": "vp pack",
     "dev": "vp pack --watch",
-    "test": "vp test",
+    "test": "vp test --coverage",
     "check": "vp check"
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
     "effect": "catalog:",
     "typescript": "catalog:",
     "vite-plus": "catalog:"

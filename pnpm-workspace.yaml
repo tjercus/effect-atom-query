@@ -9,6 +9,7 @@ catalog:
   typescript: ^7.0.2
   vite: npm:@voidzero-dev/vite-plus-core@1.6.0
   vite-plus: 1.6.0
+  "@vitest/coverage-v8": 5.1.0
   effect: ^4.1.4
   "@effect/atom-react": ^4.1.4
   "@effect/vitest": ^4.1.4

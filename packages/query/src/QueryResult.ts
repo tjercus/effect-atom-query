@@ -6,6 +6,7 @@
  */
 import { Cause, type DateTime, Option } from "effect";
 import { AsyncResult } from "effect/reactivity";
+import { initialState, project, type QueryState } from "./internal/queryEntry.ts";
 
 /**
  * Whether any data or error has arrived yet.
@@ -122,18 +123,11 @@ export interface Failure<A, E> extends Base<A, E> {
  */
 export type QueryResult<A, E = never> = Pending<A, E> | Success<A, E> | Failure<A, E>;
 
-/**
- * The value of a disabled query that has nothing in the cache, for example one
- * created with `skipToken`.
- *
- * @since 0.1.0
- * @category constructors
- */
-export const disabled = <A, E>(initial: AsyncResult.AsyncResult<A, E>): QueryResult<A, E> => ({
-  result: initial,
-  status: "pending",
+const none = Option.none();
+
+const empty = {
   fetchStatus: "idle",
-  isPending: true,
+  isPending: false,
   isSuccess: false,
   isError: false,
   isLoading: false,
@@ -143,19 +137,94 @@ export const disabled = <A, E>(initial: AsyncResult.AsyncResult<A, E>): QueryRes
   isFetching: false,
   isPaused: false,
   isStale: false,
-  isEnabled: false,
+  isEnabled: true,
   isFetched: false,
   isFetchedAfterMount: false,
   isPlaceholderData: false,
-  data: Option.none() as Option.None<A>,
-  error: Option.none() as Option.None<E>,
-  dataUpdatedAt: Option.none(),
-  errorUpdatedAt: Option.none(),
+  data: none,
+  error: none,
+  dataUpdatedAt: none,
+  errorUpdatedAt: none,
   dataUpdateCount: 0,
   errorUpdateCount: 0,
   failureCount: 0,
-  failureReason: Option.none(),
+  failureReason: none,
+} as const;
+
+/**
+ * The value of a disabled query that has nothing in the cache, for example one
+ * created with `skipToken`.
+ *
+ * @since 0.1.0
+ * @category constructors
+ */
+export const disabled = <A, E>(initial: AsyncResult.AsyncResult<A, E>): QueryResult<A, E> => ({
+  ...empty,
+  result: initial,
+  status: "pending",
+  isPending: true,
+  isEnabled: false,
+  data: none as Option.None<A>,
+  error: none as Option.None<E>,
 });
+
+/**
+ * A result built from a cache state the way real queries build theirs, with
+ * the defaults of a query that just mounted: enabled, and stale (the default
+ * `staleTime` is 0, and a query without data is always stale).
+ */
+const fromState = <A, E>(state: Partial<QueryState<A, E>>): QueryResult<A, E> =>
+  project<A, E>(
+    { ...initialState, ...state },
+    { isStale: true, isEnabled: true, fetchedAtMount: 0 },
+  );
+
+/**
+ * A query whose first load is running (`isLoading`). With the other
+ * constructors, for tests and stories that mock hooks or atoms:
+ *
+ * ```ts
+ * vi.mocked(useTodosQuery).mockReturnValue(QueryResult.success([todo]))
+ * ```
+ *
+ * The flags match a freshly mounted query with default options. Timestamps
+ * are `None`, so results are deterministic. Spread to override a flag:
+ * `{ ...QueryResult.success(todos), isStale: false }`.
+ *
+ * @since 1.1.0
+ * @category constructors
+ */
+export const pending = <A, E = never>(): Pending<A, E> =>
+  fromState<A, E>({ fetchStatus: "fetching" }) as Pending<A, E>;
+
+/**
+ * A query whose last fetch succeeded with `data`. See {@link pending}.
+ *
+ * @since 1.1.0
+ * @category constructors
+ */
+export const success = <A, E = never>(data: A): Success<A, E> =>
+  fromState<A, E>({
+    status: "success",
+    data: Option.some(data),
+    dataUpdateCount: 1,
+  }) as Success<A, E>;
+
+/**
+ * A query whose first fetch failed with the typed `error` (`isLoadingError`).
+ * See {@link pending}.
+ *
+ * @since 1.1.0
+ * @category constructors
+ */
+export const failure = <A = never, E = unknown>(error: E): Failure<A, E> =>
+  fromState<A, E>({
+    status: "error",
+    cause: Option.some(Cause.fail(error)),
+    errorUpdateCount: 1,
+    failureCount: 1,
+    failureReason: Option.some(error),
+  }) as Failure<A, E>;
 
 /**
  * Pattern match on the status.

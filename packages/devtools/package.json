@@ -1,6 +1,6 @@
 {
   "name": "@effect-atom-query/devtools",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "In-app devtools panel for @effect-atom-query (query and mutation cache inspector).",
   "keywords": [
     "devtools",
@@ -47,7 +47,7 @@
   "scripts": {
     "build": "vp pack",
     "dev": "vp pack --watch",
-    "test": "vp test",
+    "test": "vp test --coverage",
     "check": "vp check"
   },
   "devDependencies": {
@@ -58,6 +58,7 @@
     "@testing-library/react": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
     "effect": "catalog:",
     "happy-dom": "catalog:",
     "react": "catalog:",
@@ -71,6 +72,6 @@
     "@effect-atom-query/react": "workspace:^",
     "@effect/atom-react": "catalog:",
     "effect": "catalog:",
-    "react": "catalog:"
+    "react": "^19.0.0"
   }
 }

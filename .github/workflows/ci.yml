@@ -21,3 +21,19 @@ jobs:
       - run: vp run ready
       # pack every package and check what would be published (nothing is uploaded)
       - run: vp run release:check
+
+  # The react peer range is ^19.0.0: test the bindings against the lowest version.
+  react-min:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: voidzero-dev/setup-vp@v1.22.0
+        with:
+          node-version: "24"
+          cache: true
+      - name: Pin react and react-dom to 19.0.0
+        run: |
+          sed -i 's/^  react: .*/  react: 19.0.0/; s/^  react-dom: .*/  react-dom: 19.0.0/' pnpm-workspace.yaml
+          vp install --no-frozen-lockfile
+          test "$(node -p "require('./packages/react/node_modules/react/package.json').version")" = 19.0.0
+      - run: vp run --filter @effect-atom-query/react --filter @effect-atom-query/devtools test

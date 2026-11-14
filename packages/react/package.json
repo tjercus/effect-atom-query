@@ -1,6 +1,6 @@
 {
   "name": "@effect-atom-query/react",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "React hooks for @effect-atom-query/query: useQuery, useMutation, Suspense, infinite queries.",
   "keywords": [
     "atom",
@@ -50,7 +50,7 @@
   "scripts": {
     "build": "vp pack",
     "dev": "vp pack --watch",
-    "test": "vp test",
+    "test": "vp test --coverage",
     "check": "vp check"
   },
   "dependencies": {
@@ -62,6 +62,7 @@
     "@testing-library/react": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
     "effect": "catalog:",
     "happy-dom": "catalog:",
     "react": "catalog:",
@@ -73,6 +74,6 @@
   "peerDependencies": {
     "@effect/atom-react": "catalog:",
     "effect": "catalog:",
-    "react": "catalog:"
+    "react": "^19.0.0"
   }
 }

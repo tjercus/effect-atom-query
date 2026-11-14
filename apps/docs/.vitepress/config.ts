@@ -31,6 +31,7 @@ export default defineConfig({
           { text: "Infinite queries", link: "/guide/infinite-queries" },
           { text: "Suspense & error boundaries", link: "/guide/suspense" },
           { text: "The QueryClient", link: "/guide/query-client" },
+          { text: "Promise boundaries", link: "/guide/promises" },
           { text: "Persistence & offline", link: "/guide/persistence" },
           { text: "Devtools", link: "/guide/devtools" },
           { text: "Testing", link: "/guide/testing" },
