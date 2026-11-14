@@ -1,5 +1,16 @@
 # @effect-atom-query/react
 
+## 1.2.0
+
+### Minor Changes
+
+- integration DX and lots of review findings in real world usage
+
+### Patch Changes
+
+- Updated dependencies
+  - @effect-atom-query/query@1.2.0
+
 ## 1.1.0
 
 ### Minor Changes
