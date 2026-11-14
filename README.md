@@ -3,6 +3,8 @@
 Server-state caching for React in the style of [TanStack Query](https://tanstack.com/query),
 written as idiomatic [Effect](https://effect.website) and built on Effect Atoms.
 
+📖 **[Documentation](https://tjercus.github.io/effect-atom-query/)**
+
 - **Queries are Effects.** `run` returns an `Effect<A, E, R>`, so errors stay
   typed all the way to the component and services come from your runtime.
   Retries are `Schedule`s, and cancellation is fiber interruption.
@@ -171,7 +173,7 @@ Not yet supported: SSR (`dehydrate` / `hydrate`, `HydrationBoundary`).
 | `onSettled: () => invalidateQueries(...)`      | `invalidates: [["todos"]]`                                              |
 | `persistQueryClient`                           | `QueryPersister.layer` + per-query `persist: { schema }`                |
 
-More in the [migration guide](apps/docs/guide/from-tanstack.md).
+More in the [migration guide](https://tjercus.github.io/effect-atom-query/guide/from-tanstack).
 
 ## Packages
 
@@ -187,18 +189,19 @@ A typical app (provider + `useQuery`) adds 12.3 kB. CI enforces these budgets
 
 ## Documentation
 
-The guide lives in [`apps/docs`](apps/docs) (VitePress; `vp run docs#dev`):
+**Documentation site: <https://tjercus.github.io/effect-atom-query/>**. Its source is in [`apps/docs`](apps/docs)
+(VitePress; run it locally with `vp run docs#dev`).
 
-- [Getting started](apps/docs/guide/getting-started.md)
-- [Queries](apps/docs/guide/queries.md) · [React hooks](apps/docs/guide/react.md) · [Mutations](apps/docs/guide/mutations.md)
-- [Infinite queries](apps/docs/guide/infinite-queries.md) · [Suspense & error boundaries](apps/docs/guide/suspense.md)
-- [The QueryClient](apps/docs/guide/query-client.md) · [Persistence & offline](apps/docs/guide/persistence.md)
-- [Devtools](apps/docs/guide/devtools.md) · [Testing](apps/docs/guide/testing.md)
+- [Getting started](https://tjercus.github.io/effect-atom-query/guide/getting-started)
+- [Queries](https://tjercus.github.io/effect-atom-query/guide/queries) · [React hooks](https://tjercus.github.io/effect-atom-query/guide/react) · [Mutations](https://tjercus.github.io/effect-atom-query/guide/mutations)
+- [Infinite queries](https://tjercus.github.io/effect-atom-query/guide/infinite-queries) · [Suspense & error boundaries](https://tjercus.github.io/effect-atom-query/guide/suspense)
+- [The QueryClient](https://tjercus.github.io/effect-atom-query/guide/query-client) · [Persistence & offline](https://tjercus.github.io/effect-atom-query/guide/persistence)
+- [Devtools](https://tjercus.github.io/effect-atom-query/guide/devtools) · [Testing](https://tjercus.github.io/effect-atom-query/guide/testing)
 
 **Examples:** [`apps/playground`](apps/playground) has 12 runnable examples that
 mirror TanStack Query's React examples (pagination, infinite scroll, optimistic
 updates, Suspense, offline, …). They run against a fake backend service. Start
-them with `vp run dev`. See the [examples index](apps/docs/examples.md).
+them with `vp run dev`. See the [examples index](https://tjercus.github.io/effect-atom-query/examples).
 
 Design notes: [plan](docs/PLAN.md), [TanStack feature matrix](docs/FEATURE-MATRIX.md),
 [decisions](docs/QUESTIONS.md).

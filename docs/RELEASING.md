@@ -40,4 +40,8 @@ git push --follow-tags
 - Push the repository to `github.com/tjercus/effect-atom-query` (the
   `repository`, `homepage` and `bugs` fields point there).
 
+- In the GitHub repository, set Settings → Pages → Source to "GitHub Actions".
+  `.github/workflows/docs.yml` then deploys the docs site to
+  https://tjercus.github.io/effect-atom-query/ on every push to `main` that touches `apps/docs`.
+
 Each package ships its own `README.md` and `LICENSE` (MIT © tjercus).

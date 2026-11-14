@@ -1,6 +1,10 @@
 import { defineConfig } from "vitepress";
 
+const repo = "https://github.com/tjercus/effect-atom-query";
+
 export default defineConfig({
+  // Served from GitHub Pages at https://tjercus.github.io/effect-atom-query/
+  base: "/effect-atom-query/",
   title: "effect-atom-query",
   description: "TanStack-Query-style server state for React, built on Effect and Effect Atoms.",
   cleanUrls: true,
@@ -35,5 +39,14 @@ export default defineConfig({
       { text: "Examples", link: "/examples" },
     ],
     search: { provider: "local" },
+    socialLinks: [{ icon: "github", link: repo }],
+    editLink: {
+      pattern: `${repo}/edit/main/apps/docs/:path`,
+      text: "Edit this page on GitHub",
+    },
+    footer: {
+      message: "Released under the MIT License.",
+      copyright: "© 2026 tjercus",
+    },
   },
 });
