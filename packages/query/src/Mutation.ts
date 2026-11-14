@@ -15,11 +15,11 @@
  *
  * @since 0.1.0
  */
-import { type Cause, type Effect, type Exit, Option } from "effect";
+import { type Cause, Effect, type Exit, Option } from "effect";
 import { Atom } from "effect/reactivity";
 import type { MutationEntry, MutationKey, MutationOptions } from "./internal/mutationEntry.ts";
 import type { ReactivityKeys } from "./internal/queryEntry.ts";
-import type * as Query from "./Query.ts";
+import * as Query from "./Query.ts";
 import * as QueryClient from "./QueryClient.ts";
 import * as QueryKey from "./QueryKey.ts";
 import * as MutationResult from "./MutationResult.ts";
@@ -238,3 +238,64 @@ export const optimistic = <A, E, I>(
       ),
     );
   });
+
+/**
+ * Optimistic updates "via the cache": the `onMutate` / `onError` pair that
+ * writes `update` into `query`'s cached data before `run`, and restores the
+ * snapshot if the mutation fails. Spread it into a definition:
+ *
+ * ```ts
+ * const deleteTodo = Mutation.make({
+ *   run: (id: string) => TodoRepo.use((repo) => repo.delete(id)),
+ *   ...Mutation.optimisticUpdate(todosQuery, (todos, id) => todos.filter((t) => t.id !== id)),
+ *   invalidates: [["todos"]],
+ * })
+ * ```
+ *
+ * `onMutate` cancels the query's running fetches (so they cannot overwrite the
+ * update), snapshots its data and applies `update`; it does nothing while the
+ * query has no data. `query` can also be a function of the input, to target
+ * one member of a family: `(todo) => todoQuery(todo.id)`.
+ *
+ * Unlike {@link optimistic}, this changes the cache, so every reader sees the
+ * update, also outside React. Prefer {@link optimistic} when only one view
+ * needs to show it. To add your own `onMutate` / `onError`, call these from
+ * yours.
+ *
+ * @since 1.1.0
+ * @category combinators
+ */
+export const optimisticUpdate = <A, I>(
+  query: Query.QueryAtom<A, any, any> | ((input: I) => Query.QueryAtom<A, any, any>),
+  update: (data: A, input: I) => A,
+): {
+  readonly onMutate: (input: I) => Effect.Effect<Option.Option<A>, never, QueryClient.QueryClient>;
+  readonly onError: (
+    cause: Cause.Cause<unknown>,
+    input: I,
+    context: Option.Option<Option.Option<A>>,
+  ) => Effect.Effect<void, never, QueryClient.QueryClient>;
+} => {
+  const target = (input: I): Query.QueryAtom<A, any, any> =>
+    Query.isQueryAtom(query) ? query : query(input);
+  return {
+    onMutate: (input) =>
+      Effect.gen(function* () {
+        const client = yield* QueryClient.QueryClient;
+        const atom = target(input);
+        yield* client.cancelQueries({ queryKey: atom.key, exact: true });
+        const previous = yield* client.getQueryData(atom);
+        if (Option.isSome(previous)) {
+          yield* client.setQueryData(atom, () => Option.some(update(previous.value, input)));
+        }
+        return previous;
+      }),
+    onError: (_cause, input, context) =>
+      Effect.gen(function* () {
+        const previous = Option.flatten(context);
+        if (Option.isNone(previous)) return;
+        const client = yield* QueryClient.QueryClient;
+        yield* client.setQueryData(target(input), () => previous);
+      }),
+  };
+};

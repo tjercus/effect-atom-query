@@ -67,8 +67,26 @@ over to the refetched list without showing the item twice.
 
 ## Optimistic updates via the cache
 
-Definition callbacks are Effects with the `QueryClient` in context, so the
-snapshot and rollback pattern is plain Effect code:
+`Mutation.optimisticUpdate(query, update)` returns an `onMutate` / `onError`
+pair to spread into a definition. Before `run`, it cancels the query's running
+fetches, snapshots its data and writes `update(data, input)`. If the mutation
+fails, it restores the snapshot:
+
+```ts
+const deleteTodo = Mutation.make({
+  run: (id: string) => TodoRepo.use((repo) => repo.delete(id)),
+  ...Mutation.optimisticUpdate(todosQuery, (todos, id) => todos.filter((t) => t.id !== id)),
+  invalidates: [["todos"]],
+});
+```
+
+To update one member of a family, pass a function of the input:
+`Mutation.optimisticUpdate((todo: Todo) => todoQuery(todo.id), (_old, todo) => todo)`.
+While the query has no data, nothing is written.
+
+The helper replaces `onMutate` and `onError`. If you need your own as well,
+write the pattern out. Definition callbacks are Effects with the `QueryClient`
+in context, so it is plain Effect code:
 
 ```ts
 const addTodo = Mutation.make({
@@ -87,12 +105,18 @@ const addTodo = Mutation.make({
     QueryClient.QueryClient.pipe(
       Effect.flatMap((client) => client.setQueryData(todosQuery, () => Option.flatten(previous))),
     ),
-  onSettled: () =>
-    QueryClient.QueryClient.pipe(
-      Effect.flatMap((client) => client.invalidateQueries({ queryKey: ["todos"] })),
-    ),
+  invalidates: [["todos"]],
 });
 ```
+
+### Which one to pick
+
+- **Via the UI** (`Mutation.optimistic`): only the views that read the
+  overlay atom show the change, and nothing in the cache needs rolling back.
+  Concurrent mutations stack correctly. Pick this by default.
+- **Via the cache** (`Mutation.optimisticUpdate`): every reader of the query
+  sees the change, including other components using `useQuery`, and code
+  outside React. Pick this when the change must show everywhere at once.
 
 ## More options
 

@@ -155,6 +155,92 @@ describe("mutations", () => {
     }),
   );
 
+  it.effect("Mutation.optimisticUpdate writes to the cache and rolls back on error", () =>
+    Effect.gen(function* () {
+      const { client, registry } = yield* setup();
+      const server = makeServer();
+      const todos = server.todosQuery;
+      const add = Mutation.make({
+        run: server.add,
+        ...Mutation.optimisticUpdate(todos, (list, title: string) => [...list, title]),
+      });
+      registry.mount(todos);
+      yield* TestClock.adjust("100 millis");
+      yield* settle;
+
+      const bad = yield* Effect.forkChild(client.mutate(add, "bad"));
+      yield* settle;
+      expect(registry.get(todos).data).toEqual(Option.some(["a", "bad"])); // optimistic
+      yield* TestClock.adjust("100 millis");
+      expect((yield* Fiber.await(bad))._tag).toBe("Failure");
+      yield* settle;
+      expect(registry.get(todos).data).toEqual(Option.some(["a"])); // rolled back
+
+      const good = yield* Effect.forkChild(client.mutate(add, "b"));
+      yield* settle;
+      expect(registry.get(todos).data).toEqual(Option.some(["a", "b"]));
+      yield* TestClock.adjust("100 millis");
+      expect((yield* Fiber.await(good))._tag).toBe("Success");
+      yield* settle;
+      expect(registry.get(todos).data).toEqual(Option.some(["a", "b"])); // kept
+    }),
+  );
+
+  it.effect("Mutation.optimisticUpdate cancels running fetches and targets family members", () =>
+    Effect.gen(function* () {
+      const { client, registry } = yield* setup();
+      let title = "server";
+      const todoQuery = Query.make({
+        key: (id: string) => ["todo", id],
+        run: (id: string) => Effect.sync(() => `${id}:${title}`).pipe(Effect.delay("100 millis")),
+      });
+      const rename = Mutation.make({
+        run: (input: { readonly id: string; readonly title: string }) =>
+          Effect.sync(() => {
+            title = input.title;
+          }).pipe(Effect.delay("100 millis")),
+        ...Mutation.optimisticUpdate(
+          (input: { readonly id: string; readonly title: string }) => todoQuery(input.id),
+          (_old, input) => `${input.id}:${input.title}`,
+        ),
+      });
+      registry.mount(todoQuery("1"));
+      registry.mount(todoQuery("2"));
+      yield* TestClock.adjust("100 millis");
+      yield* settle;
+
+      // a refetch started before the mutation must not overwrite the update
+      yield* Effect.forkChild(client.refetchQueries({ queryKey: ["todo", "1"] }));
+      yield* settle;
+      yield* Effect.forkChild(client.mutate(rename, { id: "1", title: "renamed" }));
+      yield* settle;
+      expect(registry.get(todoQuery("1")).data).toEqual(Option.some("1:renamed"));
+      yield* TestClock.adjust("100 millis");
+      yield* settle;
+      expect(registry.get(todoQuery("1")).data).toEqual(Option.some("1:renamed"));
+      expect(registry.get(todoQuery("2")).data).toEqual(Option.some("2:server")); // untouched
+    }),
+  );
+
+  it.effect("Mutation.optimisticUpdate does nothing while the query has no data", () =>
+    Effect.gen(function* () {
+      const { client, registry } = yield* setup();
+      const server = makeServer();
+      const add = Mutation.make({
+        run: server.add,
+        ...Mutation.optimisticUpdate(server.todosQuery, (list, title: string) => [...list, title]),
+      });
+      const fiber = yield* Effect.forkChild(client.mutate(add, "bad"));
+      yield* settle;
+      expect(Option.isNone(yield* client.getQueryData(server.todosQuery))).toBe(true);
+      yield* TestClock.adjust("100 millis");
+      yield* Fiber.await(fiber);
+      yield* settle;
+      expect(Option.isNone(yield* client.getQueryData(server.todosQuery))).toBe(true);
+      expect(registry.get(server.todosQuery).isPending).toBe(true);
+    }),
+  );
+
   it.effect("optimistic update via the UI with Mutation.optimistic", () =>
     Effect.gen(function* () {
       const { registry } = yield* setup();
