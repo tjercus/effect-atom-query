@@ -90,6 +90,11 @@ export interface MutationState<I, A, E, C> {
   readonly isPaused: boolean;
   /** epoch millis; 0 = not submitted */
   readonly submittedAt: number;
+  /**
+   * epoch millis when `run` succeeded (the execution may still be pending,
+   * awaiting `onSuccess` / `invalidates`); 0 = not yet.
+   */
+  readonly ranAt: number;
 }
 
 /** @internal */
@@ -103,6 +108,7 @@ export const idleState: MutationState<never, never, never, never> = {
   failureReason: Option.none(),
   isPaused: false,
   submittedAt: 0,
+  ranAt: 0,
 };
 
 /** What a mutation entry needs from its cache/client. @internal */
@@ -231,6 +237,7 @@ export class MutationEntry<I, A, E, C> {
 
       if (Exit.isSuccess(exit)) {
         const data = exit.value;
+        this.setState((s) => ({ ...s, ranAt: this.runtime.client.now() }));
         if (options.onSuccess) yield* options.onSuccess(data, input, context);
         const keys =
           typeof options.invalidates === "function"

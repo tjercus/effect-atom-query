@@ -1,0 +1,51 @@
+{
+  "name": "@effect-native-query/devtools",
+  "version": "0.0.0",
+  "description": "In-app devtools panel for @effect-native-query (query and mutation cache inspector).",
+  "license": "MIT",
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "@effect-native-query/source": "./src/index.ts",
+      "types": "./dist/index.d.mts",
+      "default": "./dist/index.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "vp pack",
+    "dev": "vp pack --watch",
+    "test": "vp test",
+    "check": "vp check"
+  },
+  "devDependencies": {
+    "@effect-native-query/query": "workspace:*",
+    "@effect-native-query/react": "workspace:*",
+    "@effect/atom-react": "catalog:",
+    "@effect/vitest": "catalog:",
+    "@testing-library/react": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "effect": "catalog:",
+    "happy-dom": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "scheduler": "catalog:",
+    "typescript": "catalog:",
+    "vite-plus": "catalog:"
+  },
+  "peerDependencies": {
+    "@effect-native-query/query": "workspace:*",
+    "@effect-native-query/react": "workspace:*",
+    "@effect/atom-react": "catalog:",
+    "effect": "catalog:",
+    "react": "catalog:"
+  }
+}

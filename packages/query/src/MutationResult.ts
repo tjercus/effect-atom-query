@@ -186,4 +186,5 @@ export const idle = <A, E, I, C>(): MutationResult<A, E, I, C> =>
     failureReason: Option.none(),
     isPaused: false,
     submittedAt: 0,
+    ranAt: 0,
   });

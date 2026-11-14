@@ -1,106 +1,90 @@
-import { Query, useIsFetching, useQuery } from "@effect-native-query/react";
-import { Effect, Option, Schema } from "effect";
-import { useState } from "react";
-import { Feed } from "./Feed.tsx";
-import { Todos } from "./Todos.tsx";
+import { useIsFetching, useIsMutating } from "@effect-native-query/react";
+import { useSyncExternalStore } from "react";
+import { example as autoRefetching } from "./examples/AutoRefetching.tsx";
+import { example as basic } from "./examples/Basic.tsx";
+import { example as dependent } from "./examples/Dependent.tsx";
+import { example as infiniteScroll } from "./examples/InfiniteScroll.tsx";
+import { example as maxPages } from "./examples/MaxPages.tsx";
+import { example as offline } from "./examples/Offline.tsx";
+import { example as optimisticCache } from "./examples/OptimisticCache.tsx";
+import { example as optimisticUi } from "./examples/OptimisticUi.tsx";
+import { example as pagination } from "./examples/Pagination.tsx";
+import { example as prefetching } from "./examples/Prefetching.tsx";
+import { example as simple } from "./examples/Simple.tsx";
+import { example as suspense } from "./examples/Suspense.tsx";
+import type { Example } from "./ui.tsx";
 
-class PageNotFound extends Schema.TaggedError<PageNotFound>()("PageNotFound", {
-  page: Schema.Number,
-}) {}
+export const examples: ReadonlyArray<Example> = [
+  simple,
+  basic,
+  pagination,
+  infiniteScroll,
+  maxPages,
+  dependent,
+  prefetching,
+  autoRefetching,
+  optimisticUi,
+  optimisticCache,
+  suspense,
+  offline,
+];
 
-interface Page {
-  readonly page: number;
-  readonly items: ReadonlyArray<string>;
-  readonly fetchedAt: string;
-}
+const subscribeHash = (onChange: () => void) => {
+  window.addEventListener("hashchange", onChange);
+  return () => window.removeEventListener("hashchange", onChange);
+};
+const useHash = () => useSyncExternalStore(subscribeHash, () => window.location.hash.slice(1));
 
-// A fake paginated API: 300 ms latency, five pages.
-const pageQuery = Query.make({
-  key: (page: number) => ["items", { page }],
-  run: (page) =>
-    Effect.gen(function* () {
-      yield* Effect.sleep("300 millis");
-      if (page > 5) return yield* new PageNotFound({ page });
-      return {
-        page,
-        items: Array.from({ length: 5 }, (_, i) => `item ${(page - 1) * 5 + i + 1}`),
-        fetchedAt: new Date().toLocaleTimeString(),
-      } satisfies Page;
-    }),
-  staleTime: "10 seconds",
-  retry: false,
-});
-
-const selectItems = (page: Page) => page.items;
-
-function Items() {
-  const [page, setPage] = useState(1);
-  const result = useQuery(pageQuery(page), { placeholderData: Query.keepPreviousData });
-  const items = useQuery(pageQuery(page), { select: selectItems });
-
+function GlobalIndicator() {
+  const fetching = useIsFetching();
+  const mutating = useIsMutating();
   return (
-    <section style={{ opacity: result.isPlaceholderData ? 0.5 : 1 }}>
-      <h2>Page {page}</h2>
-      {result.isPending ? <p>Loading…</p> : null}
-      {result.isError ? (
-        <p>
-          Error: {Option.match(result.error, { onNone: () => "defect", onSome: (e) => e._tag })}
-        </p>
-      ) : null}
-      {result.isSuccess ? (
-        <>
-          <ul>
-            {result.data.value.items.map((item) => (
-              <li key={item}>{item}</li>
-            ))}
-          </ul>
-          <small>
-            fetched at {result.data.value.fetchedAt} · stale: {String(result.isStale)} · selected{" "}
-            {items.isSuccess ? items.data.value.length : 0} items
-          </small>
-        </>
-      ) : null}
-      <p>
-        <button type="button" disabled={page === 1} onClick={() => setPage((p) => p - 1)}>
-          previous
-        </button>{" "}
-        <button type="button" onClick={() => setPage((p) => p + 1)}>
-          next
-        </button>{" "}
-        <button type="button" onClick={result.refetch}>
-          refetch
-        </button>
-      </p>
-    </section>
-  );
-}
-
-// Polls every second while the tab is visible; pauses offline (networkMode "online").
-const serverClock = Query.single({
-  key: ["server-clock"],
-  run: Effect.sync(() => new Date().toLocaleTimeString()).pipe(Effect.delay("100 millis")),
-  refetchInterval: "1 second",
-});
-
-function Clock() {
-  const clock = useQuery(serverClock);
-  return (
-    <p data-testid="clock">
-      clock: {clock.isSuccess ? clock.data.value : "…"} ({clock.fetchStatus})
-    </p>
+    <small style={{ color: "#64748b" }} data-testid="global">
+      {fetching > 0 ? `fetching ${fetching}` : "idle"}
+      {mutating > 0 ? ` · mutating ${mutating}` : ""}
+    </small>
   );
 }
 
 export function App() {
-  const fetching = useIsFetching();
+  const hash = useHash();
+  const current = examples.find((e) => e.id === hash) ?? examples[0]!;
   return (
-    <main style={{ fontFamily: "system-ui", maxWidth: 480, margin: "2rem auto" }}>
-      <h1>effect-native-query playground</h1>
-      <p>{fetching > 0 ? `fetching ${fetching}…` : "idle"}</p>
-      <Clock />
-      <Feed />
-      <Todos />
-      <Items />
-    </main>
+    <div
+      style={{
+        fontFamily: "system-ui, sans-serif",
+        display: "flex",
+        flexWrap: "wrap",
+        gap: 24,
+        maxWidth: 960,
+        margin: "0 auto",
+        padding: "16px 16px 45vh",
+      }}
+    >
+      <nav style={{ flex: "0 0 220px" }}>
+        <h1 style={{ fontSize: 18 }}>effect-native-query</h1>
+        <GlobalIndicator />
+        <ul style={{ listStyle: "none", padding: 0 }}>
+          {examples.map((e) => (
+            <li key={e.id} style={{ margin: "4px 0" }}>
+              <a href={`#${e.id}`} style={{ fontWeight: e === current ? 700 : 400 }}>
+                {e.title}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </nav>
+      <main style={{ flex: "1 1 400px", minWidth: 0 }}>
+        <h2 style={{ marginTop: 0 }}>{current.title}</h2>
+        <p style={{ color: "#475569" }}>
+          {current.description}{" "}
+          <small>
+            (TanStack example: <code>{current.tanstack}</code>)
+          </small>
+        </p>
+        <hr />
+        <current.Component key={current.id} />
+      </main>
+    </div>
   );
 }

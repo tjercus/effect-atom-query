@@ -40,3 +40,6 @@ export * as InfiniteQuery from "./InfiniteQuery.ts";
 
 /** @since 0.1.0 */
 export * as QueryPersister from "./QueryPersister.ts";
+
+/** @since 0.1.0 */
+export * as QueryInspector from "./QueryInspector.ts";

@@ -1,0 +1,50 @@
+# Testing
+
+Queries are Effects and the client is a service, so tests use ordinary Effect
+tools.
+
+## Core logic with TestClock
+
+```ts
+import { it } from "@effect/vitest";
+
+it.effect("goes stale after staleTime", () =>
+  Effect.gen(function* () {
+    const client = yield* QueryClient.make();
+    const q = Query.single({ key: ["n"], run: Effect.succeed(1), staleTime: "1 minute" });
+    yield* client.fetchQuery(q);
+    yield* TestClock.adjust("2 minutes");
+    const state = yield* client.getQueryState(q);
+    expect(Option.getOrThrow(state).isStale).toBe(true);
+  }).pipe(Effect.scoped),
+);
+```
+
+Swap services the usual way. Provide a fake repository layer, and drive focus
+and connectivity with test managers:
+
+```ts
+const online = OnlineManager.make({ setup: () => () => {} });
+QueryClient.make().pipe(Effect.provideService(OnlineManager.OnlineManager, online));
+online.setOnline(false);
+```
+
+## Components
+
+Build a client on a `ManagedRuntime` with fake services and render inside
+`QueryClientProvider`. Disposing the runtime stops every background fiber:
+
+```tsx
+const runtime = ManagedRuntime.make(QueryClient.layer().pipe(Layer.provideMerge(FakeRepo)));
+render(
+  <QueryClientProvider runtime={runtime}>
+    <Todos />
+  </QueryClientProvider>,
+);
+await screen.findByText("learn Effect");
+await runtime.dispose();
+```
+
+Tracked properties apply in tests too. A `renderHook` result only re-renders
+for properties read during render, so read the ones you assert on inside the
+hook callback, or pass `notifyOnChangeProps: "all"`.

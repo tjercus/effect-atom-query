@@ -3,7 +3,7 @@ import * as React from "react";
 import { adjustOptions, shouldThrow, suspendOn, throwResult } from "./internal.ts";
 import { useQueryClient } from "./QueryClientProvider.tsx";
 import { useQueryErrorResetBoundary } from "./QueryErrorResetBoundary.tsx";
-import type { UseQueryOptions, UseQueryResult } from "./useQuery.ts";
+import type { DefinedUseQueryResult, UseQueryOptions, UseQueryResult } from "./useQuery.ts";
 
 /**
  * A query with per-entry options.
@@ -46,6 +46,20 @@ export type QueriesResults<Q extends QueriesInput> = {
       : Q[K] extends Query.SkippedQueryAtom<infer A, infer E>
         ? UseQueryResult<A, E>
         : never;
+};
+
+/**
+ * Results of {@link useSuspenseQueries}: `data` is always present.
+ *
+ * @since 0.1.0
+ * @category models
+ */
+export type SuspenseQueriesResults<Q extends QueriesInput> = {
+  readonly [K in keyof Q]: Q[K] extends QueriesEntry<any, infer E, infer B>
+    ? DefinedUseQueryResult<B, E>
+    : Q[K] extends Query.QueryAtom<infer A, infer E, any>
+      ? DefinedUseQueryResult<A, E>
+      : never;
 };
 
 const normalize = (
@@ -163,10 +177,10 @@ export function useQueries<const Q extends QueriesInput, C = QueriesResults<Q>>(
  */
 export function useSuspenseQueries<
   const Q extends ReadonlyArray<Query.QueryAtom<any, any, any> | QueriesEntry<any, any, any>>,
-  C = QueriesResults<Q>,
+  C = SuspenseQueriesResults<Q>,
 >(options: {
   readonly queries: Q;
-  readonly combine?: ((results: QueriesResults<Q>) => C) | undefined;
+  readonly combine?: ((results: SuspenseQueriesResults<Q>) => C) | undefined;
 }): C {
-  return useBaseQueries(options, true);
+  return useBaseQueries(options as never, true);
 }

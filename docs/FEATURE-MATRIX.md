@@ -23,7 +23,7 @@ Source: TanStack Query v5 React docs (important defaults, `useQuery`,
 | ✅ `throwOnError`                      | `false`                                     | `false`; defects are always thrown                                                      | 2     |
 | ✅ `networkMode`                       | `'online'`                                  | `'online' \| 'always' \| 'offlineFirst'` using a `Latch`                                | 3     |
 | ✅ `enabled` / `skipToken`             | `true`                                      | boolean, `(get) => boolean`, or `skipToken`                                             | 1     |
-| `notifyOnChangeProps`                  | tracked                                     | derived atoms + `select` (Proxy tracking is a stretch goal)                             | 7     |
+| ✅ `notifyOnChangeProps`               | tracked                                     | tracked via a result Proxy (also `"all"` or a list); option-aware comparison            | 7     |
 | ✅ Mutation `retry`                    | 0                                           | `Schedule` (none by default)                                                            | 4     |
 
 ## Query options
@@ -89,3 +89,13 @@ Source: TanStack Query v5 React docs (important defaults, `useQuery`,
 `queryKey` (prefix match), `exact`, `type: 'all' | 'active' | 'inactive'`,
 `stale`, `fetchStatus`, `predicate`. Mutation filters: `mutationKey`, `exact`,
 `status`, `predicate`.
+
+## Tooling (phase 7)
+
+| TanStack                                | effect-native-query                                                                             | Phase |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------- | ----- |
+| ✅ `@tanstack/react-query-devtools`     | `@effect-native-query/devtools` (`QueryDevtools`, `QueryDevtoolsPanel`), stripped in production | 7     |
+| ✅ devtools internals                   | `QueryInspector` (public snapshots + actions) in the core package                               | 7     |
+| ✅ bundle size tracking                 | `size-budget.json`, checked by `pnpm size` in `ready`                                           | 7     |
+| ✅ docs site + examples                 | `apps/docs` (VitePress); 12 playground examples matching TanStack's                             | 7     |
+| SSR (`dehydrate` / `HydrationBoundary`) | not started (deferred)                                                                          | later |

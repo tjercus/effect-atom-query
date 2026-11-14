@@ -4,12 +4,14 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "ready": "vp check && vp run -r test && vp run -r build",
+    "ready": "vp check && vp run -r test && vp run -r build && vp run size",
     "dev": "vp run playground#dev",
-    "prepare": "vp config"
+    "prepare": "vp config",
+    "size": "vpx ./scripts/size.ts"
   },
   "devDependencies": {
     "@effect/language-service": "catalog:",
+    "@types/node": "catalog:",
     "typescript": "catalog:",
     "vite-plus": "catalog:"
   },

@@ -1,8 +1,8 @@
 import type { Query, QueryObserver, QueryResult } from "@effect-native-query/query";
 import * as React from "react";
-import { type ThrowOnError, useBaseQuery } from "./internal.ts";
+import { type NotifyOnChangeProps, type ThrowOnError, useBaseQuery } from "./internal.ts";
 
-export type { ThrowOnError } from "./internal.ts";
+export type { NotifyOnChangeProps, ThrowOnError } from "./internal.ts";
 
 /**
  * @since 0.1.0
@@ -14,6 +14,12 @@ export interface UseQueryOptions<A, E, B = A> extends QueryObserver.Options<A, B
    * running). Defects are always thrown. See `QueryErrorResetBoundary`.
    */
   readonly throwOnError?: boolean | ThrowOnError<E> | undefined;
+  /**
+   * Re-render only when these result properties change. By default the
+   * properties the component reads are tracked automatically; `"all"`
+   * re-renders on every change.
+   */
+  readonly notifyOnChangeProps?: NotifyOnChangeProps | undefined;
 }
 
 /**
@@ -63,9 +69,9 @@ export function useQuery<A, E, B = A>(
   query: QueryObserver.Observable<A, E>,
   options: UseQueryOptions<A, E, B> = {},
 ): UseQueryResult<B, E> {
-  const { observer, result } = useBaseQuery(query, options, false);
+  const { observer, view, track } = useBaseQuery(query, options, false);
   const refetch = React.useCallback(() => observer.refetch(), [observer]);
-  return React.useMemo(() => ({ ...result, refetch }), [result, refetch]);
+  return React.useMemo(() => track({ ...view, refetch }), [view, refetch, track]);
 }
 
 /**
@@ -89,10 +95,10 @@ export function useSuspenseQuery<A, E, R, B = A>(
   query: Query.QueryAtom<A, E, R>,
   options: UseSuspenseQueryOptions<NoInfer<A>, NoInfer<E>, B> = {},
 ): DefinedUseQueryResult<B, E> {
-  const { observer, result } = useBaseQuery<A, E, B>(query, options, true);
+  const { observer, view, track } = useBaseQuery<A, E, B>(query, options, true);
   const refetch = React.useCallback(() => observer.refetch(), [observer]);
   return React.useMemo(
-    () => ({ ...result, refetch }) as DefinedUseQueryResult<B, E>,
-    [result, refetch],
+    () => track({ ...view, refetch } as DefinedUseQueryResult<B, E>),
+    [view, refetch, track],
   );
 }

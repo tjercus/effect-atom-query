@@ -27,8 +27,11 @@
 4. **Persistence storage targets for v1.** _(Resolved in phase 6: any `KeyValueStore`, which covers localStorage, IndexedDB, memory, file system, SQL, and AsyncStorage via a custom store.)_ The default is localStorage and
    IndexedDB through `KeyValueStore` layers. Is React Native (AsyncStorage)
    needed?
-5. **Devtools.** No devtools are planned for v1. A minimal inspector panel
-   in the playground is a stretch goal. Is anything more needed?
+5. **Devtools.** _Addressed in phase 7:_ `@effect-native-query/devtools` ships
+   an in-app panel (query/mutation inspector with actions), built on the
+   public `QueryInspector` API. Still open: should it also integrate with a
+   browser-extension devtools (e.g. TanStack's devtools protocol), and should
+   it be published as its own package or folded into `/react`?
 6. **Language service plugin.** `@effect/language-service` is installed and
    configured. It patches the TS 5 language service and may not work fully
    with TS 7's native server yet. That is acceptable for now. Do you want to

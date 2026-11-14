@@ -50,6 +50,7 @@ export {
   type QueriesEntry,
   type QueriesInput,
   type QueriesResults,
+  type SuspenseQueriesResults,
   queriesEntry,
   useQueries,
   useSuspenseQueries,
@@ -76,6 +77,7 @@ export { usePrefetchInfiniteQuery, usePrefetchQuery } from "./usePrefetchQuery.t
 /** @since 0.1.0 */
 export {
   type DefinedUseQueryResult,
+  type NotifyOnChangeProps,
   type UseQueryOptions,
   type UseQueryResult,
   type UseSuspenseQueryOptions,

@@ -197,7 +197,9 @@ export const make = <I = void, A = void, E = never, R = never, C = never>(
  * Optimistic updates "via the UI": an atom showing `query` with every pending
  * execution of `mutation` applied on top, in submission order. Nothing is
  * written to the cache, so there is nothing to roll back: when a mutation
- * settles its overlay disappears (after its `invalidates` refetch, if any).
+ * settles its overlay disappears. An execution whose `run` succeeded stops
+ * being applied as soon as the query holds data fetched after that (its
+ * `invalidates` refetch), so the change is never shown twice.
  *
  * ```ts
  * const optimisticTodos = Mutation.optimistic(todosQuery, addTodo, (todos, title) =>
@@ -217,9 +219,14 @@ export const optimistic = <A, E, I>(
     const base = get(query);
     const unsubscribe = client.mutationCache.subscribe(() => get.refreshSelf());
     get.addFinalizer(unsubscribe);
+    const dataUpdatedAt = Option.match(client.cache.get(query.key), {
+      onNone: () => 0,
+      onSome: (entry) => entry.state.dataUpdatedAt,
+    });
     const pending = client.mutationCache
       .findAll({ mutation, status: "pending" })
-      .slice()
+      // Already reflected in data fetched after `run` succeeded.
+      .filter((execution) => execution.state.ranAt === 0 || execution.state.ranAt > dataUpdatedAt)
       .sort((a, b) => a.state.submittedAt - b.state.submittedAt || a.id - b.id);
     if (pending.length === 0 || Option.isNone(base.data)) return base;
     return QueryResult.map(base, (data) =>

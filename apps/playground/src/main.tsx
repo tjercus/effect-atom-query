@@ -1,22 +1,15 @@
-import { QueryClient, QueryClientProvider, QueryPersister } from "@effect-native-query/react";
-import { Layer, ManagedRuntime } from "effect";
-import { KeyValueStore } from "effect/persistence";
+import { QueryClientProvider } from "@effect-native-query/react";
+import { QueryDevtools } from "@effect-native-query/devtools";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App.tsx";
-import { addTodo } from "./Todos.tsx";
-
-const runtime = ManagedRuntime.make(
-  QueryPersister.layer({ buster: "playground-v1", mutations: [addTodo] }).pipe(
-    Layer.provideMerge(QueryClient.layer()),
-    Layer.provide(KeyValueStore.layerStorage(() => localStorage)),
-  ),
-);
+import { runtime } from "./runtime.ts";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryClientProvider runtime={runtime}>
       <App />
+      <QueryDevtools />
     </QueryClientProvider>
   </StrictMode>,
 );

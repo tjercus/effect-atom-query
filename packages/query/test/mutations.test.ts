@@ -168,12 +168,18 @@ describe("mutations", () => {
       yield* TestClock.adjust("100 millis");
       yield* settle;
       registry.mount(add);
+      const seen: Array<ReadonlyArray<string>> = [];
+      registry.subscribe(view, (r) => {
+        if (Option.isSome(r.data)) seen.push(r.data.value);
+      });
       registry.set(add, "b");
       yield* settle;
       expect(registry.get(view).data).toEqual(Option.some(["a", "b…"]));
       yield* TestClock.adjust("200 millis"); // mutation + invalidation refetch
       yield* settle;
       expect(registry.get(view).data).toEqual(Option.some(["a", "b"]));
+      // The overlay hands over to the refetched list without showing both.
+      expect(seen.filter((list) => list.includes("b") && list.includes("b…"))).toEqual([]);
     }),
   );
 

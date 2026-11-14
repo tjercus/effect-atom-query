@@ -5,7 +5,7 @@
 > interruption as cancellation, and Effect Atoms (`effect/reactivity`) as the
 > reactive cache.
 
-Status: **v1.0 scope complete, 2026-11-13. Phases 1–6 done**; see §8 for implementation notes. Decisions D1–D4 are settled and the
+Status: **v1.0 scope complete, 2026-11-13. Phases 1–6 done; phase 7 done except SSR (2026-11-14)**; see §8 for implementation notes. Decisions D1–D4 are settled and the
 remaining open questions are in [QUESTIONS.md](./QUESTIONS.md). The TanStack-to-Effect feature mapping is in
 [FEATURE-MATRIX.md](./FEATURE-MATRIX.md).
 
@@ -345,7 +345,7 @@ Each phase ends with green `vp check` and `vp run -r test`, plus a playground pa
 | 5   | **Suspense and infinite** ✅      | `useSuspenseQuery`/`Queries`/`InfiniteQuery`, `QueryErrorResetBoundary`, `useInfiniteQuery` with sequential refetch and `maxPages`, `usePrefetchQuery`                                                                                                          |
 | 6   | **Persistence and offline** ✅    | Schema-based `QueryPersister` (KeyValueStore: localStorage/IndexedDB), `buster`/`maxAge`, `useIsRestoring`, paused-mutation persistence and `resumePausedMutations`                                                                                             |
 | —   | **v1.0 release**                  | phases 1–6                                                                                                                                                                                                                                                      |
-| 7   | **Post-v1**                       | SSR (dehydrate/hydrate, `HydrationBoundary`, server defaults), tracked-props optimisation, docs site, playground examples matching the TanStack examples, bundle-size budget, optional devtools inspector                                                       |
+| 7   | **Post-v1** ✅ (except SSR)       | SSR (dehydrate/hydrate, `HydrationBoundary`, server defaults), tracked-props optimisation, docs site, playground examples matching the TanStack examples, bundle-size budget, optional devtools inspector                                                       |
 
 ---
 
@@ -726,7 +726,64 @@ Decisions made while building it:
     todo added while offline is stored, then saved after the next reload.
     No console warnings.
 
-**v1 scope (phases 1–6) is complete.** Phase 7 (post-v1) covers SSR /
-hydration (`HydrationBoundary`, server defaults), tracked-props render
-optimisation, a docs site and examples, a bundle-size budget, and optional
-devtools.
+**v1 scope (phases 1–6) is complete.**
+
+### Phase 7: post-v1 (SSR deferred)
+
+SSR / hydration was explicitly skipped; everything else in phase 7 is done.
+
+- **Tracked properties** (`useQuery`, `useSuspenseQuery`, the infinite hooks):
+  - Hook results are wrapped in a `Proxy` that records which properties the
+    component reads. The `useSyncExternalStore` snapshot is a counter bumped
+    only when a tracked property changed (compared against the view rendered
+    last; `Option`s compare by inner reference, `Equal` values such as
+    `DateTime` by value). Nothing tracked yet means notify on everything, as
+    in TanStack.
+  - `notifyOnChangeProps: "all" | ReadonlyArray<string>` overrides it.
+  - Suspense / `throwOnError` hooks always track `status`, `isFetching`,
+    `error`, `cause`, because throwing depends on them.
+  - A property first read after render (in a callback, or a test reading
+    `result.current` late) schedules a microtask recheck, so it re-renders if
+    the value already moved on.
+  - Changes between render and subscription are caught by comparing
+    `observer.version` at subscribe time.
+  - `useQueries` still re-renders on any change (not tracked yet).
+- **Devtools** (`@effect-native-query/devtools`):
+  - `QueryDevtools` (floating toggle, docked panel) and `QueryDevtoolsPanel`.
+    Query list with TanStack's status colours and observer counts, filter and
+    sort, detail view (data, error, meta, timings) with Refetch / Invalidate /
+    Reset / Cancel / Remove, and a mutations tab.
+  - Inline styles only, no dependencies beyond the workspace packages.
+  - Both exports are `() => null` when `process.env.NODE_ENV ===
+    "production"`; the size budget verifies the panel is tree-shaken away.
+  - Built on a new public core module, `QueryInspector` (plain snapshots,
+    `subscribe`, `action`, `run`), instead of reaching into internals.
+- **Bundle-size budget:** `scripts/size.ts` bundles consumer entry points
+  against the built `dist` (minified, `NODE_ENV=production`, peers external
+  unless stated) and checks min+gzip against `size-budget.json`. Run as
+  `pnpm size` (part of `ready`); `--update` rewrites budgets at +10%. Current
+  sizes: core 14.3 kB, react 16.4 kB (both whole-package), provider +
+  `useQuery` 12.3 kB, the same including Effect and React 64.5 kB,
+  production devtools 0.15 kB.
+- **Examples:** the playground became 12 examples mirroring TanStack's React
+  examples (simple, basic, pagination, load-more / infinite scroll, max pages,
+  dependent, prefetching, auto-refetching, optimistic UI, optimistic cache,
+  suspense, offline). They run against a fake backend `Api` Effect service
+  (latency, failure injection, `localStorage`-backed so offline resumes stay
+  consistent), with devtools mounted.
+- **Docs site:** `apps/docs`, VitePress 2 (alpha; runs on Vite+'s Vite 8).
+  Getting started, a TanStack migration table, guides for queries, hooks,
+  mutations, infinite queries, Suspense, the client, persistence, devtools
+  and testing, and an examples index. The README is still to be written.
+- **Fixes found while building the examples:**
+  - `Mutation.optimistic` showed an item twice for a moment: the
+    `invalidates` refetch landed while the mutation was still pending. A
+    mutation execution now records `ranAt` (when `run` succeeded), and the
+    overlay stops applying an execution once the query has data fetched
+    after that. A regression test checks every intermediate value.
+  - `useSuspenseQueries` results are now `SuspenseQueriesResults` (data
+    always present).
+- **Tests:** 79 core, 44 React, 5 devtools; repeated runs are stable. In
+  headless Chromium all 12 examples and the devtools pass a scripted smoke
+  test (including the offline item never rendering twice after a reload) with
+  no console errors or warnings.

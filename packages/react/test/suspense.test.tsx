@@ -195,7 +195,12 @@ describe("useInfiniteQuery", () => {
     const { client } = setup();
     const feed = makeFeed();
     const { result } = renderHook(
-      () => useInfiniteQuery(feed("all"), { select: (d) => d.pages.flatMap((p) => p.items) }),
+      () => {
+        const r = useInfiniteQuery(feed("all"), { select: (d) => d.pages.flatMap((p) => p.items) });
+        // Read during render, as a component would, so it is tracked.
+        void r.isFetchingNextPage;
+        return r;
+      },
       { wrapper: wrapper(client) },
     );
     await waitFor(() => expect(result.current.data).toEqual(Option.some([0, 1])));

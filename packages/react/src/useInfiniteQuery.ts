@@ -1,4 +1,9 @@
-import { InfiniteQuery, type Query, type QueryResult } from "@effect-native-query/query";
+import {
+  InfiniteQuery,
+  type Query,
+  type QueryObserver,
+  type QueryResult,
+} from "@effect-native-query/query";
 import * as React from "react";
 import { useBaseQuery } from "./internal.ts";
 import type { UseQueryOptions, UseSuspenseQueryOptions } from "./useQuery.ts";
@@ -32,7 +37,25 @@ const usePaging = <Page, Param, E, B>(
   options: UseQueryOptions<InfiniteQuery.InfiniteData<Page, Param>, E, B>,
   suspense: boolean,
 ): UseInfiniteQueryResult<B, E> => {
-  const { observer, result } = useBaseQuery(query, options, suspense);
+  const { observer, view, track } = useBaseQuery(query, options, suspense, (result, observer) => ({
+    ...result,
+    ...pagingOf(query, observer),
+  }));
+  const fetchNextPage = React.useCallback(() => observer.fetchPage("forward"), [observer]);
+  const fetchPreviousPage = React.useCallback(() => observer.fetchPage("backward"), [observer]);
+  const refetch = React.useCallback(() => observer.refetch(), [observer]);
+  return React.useMemo(
+    () => track({ ...view, fetchNextPage, fetchPreviousPage, refetch }),
+    [view, fetchNextPage, fetchPreviousPage, refetch, track],
+  );
+};
+
+const pagingOf = <Page, Param, E, B>(
+  query:
+    | InfiniteQuery.InfiniteQueryAtom<Page, Param, E, any>
+    | Query.SkippedQueryAtom<InfiniteQuery.InfiniteData<Page, Param>, E>,
+  observer: QueryObserver.QueryObserver<InfiniteQuery.InfiniteData<Page, Param>, E, B>,
+): InfiniteQuery.PagingState => {
   const paging =
     "infinite" in query
       ? InfiniteQuery.pagingState(query.infinite, observer.entryOf(query))
@@ -40,43 +63,15 @@ const usePaging = <Page, Param, E, B>(
           { initialPageParam: undefined, getNextPageParam: () => noPage },
           undefined,
         );
-  const fetchNextPage = React.useCallback(() => observer.fetchPage("forward"), [observer]);
-  const fetchPreviousPage = React.useCallback(() => observer.fetchPage("backward"), [observer]);
-  const refetch = React.useCallback(() => observer.refetch(), [observer]);
-  const {
-    hasNextPage,
-    hasPreviousPage,
-    isFetchingNextPage,
-    isFetchingPreviousPage,
-    isFetchNextPageError,
-    isFetchPreviousPageError,
-  } = paging;
-  return React.useMemo(
-    () => ({
-      ...result,
-      hasNextPage,
-      hasPreviousPage,
-      isFetchingNextPage,
-      isFetchingPreviousPage,
-      isFetchNextPageError,
-      isFetchPreviousPageError,
-      fetchNextPage,
-      fetchPreviousPage,
-      refetch,
-    }),
-    [
-      result,
-      hasNextPage,
-      hasPreviousPage,
-      isFetchingNextPage,
-      isFetchingPreviousPage,
-      isFetchNextPageError,
-      isFetchPreviousPageError,
-      fetchNextPage,
-      fetchPreviousPage,
-      refetch,
-    ],
-  );
+  // Only the flags: keep the view shallowly comparable.
+  return {
+    hasNextPage: paging.hasNextPage,
+    hasPreviousPage: paging.hasPreviousPage,
+    isFetchingNextPage: paging.isFetchingNextPage,
+    isFetchingPreviousPage: paging.isFetchingPreviousPage,
+    isFetchNextPageError: paging.isFetchNextPageError,
+    isFetchPreviousPageError: paging.isFetchPreviousPageError,
+  };
 };
 
 const noPage = { _tag: "None" } as never;
