@@ -45,6 +45,34 @@ await screen.findByText("learn Effect");
 await runtime.dispose();
 ```
 
+### Mocking hooks from another module
+
+Definitions live at module level, so a plain `invalidates` array is evaluated
+when the module loads. If `planetApi.ts` invalidates `spaceshipKeys.all`, a test
+that partially mocks `spaceshipApi.ts` crashes on import with
+`No "spaceshipKeys" export is defined on the mock`. Two fixes:
+
+- Use the function form for keys from other modules. It is read only when the
+  mutation succeeds:
+
+  ```ts
+  export const deletePlanetMutation = Mutation.make({
+    run: (id: string) => PlanetRepo.use((repo) => repo.delete(id)),
+    invalidates: () => [planetKeys.all, spaceshipKeys.all],
+  });
+  ```
+
+- Or keep the real module in partial mocks:
+
+  ```ts
+  vi.mock("./spaceshipApi", async (importOriginal) => ({
+    ...(await importOriginal<typeof import("./spaceshipApi")>()),
+    useGetSpaceshipByIdQuery: vi.fn(),
+  }));
+  ```
+
+### Tracked properties
+
 Tracked properties apply in tests too. A `renderHook` result only re-renders
 for properties read during render, so read the ones you assert on inside the
 hook callback, or pass `notifyOnChangeProps: "all"`.
