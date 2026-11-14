@@ -252,6 +252,24 @@ describe("mutations", () => {
     }),
   );
 
+  it.effect("observer onError receives the typed failure, None for defects", () =>
+    Effect.gen(function* () {
+      const { client } = yield* setup();
+      const seen: Array<Option.Option<Rejected>> = [];
+      const m = Mutation.make({
+        run: (title: string) =>
+          title === "boom" ? Effect.die("boom") : Effect.fail(new Rejected({ title })),
+      });
+      const observer = MutationObserver.make(client, m);
+      observer.subscribe(() => {});
+      observer.mutate("bad", { onError: (_cause, _input, error) => seen.push(error) });
+      yield* settle;
+      observer.mutate("boom", { onError: (_cause, _input, error) => seen.push(error) });
+      yield* settle;
+      expect(seen).toEqual([Option.some(new Rejected({ title: "bad" })), Option.none()]);
+    }),
+  );
+
   it.effect("settled executions are garbage collected after gcTime", () =>
     Effect.gen(function* () {
       const { client } = yield* setup();

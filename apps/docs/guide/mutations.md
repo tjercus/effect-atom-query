@@ -28,6 +28,17 @@ callbacks (`onSuccess`, `onError`, `onSettled`) fire only for this
 component's latest execution while it is mounted. Definition callbacks always
 run.
 
+`onError` receives the `Cause`, the input and the typed failure as an `Option`
+(`None` for defects), so UI code does not have to dig it out of the cause:
+
+```ts
+add.mutate(title, {
+  onError: (_cause, _title, error) => {
+    if (Option.isSome(error)) showToast(error.value.message);
+  },
+});
+```
+
 ## Invalidation
 
 `invalidates` takes query keys, matched by prefix, or a function of

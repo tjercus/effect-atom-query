@@ -5,7 +5,7 @@
  *
  * @since 0.1.0
  */
-import { type Cause, Effect, Exit, Fiber, Option } from "effect";
+import { Cause, Effect, Exit, Fiber, Option } from "effect";
 import type { MutationEntry } from "./internal/mutationEntry.ts";
 import type * as Mutation from "./Mutation.ts";
 import type * as QueryClient from "./QueryClient.ts";
@@ -17,12 +17,25 @@ import * as MutationResult from "./MutationResult.ts";
  * subscribed and the execution is still its latest one. Cache work belongs in
  * the definition's Effect callbacks, which always run.
  *
+ * `onError` also receives the typed failure, as in `MutationResult.error`
+ * (`None` for defects):
+ *
+ * ```ts
+ * mutate(todo, {
+ *   onError: (_cause, _todo, error) => {
+ *     if (Option.isSome(error) && error.value._tag === "Conflict") showConflictDialog()
+ *   },
+ * })
+ * ```
+ *
  * @since 0.1.0
  * @category models
  */
 export interface Callbacks<A, E, I> {
   readonly onSuccess?: ((data: A, input: I) => void) | undefined;
-  readonly onError?: ((cause: Cause.Cause<E>, input: I) => void) | undefined;
+  readonly onError?:
+    | ((cause: Cause.Cause<E>, input: I, error: Option.Option<E>) => void)
+    | undefined;
   readonly onSettled?: ((exit: Exit.Exit<A, E>, input: I) => void) | undefined;
 }
 
@@ -106,10 +119,11 @@ export class MutationObserver<I, A, E, R, C> {
         entry.state.status === "success"
           ? Exit.succeed(Option.getOrThrow(entry.state.data))
           : Exit.failCause(Option.getOrThrow(entry.state.cause));
+      const error = Exit.isFailure(exit) ? Cause.findErrorOption(exit.cause) : Option.none();
       for (const cb of [this.callbacks, callbacks]) {
         if (cb === undefined) continue;
         if (Exit.isSuccess(exit)) cb.onSuccess?.(exit.value, input);
-        else cb.onError?.(exit.cause, input);
+        else cb.onError?.(exit.cause, input, error);
         cb.onSettled?.(exit, input);
       }
     });
