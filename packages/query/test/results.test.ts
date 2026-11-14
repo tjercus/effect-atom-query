@@ -1,6 +1,7 @@
-import { describe, expect, it } from "@effect/vitest";
+import { assert, describe, expect, it } from "@effect/vitest";
 import { Effect, Option, Schema } from "effect";
 import { TestClock } from "effect/testing";
+import { AsyncResult } from "effect/reactivity";
 import { Mutation, MutationObserver, MutationResult, Query, QueryResult } from "../src/index.ts";
 import { settle, setup } from "./utils.ts";
 
@@ -95,4 +96,94 @@ describe("MutationResult constructors", () => {
       );
     }),
   );
+});
+
+describe("QueryResult combinators", () => {
+  const describeResult = (r: QueryResult.QueryResult<number, NotFound>) =>
+    QueryResult.match(r, {
+      onPending: (p) => `pending(${p.fetchStatus})`,
+      onSuccess: (s) => `success(${s.data.value})`,
+      onFailure: (f) => `failure(${Option.isSome(f.error) ? f.error.value._tag : "defect"})`,
+    });
+
+  it("match dispatches on the status", () => {
+    expect(describeResult(QueryResult.pending())).toBe("pending(fetching)");
+    expect(describeResult(QueryResult.success(3))).toBe("success(3)");
+    expect(describeResult(QueryResult.failure(new NotFound()))).toBe("failure(NotFound)");
+  });
+
+  it.effect("isDefect is true only for failures without a typed error", () =>
+    Effect.gen(function* () {
+      const { registry } = yield* setup();
+      const boom = Query.single({ key: ["defect"], run: Effect.die("boom") });
+      registry.mount(boom);
+      yield* settle;
+      const r = registry.get(boom);
+      expect(r.status).toBe("error");
+      expect(QueryResult.isDefect(r)).toBe(true);
+      expect(describeResult(r as QueryResult.QueryResult<number, NotFound>)).toBe(
+        "failure(defect)",
+      );
+      expect(QueryResult.isDefect(QueryResult.success(1))).toBe(false);
+      expect(QueryResult.isDefect(QueryResult.pending())).toBe(false);
+    }),
+  );
+
+  it("map keeps pending results as they are", () => {
+    const pending = QueryResult.pending<number>();
+    expect(QueryResult.map(pending, (n) => n + 1)).toBe(pending);
+  });
+
+  it("map rebuilds the data and AsyncResult of a success, keeping flags", () => {
+    const base = { ...QueryResult.success(2), isFetching: true, isRefetching: true };
+    const mapped = QueryResult.map(base, (n) => `#${n}`);
+    expect(mapped.status).toBe("success");
+    expect(mapped.data).toEqual(Option.some("#2"));
+    expect(mapped.isRefetching).toBe(true);
+    expect(mapped.result._tag).toBe("Success");
+    expect(mapped.result.waiting).toBe(true);
+    expect(mapped.result._tag === "Success" && mapped.result.value).toBe("#2");
+    expect(mapped.result._tag === "Success" && mapped.result.timestamp).toBe(0);
+  });
+
+  it("map maps the previous data of a failure and keeps the cause", () => {
+    const error = new NotFound();
+    const withoutData = QueryResult.map(
+      QueryResult.failure<number, NotFound>(error),
+      (n) => n * 10,
+    );
+    expect(withoutData.data).toEqual(Option.none());
+    expect(withoutData.status === "error" && withoutData.cause).toEqual(
+      QueryResult.failure(error).cause,
+    );
+    expect(withoutData.result._tag).toBe("Failure");
+
+    const withData = QueryResult.map(
+      {
+        ...QueryResult.failure<number, NotFound>(error),
+        data: Option.some(4),
+        isLoadingError: false,
+        isRefetchError: true,
+      },
+      (n) => n * 10,
+    );
+    expect(withData.data).toEqual(Option.some(40));
+    expect(withData.status === "error" && withData.isRefetchError).toBe(true);
+    const result = withData.result;
+    assert(result._tag === "Failure");
+    expect(Option.map(result.previousSuccess, (s) => s.value)).toEqual(Option.some(40));
+    expect(result.waiting).toBe(false);
+  });
+
+  it("disabled builds a pending, disabled, idle result", () => {
+    const r = QueryResult.disabled<number, never>(AsyncResult.initial());
+    expect(r).toMatchObject({
+      status: "pending",
+      isPending: true,
+      isEnabled: false,
+      fetchStatus: "idle",
+      isLoading: false,
+    });
+    expect(r.data).toEqual(Option.none());
+  });
 });

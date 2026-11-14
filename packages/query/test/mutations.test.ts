@@ -2,7 +2,7 @@ import { assert, describe, expect, it } from "@effect/vitest";
 import { Cause, Effect, Fiber, Option, Schema } from "effect";
 import { Atom, Reactivity } from "effect/reactivity";
 import { TestClock } from "effect/testing";
-import { Mutation, MutationObserver, Query, QueryClient } from "../src/index.ts";
+import { Mutation, MutationObserver, MutationResult, Query, QueryClient } from "../src/index.ts";
 import { counter, settle, setup } from "./utils.ts";
 
 class Rejected extends Schema.TaggedError<Rejected>()("Rejected", { title: Schema.String }) {}
@@ -534,6 +534,139 @@ describe("cache writes and invalidation", () => {
         return [afterExternal, runs.count];
       }).pipe(Effect.provide(Reactivity.layer));
       expect(result).toEqual([2, 3]);
+    }),
+  );
+});
+
+describe("MutationObserver", () => {
+  it.effect("setOptions swaps the mutation and the UI callbacks", () =>
+    Effect.gen(function* () {
+      const { client } = yield* setup();
+      const seen: Array<string> = [];
+      const double = Mutation.make({ run: (n: number) => Effect.succeed(n * 2) });
+      const triple = Mutation.make({ run: (n: number) => Effect.succeed(n * 3) });
+      const observer = MutationObserver.make(client, double, {
+        onSuccess: (a) => seen.push(`old ${a}`),
+      });
+      observer.subscribe(() => {});
+      observer.setOptions(triple, { onSuccess: (a) => seen.push(`new ${a}`) });
+      observer.mutate(2);
+      yield* settle;
+      expect(seen).toEqual(["new 6"]);
+      observer.setOptions(double);
+      observer.mutate(2);
+      yield* settle;
+      expect(seen).toEqual(["new 6"]); // no callbacks any more
+      expect(observer.getCurrentResult().data).toEqual(Option.some(4));
+    }),
+  );
+
+  it.effect("subscribing after mutate attaches to the running execution", () =>
+    Effect.gen(function* () {
+      const { client } = yield* setup();
+      const m = Mutation.make({
+        run: (n: number) => Effect.succeed(n).pipe(Effect.delay("1 second")),
+      });
+      const settled: Array<number> = [];
+      const observer = MutationObserver.make(client, m, { onSuccess: (n) => settled.push(n) });
+      observer.mutate(1);
+      yield* settle;
+      const pending = observer.getCurrentResult();
+      expect(pending.status).toBe("pending");
+      expect(observer.getCurrentResult()).toBe(pending); // memoised per state
+
+      let notified = 0;
+      const unsubscribe = observer.subscribe(() => notified++);
+      const entry = client.mutationCache.all()[0]!;
+      expect(entry.observers).toBe(1);
+      yield* TestClock.adjust("1 second");
+      yield* settle;
+      expect(notified).toBeGreaterThan(0);
+      expect(observer.getCurrentResult().status).toBe("success");
+      expect(settled).toEqual([1]); // subscribed when it settled
+      unsubscribe();
+      expect(entry.observers).toBe(0);
+    }),
+  );
+
+  it.effect("mutateEffect runs with the caller's services and returns the result", () =>
+    Effect.gen(function* () {
+      const { client } = yield* setup();
+      const m = Mutation.make({
+        run: (n: number) =>
+          n > 0 ? Effect.succeed(n + 1) : Effect.fail(new Rejected({ title: String(n) })),
+      });
+      const observer = MutationObserver.make(client, m);
+      expect(yield* observer.mutateEffect(1)).toBe(2);
+      expect(observer.getCurrentResult().data).toEqual(Option.some(2));
+      const error = yield* Effect.flip(observer.mutateEffect(0));
+      expect(error).toEqual(new Rejected({ title: "0" }));
+      expect(observer.getCurrentResult().status).toBe("error");
+    }),
+  );
+
+  it.effect("reset forgets the latest execution and notifies", () =>
+    Effect.gen(function* () {
+      const { client } = yield* setup();
+      const m = Mutation.make({ run: (n: number) => Effect.succeed(n) });
+      const observer = MutationObserver.make(client, m);
+      let notified = 0;
+      observer.subscribe(() => notified++);
+      observer.mutate(7);
+      yield* settle;
+      expect(observer.getCurrentResult().status).toBe("success");
+      const entry = client.mutationCache.all()[0]!;
+      const before = notified;
+      observer.reset();
+      expect(notified).toBe(before + 1);
+      expect(observer.getCurrentResult().status).toBe("idle");
+      expect(entry.observers).toBe(0);
+      expect(MutationResult.isDefect(observer.getCurrentResult())).toBe(false);
+    }),
+  );
+
+  it.effect("MutationResult.isDefect tells defects from typed failures", () =>
+    Effect.gen(function* () {
+      const { client } = yield* setup();
+      const m = Mutation.make({
+        run: (kind: string) =>
+          kind === "die" ? Effect.die("boom") : Effect.fail(new Rejected({ title: kind })),
+      });
+      const observer = MutationObserver.make(client, m);
+      yield* Effect.exit(observer.mutateEffect("die"));
+      expect(MutationResult.isDefect(observer.getCurrentResult())).toBe(true);
+      yield* Effect.exit(observer.mutateEffect("typed"));
+      expect(MutationResult.isDefect(observer.getCurrentResult())).toBe(false);
+    }),
+  );
+});
+
+describe("Mutation.optimistic with overlapping executions", () => {
+  it.effect("applies pending inputs in submission order", () =>
+    Effect.gen(function* () {
+      const { client, registry } = yield* setup();
+      const list = Query.single({
+        key: ["overlap"],
+        run: Effect.succeed<ReadonlyArray<string>>([]),
+      });
+      const add = Mutation.make({
+        run: (title: string) => Effect.succeed(title).pipe(Effect.delay("1 second")),
+      });
+      const view = Mutation.optimistic(list, add, (items, title) => [...items, title]);
+      registry.mount(view);
+      yield* settle;
+      const a = MutationObserver.make(client, add);
+      const b = MutationObserver.make(client, add);
+      a.mutate("first");
+      yield* TestClock.adjust("1 millis");
+      b.mutate("second");
+      yield* settle;
+      expect(registry.get(view).data).toEqual(Option.some(["first", "second"]));
+      expect(Mutation.isMutationAtom(add)).toBe(true);
+      expect(Mutation.isMutationAtom(list)).toBe(false);
+      yield* TestClock.adjust("1 second");
+      yield* settle;
+      expect(registry.get(view).data).toEqual(Option.some([]));
     }),
   );
 });
