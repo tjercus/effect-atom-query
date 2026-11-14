@@ -227,11 +227,14 @@ export const pending = <A, E = never, I = void, C = unknown>(input: I): Pending<
 export const success = <A, E = never, I = void, C = unknown>(
   data: A,
   input: I,
-): Success<A, E, I, C> =>
-  state<I, A, E, C>("success", {
+): Success<A, E, I, C> => ({
+  ...(state<I, A, E, C>("success", {
     data: Option.some(data),
     variables: Option.some(input),
-  }) as Success<A, E, I, C>;
+  }) as Success<A, E, I, C>),
+  // a fixed timestamp, so results built at different times are equal
+  result: AsyncResult.success(data, { timestamp: 0 }),
+});
 
 /**
  * A mutation that failed with the typed `error` for `input`. See {@link idle}.

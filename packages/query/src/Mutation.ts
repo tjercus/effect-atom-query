@@ -241,8 +241,8 @@ export const optimistic = <A, E, I>(
 
 /**
  * Optimistic updates "via the cache": the `onMutate` / `onError` pair that
- * writes `update` into `query`'s cached data before `run`, and restores the
- * snapshot if the mutation fails. Spread it into a definition:
+ * writes `update` into `query`'s cached data before `run`, and rolls it back
+ * if the mutation fails. Spread it into a definition:
  *
  * ```ts
  * const deleteTodo = Mutation.make({
@@ -257,10 +257,26 @@ export const optimistic = <A, E, I>(
  * query has no data. `query` can also be a function of the input, to target
  * one member of a family: `(todo) => todoQuery(todo.id)`.
  *
+ * `onError` restores the snapshot, then invalidates the query (waiting for
+ * an active one to refetch) so the cache ends up matching the server. That
+ * also corrects the cache when executions overlap and a rollback restores a
+ * snapshot taken during another one, when the snapshot is older than the
+ * fetch that was cancelled, and when a resumed persisted execution has no
+ * snapshot. An interrupted execution runs no callbacks, so its update stays
+ * until the query refetches.
+ *
  * Unlike {@link optimistic}, this changes the cache, so every reader sees the
- * update, also outside React. Prefer {@link optimistic} when only one view
- * needs to show it. To add your own `onMutate` / `onError`, call these from
- * yours.
+ * update, also outside React. To add your own `onMutate` / `onError`, call
+ * these from yours:
+ *
+ * ```ts
+ * const cache = Mutation.optimisticUpdate(todosQuery, removeTodo)
+ * Mutation.make({
+ *   run,
+ *   onMutate: (id) => Effect.tap(cache.onMutate(id), () => Effect.log("deleting", id)),
+ *   onError: (cause, id, context) => Effect.andThen(cache.onError(cause, id, context), showError),
+ * })
+ * ```
  *
  * @since 1.1.0
  * @category combinators
@@ -292,10 +308,11 @@ export const optimisticUpdate = <A, I>(
       }),
     onError: (_cause, input, context) =>
       Effect.gen(function* () {
-        const previous = Option.flatten(context);
-        if (Option.isNone(previous)) return;
         const client = yield* QueryClient.QueryClient;
-        yield* client.setQueryData(target(input), () => previous);
+        const atom = target(input);
+        const previous = Option.flatten(context);
+        if (Option.isSome(previous)) yield* client.setQueryData(atom, () => previous);
+        yield* client.invalidateQueries({ queryKey: atom.key, exact: true });
       }),
   };
 };

@@ -172,9 +172,12 @@ describe("mutations", () => {
       yield* settle;
       expect(registry.get(todos).data).toEqual(Option.some(["a", "bad"])); // optimistic
       yield* TestClock.adjust("100 millis");
-      expect((yield* Fiber.await(bad))._tag).toBe("Failure");
       yield* settle;
       expect(registry.get(todos).data).toEqual(Option.some(["a"])); // rolled back
+      expect(registry.get(todos).isFetching).toBe(true); // and refetching
+      yield* TestClock.adjust("100 millis");
+      expect((yield* Fiber.await(bad))._tag).toBe("Failure");
+      yield* settle;
 
       const good = yield* Effect.forkChild(client.mutate(add, "b"));
       yield* settle;
@@ -183,6 +186,36 @@ describe("mutations", () => {
       expect((yield* Fiber.await(good))._tag).toBe("Success");
       yield* settle;
       expect(registry.get(todos).data).toEqual(Option.some(["a", "b"])); // kept
+    }),
+  );
+
+  it.effect("Mutation.optimisticUpdate refetches after overlapping rollbacks", () =>
+    Effect.gen(function* () {
+      const { client, registry } = yield* setup();
+      const server = makeServer();
+      const todos = server.todosQuery;
+      const add = Mutation.make({
+        run: server.add,
+        ...Mutation.optimisticUpdate(todos, (list, title: string) => [...list, title]),
+      });
+      registry.mount(todos);
+      yield* TestClock.adjust("100 millis");
+      yield* settle;
+
+      // A snapshots [a]; B snapshots A's update [a, bad]. Both fail; B's
+      // rollback alone would bring back A's failed item.
+      const a = yield* Effect.forkChild(client.mutate(add, "bad"));
+      yield* settle;
+      const b = yield* Effect.forkChild(client.mutate(add, "bad"));
+      yield* settle;
+      expect(registry.get(todos).data).toEqual(Option.some(["a", "bad", "bad"]));
+      yield* TestClock.adjust("100 millis"); // both fail
+      yield* settle;
+      yield* TestClock.adjust("100 millis"); // the invalidation refetch lands
+      yield* settle;
+      yield* Fiber.await(a);
+      yield* Fiber.await(b);
+      expect(registry.get(todos).data).toEqual(Option.some(["a"]));
     }),
   );
 

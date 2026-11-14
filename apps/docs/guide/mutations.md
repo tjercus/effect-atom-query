@@ -70,7 +70,8 @@ over to the refetched list without showing the item twice.
 `Mutation.optimisticUpdate(query, update)` returns an `onMutate` / `onError`
 pair to spread into a definition. Before `run`, it cancels the query's running
 fetches, snapshots its data and writes `update(data, input)`. If the mutation
-fails, it restores the snapshot:
+fails, it restores the snapshot and refetches the query, so the cache matches
+the server even when several mutations overlap:
 
 ```ts
 const deleteTodo = Mutation.make({
@@ -84,9 +85,24 @@ To update one member of a family, pass a function of the input:
 `Mutation.optimisticUpdate((todo: Todo) => todoQuery(todo.id), (_old, todo) => todo)`.
 While the query has no data, nothing is written.
 
-The helper replaces `onMutate` and `onError`. If you need your own as well,
-write the pattern out. Definition callbacks are Effects with the `QueryClient`
-in context, so it is plain Effect code:
+The helper provides `onMutate` and `onError`. To add your own as well, call
+the helper's from yours:
+
+```ts
+const cache = Mutation.optimisticUpdate(todosQuery, (todos, id: string) =>
+  todos.filter((t) => t.id !== id),
+);
+const deleteTodo = Mutation.make({
+  run: (id: string) => TodoRepo.use((repo) => repo.delete(id)),
+  onMutate: (id) => Effect.tap(cache.onMutate(id), () => Effect.log("deleting", id)),
+  onError: (cause, id, context) =>
+    Effect.andThen(cache.onError(cause, id, context), Effect.logWarning("delete failed")),
+  invalidates: [["todos"]],
+});
+```
+
+Or write the pattern out. Definition callbacks are Effects with the
+`QueryClient` in context, so it is plain Effect code:
 
 ```ts
 const addTodo = Mutation.make({
@@ -105,7 +121,11 @@ const addTodo = Mutation.make({
     QueryClient.QueryClient.pipe(
       Effect.flatMap((client) => client.setQueryData(todosQuery, () => Option.flatten(previous))),
     ),
-  invalidates: [["todos"]],
+  // refetch after success *and* failure, so a rollback cannot leave stale data
+  onSettled: () =>
+    QueryClient.QueryClient.pipe(
+      Effect.flatMap((client) => client.invalidateQueries({ queryKey: ["todos"] })),
+    ),
 });
 ```
 

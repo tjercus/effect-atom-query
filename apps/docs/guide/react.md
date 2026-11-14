@@ -32,8 +32,8 @@ code and query atoms all share one registry:
 import { scheduleTask } from "@effect/atom-react";
 import { AtomRegistry } from "effect/reactivity";
 
-// the same settings RegistryProvider uses
-export const registry = AtomRegistry.make({ scheduleTask, defaultIdleTTL: 400 });
+// React's scheduler, as the provider's own registry uses
+export const registry = AtomRegistry.make({ scheduleTask });
 
 // plain code, outside React
 export const login = (user: User) => registry.set(userAtom, Option.some(user));
@@ -48,8 +48,12 @@ createRoot(el).render(
 With `registry`, the `defaultIdleTTL`, `scheduleTask` and `timeoutResolution`
 props are not available: set them in `AtomRegistry.make` instead. Pass
 `scheduleTask` from `@effect/atom-react` so registry work runs on React's
-scheduler, as it does with the provider's own registry. The provider
-does not dispose a registry you pass in.
+scheduler, as it does with the provider's own registry.
+
+Use one provider per registry: two mounted providers sharing a registry would
+overwrite each other's client, and the provider logs an error. When the
+provider unmounts, it unbinds its client from the registry but does not
+dispose the registry.
 
 To read query atoms from the registry before the provider renders, bind the
 client yourself:

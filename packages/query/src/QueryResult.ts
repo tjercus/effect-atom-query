@@ -6,6 +6,7 @@
  */
 import { Cause, type DateTime, Option } from "effect";
 import { AsyncResult } from "effect/reactivity";
+import { initialState, project, type QueryState } from "./internal/queryEntry.ts";
 
 /**
  * Whether any data or error has arrived yet.
@@ -168,6 +169,17 @@ export const disabled = <A, E>(initial: AsyncResult.AsyncResult<A, E>): QueryRes
 });
 
 /**
+ * A result built from a cache state the way real queries build theirs, with
+ * the defaults of a query that just mounted: enabled, and stale (the default
+ * `staleTime` is 0, and a query without data is always stale).
+ */
+const fromState = <A, E>(state: Partial<QueryState<A, E>>): QueryResult<A, E> =>
+  project<A, E>(
+    { ...initialState, ...state },
+    { isStale: true, isEnabled: true, fetchedAtMount: 0 },
+  );
+
+/**
  * A query whose first load is running (`isLoading`). With the other
  * constructors, for tests and stories that mock hooks or atoms:
  *
@@ -175,23 +187,15 @@ export const disabled = <A, E>(initial: AsyncResult.AsyncResult<A, E>): QueryRes
  * vi.mocked(useTodosQuery).mockReturnValue(QueryResult.success([todo]))
  * ```
  *
- * Timestamps are `None`; spread to override a flag:
- * `{ ...QueryResult.success(todos), isRefetching: true, isFetching: true }`.
+ * The flags match a freshly mounted query with default options. Timestamps
+ * are `None`, so results are deterministic. Spread to override a flag:
+ * `{ ...QueryResult.success(todos), isStale: false }`.
  *
  * @since 1.1.0
  * @category constructors
  */
-export const pending = <A, E = never>(): Pending<A, E> => ({
-  ...empty,
-  result: AsyncResult.initial(true),
-  status: "pending",
-  fetchStatus: "fetching",
-  isPending: true,
-  isLoading: true,
-  isFetching: true,
-  data: none as Option.None<A>,
-  error: none as Option.None<E>,
-});
+export const pending = <A, E = never>(): Pending<A, E> =>
+  fromState<A, E>({ fetchStatus: "fetching" }) as Pending<A, E>;
 
 /**
  * A query whose last fetch succeeded with `data`. See {@link pending}.
@@ -199,17 +203,12 @@ export const pending = <A, E = never>(): Pending<A, E> => ({
  * @since 1.1.0
  * @category constructors
  */
-export const success = <A, E = never>(data: A): Success<A, E> => ({
-  ...empty,
-  result: AsyncResult.success(data),
-  status: "success",
-  isSuccess: true,
-  isFetched: true,
-  isFetchedAfterMount: true,
-  data: Option.some(data) as Option.Some<A>,
-  error: none as Option.None<E>,
-  dataUpdateCount: 1,
-});
+export const success = <A, E = never>(data: A): Success<A, E> =>
+  fromState<A, E>({
+    status: "success",
+    data: Option.some(data),
+    dataUpdateCount: 1,
+  }) as Success<A, E>;
 
 /**
  * A query whose first fetch failed with the typed `error` (`isLoadingError`).
@@ -218,24 +217,14 @@ export const success = <A, E = never>(data: A): Success<A, E> => ({
  * @since 1.1.0
  * @category constructors
  */
-export const failure = <A = never, E = unknown>(error: E): Failure<A, E> => {
-  const cause = Cause.fail(error);
-  return {
-    ...empty,
-    result: AsyncResult.failure(cause),
+export const failure = <A = never, E = unknown>(error: E): Failure<A, E> =>
+  fromState<A, E>({
     status: "error",
-    isError: true,
-    isLoadingError: true,
-    isFetched: true,
-    isFetchedAfterMount: true,
-    data: none as Option.Option<A>,
-    error: Option.some(error),
-    cause,
+    cause: Option.some(Cause.fail(error)),
     errorUpdateCount: 1,
     failureCount: 1,
     failureReason: Option.some(error),
-  };
-};
+  }) as Failure<A, E>;
 
 /**
  * Pattern match on the status.

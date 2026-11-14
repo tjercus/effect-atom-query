@@ -72,8 +72,9 @@ const keyOf = (client: QueryClient.Service): number => {
  * <QueryClientProvider runtime={runtime} registry={registry}><App /></QueryClientProvider>
  * ```
  *
- * The provider does not own the client or a registry you pass: dispose them
- * yourself.
+ * The provider unbinds its client from a registry you pass when it unmounts,
+ * but does not dispose either: dispose them yourself. Use one provider per
+ * registry.
  *
  * @since 0.1.0
  * @category components
@@ -84,14 +85,7 @@ export function QueryClientProvider(props: QueryClientProviderProps): React.Reac
     () => clientProp ?? runtime!.runSync(QueryClient.QueryClient),
     [clientProp, runtime],
   );
-  // Bind during render (idempotent), so children can read query atoms on
-  // their first render.
-  if (registry !== undefined) {
-    const bound = registry.get(QueryClient.current);
-    if (Option.isNone(bound) || bound.value !== client) {
-      registry.set(QueryClient.current, Option.some(client));
-    }
-  }
+  useRegistryBinding(registry, client);
   return (
     <QueryClientContext.Provider value={client}>
       {registry !== undefined ? (
@@ -110,6 +104,52 @@ export function QueryClientProvider(props: QueryClientProviderProps): React.Reac
     </QueryClientContext.Provider>
   );
 }
+
+/** Which provider currently binds each shared registry, to catch two at once. */
+const owners = new WeakMap<AtomRegistry.AtomRegistry, object>();
+
+const boundClient = (registry: AtomRegistry.AtomRegistry): QueryClient.Service | undefined =>
+  Option.getOrUndefined(registry.get(QueryClient.current));
+
+/**
+ * Binds `client` into a registry passed by the app, and unbinds it on unmount.
+ *
+ * The first bind happens during render, so children can read query atoms on
+ * their first render. Nothing can depend on a client that is not there yet,
+ * so this write notifies no rendered component. Rebinding to another client
+ * would, so it waits for the layout effect: until then, atom hooks see the
+ * previous client for one render.
+ */
+const useRegistryBinding = (
+  registry: AtomRegistry.AtomRegistry | undefined,
+  client: QueryClient.Service,
+): void => {
+  if (registry !== undefined && boundClient(registry) === undefined) {
+    registry.set(QueryClient.current, Option.some(client));
+  }
+  const token = React.useRef<object>({}).current;
+  const pendingUnbind = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  React.useLayoutEffect(() => {
+    if (registry === undefined) return;
+    clearTimeout(pendingUnbind.current);
+    const owner = owners.get(registry);
+    if (owner !== undefined && owner !== token) {
+      console.error(
+        "Two QueryClientProviders share one AtomRegistry: query atoms in both trees use " +
+          "whichever client was bound last. Give each provider its own registry.",
+      );
+    }
+    owners.set(registry, token);
+    if (boundClient(registry) !== client) registry.set(QueryClient.current, Option.some(client));
+    return () => {
+      if (owners.get(registry) === token) owners.delete(registry);
+      // Deferred, so a StrictMode remount or a client change rebinds first.
+      pendingUnbind.current = setTimeout(() => {
+        if (boundClient(registry) === client) registry.set(QueryClient.current, Option.none());
+      }, 0);
+    };
+  }, [registry, client, token]);
+};
 
 /**
  * @since 0.1.0

@@ -109,6 +109,51 @@ describe("QueryClientProvider", () => {
       expect(registry.get(QueryClient.current)).toEqual(Option.some(b.client));
     });
 
+    it("unbinds the client on unmount", async () => {
+      const { client } = setup();
+      const registry = AtomRegistry.make();
+      const { unmount } = render(<QueryClientProvider client={client} registry={registry} />);
+      unmount();
+      await waitFor(() => expect(registry.get(QueryClient.current)).toEqual(Option.none()));
+    });
+
+    it("stays bound under StrictMode", async () => {
+      const { client } = setup();
+      const registry = AtomRegistry.make();
+      const runs = counter();
+      const q = Query.single({
+        key: ["shared-registry-strict"],
+        run: Effect.sync(() => runs.next()),
+      });
+      function View() {
+        const r = useQuery(q);
+        return <p>{r.isSuccess ? `run ${r.data.value}` : "…"}</p>;
+      }
+      render(
+        <React.StrictMode>
+          <QueryClientProvider client={client} registry={registry}>
+            <View />
+          </QueryClientProvider>
+        </React.StrictMode>,
+      );
+      expect(await screen.findByText(/^run \d$/)).toBeTruthy();
+      await new Promise((r) => setTimeout(r, 20)); // past the deferred unbind
+      expect(registry.get(QueryClient.current)).toEqual(Option.some(client));
+    });
+
+    it("warns when two providers share one registry", () => {
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      const a = setup();
+      const b = setup();
+      const registry = AtomRegistry.make();
+      render(
+        <QueryClientProvider client={a.client} registry={registry}>
+          <QueryClientProvider client={b.client} registry={registry} />
+        </QueryClientProvider>,
+      );
+      expect(error).toHaveBeenCalledWith(expect.stringContaining("share one AtomRegistry"));
+    });
+
     it("accepts a ManagedRuntime", () => {
       const { runtime, client } = setup();
       const registry = AtomRegistry.make();

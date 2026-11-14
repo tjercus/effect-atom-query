@@ -19,7 +19,9 @@ const queryFlags = (r: QueryResult.QueryResult<unknown, unknown>) => ({
   isLoadingError: r.isLoadingError,
   isRefetchError: r.isRefetchError,
   isFetched: r.isFetched,
+  isFetchedAfterMount: r.isFetchedAfterMount,
   isEnabled: r.isEnabled,
+  isStale: r.isStale,
   data: r.data,
   error: r.error,
   resultTag: r.result._tag,
@@ -49,6 +51,13 @@ describe("QueryResult constructors", () => {
       expect(QueryResult.isDefect(QueryResult.failure(new NotFound()))).toBe(false);
     }),
   );
+
+  it("are deterministic: no timestamps from the clock", () => {
+    const query = QueryResult.success(1).result;
+    const mutation = MutationResult.success(4, 2).result;
+    expect(query._tag === "Success" && query.timestamp).toBe(0);
+    expect(mutation._tag === "Success" && mutation.timestamp).toBe(0);
+  });
 });
 
 describe("MutationResult constructors", () => {
