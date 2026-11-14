@@ -4,7 +4,7 @@ The caching model is TanStack Query's: the same defaults, the same lifecycle
 (fresh, stale, inactive, garbage collected), and the same triggers, filters
 and hooks. What changes is the language around it.
 
-| TanStack Query                                          | effect-native-query                                                 |
+| TanStack Query                                          | effect-atom-query                                                   |
 | ------------------------------------------------------- | ------------------------------------------------------------------- |
 | `queryFn: () => Promise<T>`                             | `run: Effect<A, E, R>`: typed errors, services from the runtime     |
 | `queryKey` + `queryFn` passed to every hook             | queries defined once (`Query.make`); hooks receive the atom         |
@@ -20,7 +20,7 @@ and hooks. What changes is the language around it.
 | `useMutationState({ select })`                          | the same; also `Mutation.optimistic(query, mutation, apply)`        |
 | `persistQueryClient` + `dehydrate` options              | `QueryPersister.layer` + per-query `persist: { schema }`            |
 | `focusManager`, `onlineManager`                         | `FocusManager` / `OnlineManager` services                           |
-| `@tanstack/react-query-devtools`                        | `@effect-native-query/devtools`                                     |
+| `@tanstack/react-query-devtools`                        | `@effect-atom-query/devtools`                                       |
 
 ## Not (yet) supported
 

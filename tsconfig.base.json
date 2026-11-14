@@ -26,6 +26,6 @@
         "name": "@effect/language-service"
       }
     ],
-    "customConditions": ["@effect-native-query/source"]
+    "customConditions": ["@effect-atom-query/source"]
   }
 }

@@ -72,7 +72,7 @@ describe("QueryPersister", () => {
       yield* TestClock.adjust("1 second"); // throttle
       yield* settle;
       const store = yield* KeyValueStore.KeyValueStore;
-      const raw = Option.getOrThrow(Option.fromNullishOr(yield* store.get("effect-native-query")));
+      const raw = Option.getOrThrow(Option.fromNullishOr(yield* store.get("effect-atom-query")));
       expect(JSON.parse(raw).queries).toHaveLength(1);
 
       const second = counter();
@@ -96,10 +96,10 @@ describe("QueryPersister", () => {
       a.registry.mount(todosQuery(counter()));
       yield* settle;
       yield* a.close; // final write
-      expect(yield* store.has("effect-native-query")).toBe(true);
+      expect(yield* store.has("effect-atom-query")).toBe(true);
 
       yield* persistedClient({ buster: "v2" });
-      expect(yield* store.has("effect-native-query")).toBe(false);
+      expect(yield* store.has("effect-atom-query")).toBe(false);
 
       const c = yield* persistedClient({ buster: "v1", maxAge: "1 hour" });
       c.registry.mount(todosQuery(counter()));
@@ -121,9 +121,9 @@ describe("QueryPersister", () => {
       a.registry.mount(todosQuery(counter()));
       yield* settle;
       yield* a.close;
-      const raw = JSON.parse((yield* store.get("effect-native-query"))!);
+      const raw = JSON.parse((yield* store.get("effect-atom-query"))!);
       raw.queries[0].data = [{ title: 42 }];
-      yield* store.set("effect-native-query", JSON.stringify(raw));
+      yield* store.set("effect-atom-query", JSON.stringify(raw));
       const runs = counter();
       const b = yield* persistedClient();
       b.registry.mount(todosQuery(runs));

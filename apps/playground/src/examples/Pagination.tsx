@@ -1,4 +1,4 @@
-import { Query, usePrefetchQuery, useQuery } from "@effect-native-query/react";
+import { Query, usePrefetchQuery, useQuery } from "@effect-atom-query/react";
 import { useState } from "react";
 import { Api } from "../api.ts";
 import { errorMessage, type Example, Status } from "../ui.tsx";

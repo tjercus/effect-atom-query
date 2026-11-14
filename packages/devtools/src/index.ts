@@ -1,5 +1,5 @@
 /**
- * @effect-native-query/devtools: an in-app inspector for the query and
+ * @effect-atom-query/devtools: an in-app inspector for the query and
  * mutation caches.
  *
  * ```tsx

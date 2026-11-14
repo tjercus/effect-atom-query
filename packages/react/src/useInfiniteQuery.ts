@@ -3,7 +3,7 @@ import {
   type Query,
   type QueryObserver,
   type QueryResult,
-} from "@effect-native-query/query";
+} from "@effect-atom-query/query";
 import * as React from "react";
 import { useBaseQuery } from "./internal.ts";
 import type { UseQueryOptions, UseSuspenseQueryOptions } from "./useQuery.ts";

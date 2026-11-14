@@ -36,16 +36,16 @@ const runtime = ManagedRuntime.make(
 - `buster` invalidates every snapshot (bump it on deploys that change data
   shapes). `maxAge` (24 hours) discards old snapshots.
 
-| option                  | default                 |
-| ----------------------- | ----------------------- |
-| `storageKey`            | `"effect-native-query"` |
-| `buster`                | `""`                    |
-| `maxAge`                | 24 hours                |
-| `throttle`              | 1 second                |
-| `restore`               | `"blocking"`            |
-| `mutations`             | `[]`                    |
-| `resumePausedMutations` | `true`                  |
-| `shouldPersistQuery`    | successful queries      |
+| option                  | default               |
+| ----------------------- | --------------------- |
+| `storageKey`            | `"effect-atom-query"` |
+| `buster`                | `""`                  |
+| `maxAge`                | 24 hours              |
+| `throttle`              | 1 second              |
+| `restore`               | `"blocking"`          |
+| `mutations`             | `[]`                  |
+| `resumePausedMutations` | `true`                |
+| `shouldPersistQuery`    | successful queries    |
 
 ### Restore modes
 

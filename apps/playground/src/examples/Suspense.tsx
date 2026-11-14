@@ -3,7 +3,7 @@ import {
   QueryErrorResetBoundary,
   useSuspenseQueries,
   useSuspenseQuery,
-} from "@effect-native-query/react";
+} from "@effect-atom-query/react";
 import { Component, type ReactNode, Suspense, useState } from "react";
 import { Api } from "../api.ts";
 import { runtime } from "../runtime.ts";

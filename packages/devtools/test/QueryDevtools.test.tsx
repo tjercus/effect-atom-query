@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { Mutation, Query, QueryClient, QueryClientProvider } from "@effect-native-query/react";
+import { Mutation, Query, QueryClient, QueryClientProvider } from "@effect-atom-query/react";
 import { Effect, ManagedRuntime } from "effect";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import { QueryDevtools, QueryDevtoolsPanel } from "../src/index.ts";

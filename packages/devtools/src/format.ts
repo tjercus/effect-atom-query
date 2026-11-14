@@ -1,5 +1,5 @@
 /** Value formatting for the devtools explorer. */
-import type { QueryInspector } from "@effect-native-query/query";
+import type { QueryInspector } from "@effect-atom-query/query";
 
 const MAX_LENGTH = 50_000;
 

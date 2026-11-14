@@ -1,4 +1,4 @@
-import type { QueryResult } from "@effect-native-query/react";
+import type { QueryResult } from "@effect-atom-query/react";
 import { Cause, Option } from "effect";
 import type { ReactNode } from "react";
 

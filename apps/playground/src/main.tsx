@@ -1,5 +1,5 @@
-import { QueryClientProvider } from "@effect-native-query/react";
-import { QueryDevtools } from "@effect-native-query/devtools";
+import { QueryClientProvider } from "@effect-atom-query/react";
+import { QueryDevtools } from "@effect-atom-query/devtools";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App.tsx";

@@ -1,4 +1,4 @@
-# TanStack Query → effect-native-query feature matrix
+# TanStack Query → effect-atom-query feature matrix
 
 ✅ marks implemented features (phases 1–6, 2026-11-13; v1 scope complete).
 
@@ -53,7 +53,7 @@ Source: TanStack Query v5 React docs (important defaults, `useQuery`,
 
 ## React API
 
-| TanStack                                                                            | effect-native-query                                                | Phase   |
+| TanStack                                                                            | effect-atom-query                                                  | Phase   |
 | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------ | ------- |
 | ✅ `QueryClientProvider`, `useQueryClient`                                          | same (wraps `RegistryProvider`)                                    | 2       |
 | ✅ `useQuery`                                                                       | `useQuery`                                                         | 2       |
@@ -92,10 +92,10 @@ Source: TanStack Query v5 React docs (important defaults, `useQuery`,
 
 ## Tooling (phase 7)
 
-| TanStack                                | effect-native-query                                                                             | Phase |
-| --------------------------------------- | ----------------------------------------------------------------------------------------------- | ----- |
-| ✅ `@tanstack/react-query-devtools`     | `@effect-native-query/devtools` (`QueryDevtools`, `QueryDevtoolsPanel`), stripped in production | 7     |
-| ✅ devtools internals                   | `QueryInspector` (public snapshots + actions) in the core package                               | 7     |
-| ✅ bundle size tracking                 | `size-budget.json`, checked by `pnpm size` in `ready`                                           | 7     |
-| ✅ docs site + examples                 | `apps/docs` (VitePress); 12 playground examples matching TanStack's                             | 7     |
-| SSR (`dehydrate` / `HydrationBoundary`) | not started (deferred)                                                                          | later |
+| TanStack                                | effect-atom-query                                                                             | Phase |
+| --------------------------------------- | --------------------------------------------------------------------------------------------- | ----- |
+| ✅ `@tanstack/react-query-devtools`     | `@effect-atom-query/devtools` (`QueryDevtools`, `QueryDevtoolsPanel`), stripped in production | 7     |
+| ✅ devtools internals                   | `QueryInspector` (public snapshots + actions) in the core package                             | 7     |
+| ✅ bundle size tracking                 | `size-budget.json`, checked by `pnpm size` in `ready`                                         | 7     |
+| ✅ docs site + examples                 | `apps/docs` (VitePress); 12 playground examples matching TanStack's                           | 7     |
+| SSR (`dehydrate` / `HydrationBoundary`) | not started (deferred)                                                                        | later |

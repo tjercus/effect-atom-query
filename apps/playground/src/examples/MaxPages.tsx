@@ -1,4 +1,4 @@
-import { InfiniteQuery, useInfiniteQuery } from "@effect-native-query/react";
+import { InfiniteQuery, useInfiniteQuery } from "@effect-atom-query/react";
 import { Api } from "../api.ts";
 import { errorMessage, type Example } from "../ui.tsx";
 

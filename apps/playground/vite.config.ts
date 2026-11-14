@@ -5,6 +5,6 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     // Resolve workspace packages to their TypeScript sources during development.
-    conditions: ["@effect-native-query/source", ...defaultClientConditions],
+    conditions: ["@effect-atom-query/source", ...defaultClientConditions],
   },
 });

@@ -2,7 +2,7 @@ import {
   type MutationResult,
   MutationResult as MR,
   type QueryClient,
-} from "@effect-native-query/query";
+} from "@effect-atom-query/query";
 import * as React from "react";
 import { useQueryClient } from "./QueryClientProvider.tsx";
 

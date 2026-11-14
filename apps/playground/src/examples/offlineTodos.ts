@@ -1,5 +1,5 @@
 /** The persisted todo list of the offline example (shared with runtime.ts). */
-import { Mutation, Query } from "@effect-native-query/react";
+import { Mutation, Query } from "@effect-atom-query/react";
 import { Schema } from "effect";
 import { Api, type Todo } from "../api.ts";
 

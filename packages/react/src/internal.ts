@@ -1,4 +1,4 @@
-import { type Query, QueryObserver, QueryResult } from "@effect-native-query/query";
+import { type Query, QueryObserver, QueryResult } from "@effect-atom-query/query";
 import { Cause, Duration, Effect, Equal, Fiber, Option } from "effect";
 import * as React from "react";
 import { useQueryClient } from "./QueryClientProvider.tsx";

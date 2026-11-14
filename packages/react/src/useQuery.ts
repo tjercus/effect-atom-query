@@ -1,4 +1,4 @@
-import type { Query, QueryObserver, QueryResult } from "@effect-native-query/query";
+import type { Query, QueryObserver, QueryResult } from "@effect-atom-query/query";
 import * as React from "react";
 import { type NotifyOnChangeProps, type ThrowOnError, useBaseQuery } from "./internal.ts";
 

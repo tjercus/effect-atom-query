@@ -1,6 +1,6 @@
 # Getting started
 
-effect-native-query is a server-state cache for React modelled on
+effect-atom-query is a server-state cache for React modelled on
 [TanStack Query](https://tanstack.com/query), written in idiomatic
 [Effect](https://effect.website). Queries are Effects, the cache lives in an
 Effect service, and every query is an Effect Atom.
@@ -8,13 +8,13 @@ Effect service, and every query is an Effect Atom.
 ## Install
 
 ```sh
-pnpm add @effect-native-query/react @effect-native-query/query effect @effect/atom-react react
+pnpm add @effect-atom-query/react @effect-atom-query/query effect @effect/atom-react react
 # optional
-pnpm add -D @effect-native-query/devtools
+pnpm add -D @effect-atom-query/devtools
 ```
 
-`@effect-native-query/react` re-exports everything from the framework-agnostic
-`@effect-native-query/query` package, so React apps import from one place.
+`@effect-atom-query/react` re-exports everything from the framework-agnostic
+`@effect-atom-query/query` package, so React apps import from one place.
 
 ## Provide a client
 
@@ -23,8 +23,8 @@ A `QueryClient` is an Effect service built by a `Layer`. Build it into a
 runtime to the provider:
 
 ```tsx
-import { QueryClient, QueryClientProvider } from "@effect-native-query/react";
-import { QueryDevtools } from "@effect-native-query/devtools";
+import { QueryClient, QueryClientProvider } from "@effect-atom-query/react";
+import { QueryDevtools } from "@effect-atom-query/devtools";
 import { Layer, ManagedRuntime } from "effect";
 import { TodoRepo } from "./TodoRepo";
 
@@ -44,7 +44,7 @@ Queries started by components run with the services of the client's layer
 ## Define a query
 
 ```ts
-import { Query } from "@effect-native-query/react";
+import { Query } from "@effect-atom-query/react";
 
 export const todosQuery = Query.single({
   key: ["todos"],
@@ -64,7 +64,7 @@ is called with an equal argument.
 ## Use it
 
 ```tsx
-import { useQuery } from "@effect-native-query/react";
+import { useQuery } from "@effect-atom-query/react";
 
 function Todo({ id }: { id: string }) {
   const todo = useQuery(todoQuery(id));

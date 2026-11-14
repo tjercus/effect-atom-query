@@ -105,7 +105,7 @@ const makeApi = (): Api["Service"] => {
       }
       l ??= [
         { id: 1, text: "learn Effect" },
-        { id: 2, text: "try effect-native-query" },
+        { id: 2, text: "try effect-atom-query" },
       ];
       todoLists.set(name, l);
       nextTodoId = Math.max(nextTodoId, ...l.map((t) => t.id + 1));
@@ -130,7 +130,7 @@ const makeApi = (): Api["Service"] => {
   return {
     repo: latency(400).pipe(
       Effect.as({
-        name: "effect-native-query",
+        name: "effect-atom-query",
         stars: 1200 + Math.round(Math.random() * 50),
         forks: 42,
         watchers: 37,

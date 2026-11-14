@@ -3,7 +3,7 @@ import {
   useIsMutating,
   useIsRestoring,
   useMutation,
-} from "@effect-native-query/react";
+} from "@effect-atom-query/react";
 import { useAtomValue } from "@effect/atom-react";
 import { Option } from "effect";
 import { useState, useSyncExternalStore } from "react";

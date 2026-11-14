@@ -1,4 +1,4 @@
-import { Query } from "@effect-native-query/query";
+import { Query } from "@effect-atom-query/query";
 import { Option } from "effect";
 import { useQueryClient } from "./QueryClientProvider.tsx";
 

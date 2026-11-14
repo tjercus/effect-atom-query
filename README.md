@@ -1,4 +1,4 @@
-# effect-native-query
+# effect-atom-query
 
 TanStack Query–style server-state caching for React, written as idiomatic
 [Effect](https://effect.website). It is built on Effect Atoms

@@ -1,4 +1,4 @@
-import { Query, useQuery, useQueryClient } from "@effect-native-query/react";
+import { Query, useQuery, useQueryClient } from "@effect-atom-query/react";
 import { useState } from "react";
 import { Api } from "../api.ts";
 import { runtime } from "../runtime.ts";

@@ -84,7 +84,7 @@ export const make = (options: Options = {}): Service => {
  * @category services
  */
 export const OnlineManager: Context.Reference<Service> = Context.Reference<Service>(
-  "@effect-native-query/query/OnlineManager",
+  "@effect-atom-query/query/OnlineManager",
   {
     defaultValue: () => make(),
   },

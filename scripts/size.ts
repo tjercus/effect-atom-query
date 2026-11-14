@@ -23,30 +23,30 @@ interface Entry {
 const entries: ReadonlyArray<Entry> = [
   {
     name: "query: everything",
-    code: `export * from "@effect-native-query/query"`,
+    code: `export * from "@effect-atom-query/query"`,
   },
   {
     name: "query: Query.make + QueryClient.layer",
-    code: `import { Query, QueryClient } from "@effect-native-query/query"
+    code: `import { Query, QueryClient } from "@effect-atom-query/query"
 export const q = Query.make({ key: (id) => ["todo", id], run: () => null })
 export const layer = QueryClient.layer()`,
   },
   {
     name: "react: everything",
-    code: `export * from "@effect-native-query/react"`,
+    code: `export * from "@effect-atom-query/react"`,
   },
   {
     name: "react: provider + useQuery",
-    code: `export { QueryClientProvider, useQuery, Query, QueryClient } from "@effect-native-query/react"`,
+    code: `export { QueryClientProvider, useQuery, Query, QueryClient } from "@effect-atom-query/react"`,
   },
   {
     name: "react: provider + useQuery, with effect and react",
-    code: `export { QueryClientProvider, useQuery, Query, QueryClient } from "@effect-native-query/react"`,
+    code: `export { QueryClientProvider, useQuery, Query, QueryClient } from "@effect-atom-query/react"`,
     bundlePeers: true,
   },
   {
     name: "devtools (production build)",
-    code: `export { QueryDevtools, QueryDevtoolsPanel } from "@effect-native-query/devtools"`,
+    code: `export { QueryDevtools, QueryDevtoolsPanel } from "@effect-atom-query/devtools"`,
   },
 ];
 
@@ -72,9 +72,9 @@ const measure = async (entry: Entry, index: number): Promise<number> => {
     root,
     resolve: {
       alias: {
-        "@effect-native-query/query": `${root}packages/query/dist/index.mjs`,
-        "@effect-native-query/react": `${root}packages/react/dist/index.mjs`,
-        "@effect-native-query/devtools": `${root}packages/devtools/dist/index.mjs`,
+        "@effect-atom-query/query": `${root}packages/query/dist/index.mjs`,
+        "@effect-atom-query/react": `${root}packages/react/dist/index.mjs`,
+        "@effect-atom-query/devtools": `${root}packages/devtools/dist/index.mjs`,
       },
     },
     define: { "process.env.NODE_ENV": JSON.stringify("production") },

@@ -1,4 +1,4 @@
-# effect-native-query — Plan
+# effect-atom-query — Plan
 
 > A TanStack Query–style server-state library for React, written as idiomatic
 > Effect: typed errors, services and layers, `Schedule`-based retries, fiber
@@ -80,15 +80,15 @@ Layout:
 
 ```
 packages/
-  query/      @effect-native-query/query   framework-agnostic core (Effect + atoms)
-  react/      @effect-native-query/react   React hooks, provider, boundaries
+  query/      @effect-atom-query/query   framework-agnostic core (Effect + atoms)
+  react/      @effect-atom-query/react   React hooks, provider, boundaries
 apps/
   playground/ Vite+ React app for manual testing and examples
 docs/         this plan
 ```
 
 During development, workspace packages resolve to their TypeScript sources
-through the custom export condition `@effect-native-query/source`, which is set
+through the custom export condition `@effect-atom-query/source`, which is set
 in `tsconfig.base.json` (`customConditions`) and in each Vite config
 (`resolve.conditions`). Published builds use `dist/`.
 
@@ -100,13 +100,13 @@ Commands: `vp check` (fmt, lint, types), `vp run -r test`, `vp run -r build`,
 ## 3. Architecture
 
 ```
-┌──────────────────────────── React (@effect-native-query/react) ───────────────────────────┐
+┌──────────────────────────── React (@effect-atom-query/react) ───────────────────────────┐
 │ QueryClientProvider ─ RegistryProvider   useQuery / useSuspenseQuery / useQueries         │
 │ useMutation / useMutationState / useIsFetching / useIsMutating / useInfiniteQuery         │
 │ HydrationBoundary   QueryErrorResetBoundary   usePrefetchQuery                            │
 └───────────────┬───────────────────────────────────────────────────────────────────────────┘
                 │ useAtomValue / useAtomSet / useAtomSuspense / useAtomMount
-┌───────────────▼──────────────────── Core (@effect-native-query/query) ────────────────────┐
+┌───────────────▼──────────────────── Core (@effect-atom-query/query) ────────────────────┐
 │ Query.make(def) ──► Atom.family(key ⇒ entry atom)                                         │
 │   entry atom = runtime.atom(fetchEffect)                                                  │
 │                ▸ swr(staleTime) ▸ setIdleTTL(gcTime) ▸ refresh-on-signals ▸ reactivity     │
@@ -431,7 +431,7 @@ New in core:
 | `internal/structuralSharing.ts` | port of TanStack's `replaceEqualDeep`                                                                                                                                                                        |
 | `Query.ts`                      | `initialData` / `initialDataUpdatedAt`, `DefinedQueryAtom`, `DefinedQueryResult`, `keepPreviousData`, `isSkipped`                                                                                            |
 
-`@effect-native-query/react`: `QueryClientProvider` (`client` or `runtime`
+`@effect-atom-query/react`: `QueryClientProvider` (`client` or `runtime`
 prop), `useQueryClient`, `useQuery`, `useQueries` (+ `queriesEntry` for typed
 `select`), `useIsFetching`. It re-exports the core namespaces.
 
@@ -541,7 +541,7 @@ New in core:
 | `internal/mutationEntry.ts`, `internal/mutationCache.ts` | one entry per execution; callbacks, retry, offline pause, scopes (`Semaphore`), gc, `setMutationDefaults`                                                                                                                                                           |
 | `QueryClient`                                            | `invalidateQueries` (`refetchType`), `refetchQueries`, `resetQueries`, `setQueryData` / `setQueriesData` (with `Option` updaters), `getQueriesData`, `setQueryDefaults` / `getQueryDefaults`, `setMutationDefaults` / `getMutationDefaults`, `mutate`, `isMutating` |
 
-`@effect-native-query/react` adds `useMutation`, `useMutationState` and
+`@effect-atom-query/react` adds `useMutation`, `useMutationState` and
 `useIsMutating`.
 
 Decisions made while building it:
@@ -748,7 +748,7 @@ SSR / hydration was explicitly skipped; everything else in phase 7 is done.
   - Changes between render and subscription are caught by comparing
     `observer.version` at subscribe time.
   - `useQueries` still re-renders on any change (not tracked yet).
-- **Devtools** (`@effect-native-query/devtools`):
+- **Devtools** (`@effect-atom-query/devtools`):
   - `QueryDevtools` (floating toggle, docked panel) and `QueryDevtoolsPanel`.
     Query list with TanStack's status colours and observer counts, filter and
     sort, detail view (data, error, meta, timings) with Refetch / Invalidate /

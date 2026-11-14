@@ -1,5 +1,5 @@
 /**
- * @effect-native-query/react: React bindings for @effect-native-query/query.
+ * @effect-atom-query/react: React bindings for @effect-atom-query/query.
  *
  * @since 0.1.0
  */
@@ -17,7 +17,7 @@ export {
   QueryKey,
   QueryObserver,
   QueryResult,
-} from "@effect-native-query/query";
+} from "@effect-atom-query/query";
 
 /** @since 0.1.0 */
 export {

@@ -262,7 +262,7 @@ export interface Service {
  * @category services
  */
 export class QueryClient extends Context.Service<QueryClient, Service>()(
-  "@effect-native-query/query/QueryClient",
+  "@effect-atom-query/query/QueryClient",
 ) {}
 
 const keyOf = (queryOrKey: AnyQuery<any, any, any> | QueryKey.QueryKey): QueryKey.QueryKey =>

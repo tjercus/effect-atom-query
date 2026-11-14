@@ -1,4 +1,4 @@
-import { QueryClient } from "@effect-native-query/query";
+import { QueryClient } from "@effect-atom-query/query";
 import { RegistryProvider } from "@effect/atom-react";
 import type { ManagedRuntime } from "effect";
 import * as React from "react";

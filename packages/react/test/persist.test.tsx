@@ -69,7 +69,7 @@ const persistOnce = async () => {
 describe("persistence in React", () => {
   it("restores synchronously: the first render already has the data, nothing is fetched", async () => {
     await persistOnce();
-    expect(localStorage.getItem("effect-native-query")).toContain("theme 1");
+    expect(localStorage.getItem("effect-atom-query")).toContain("theme 1");
 
     const runs = counter();
     const query = settingsQuery(runs);

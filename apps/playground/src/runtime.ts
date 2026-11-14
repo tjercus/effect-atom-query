@@ -1,4 +1,4 @@
-import { QueryClient, QueryPersister } from "@effect-native-query/react";
+import { QueryClient, QueryPersister } from "@effect-atom-query/react";
 import { Layer, ManagedRuntime } from "effect";
 import { KeyValueStore } from "effect/persistence";
 import { ApiLive } from "./api.ts";

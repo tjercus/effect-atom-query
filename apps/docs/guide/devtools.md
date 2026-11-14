@@ -1,11 +1,11 @@
 # Devtools
 
 ```sh
-pnpm add -D @effect-native-query/devtools
+pnpm add -D @effect-atom-query/devtools
 ```
 
 ```tsx
-import { QueryDevtools } from "@effect-native-query/devtools";
+import { QueryDevtools } from "@effect-atom-query/devtools";
 
 <QueryClientProvider runtime={runtime}>
   <App />

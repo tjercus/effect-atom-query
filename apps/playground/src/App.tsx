@@ -1,4 +1,4 @@
-import { useIsFetching, useIsMutating } from "@effect-native-query/react";
+import { useIsFetching, useIsMutating } from "@effect-atom-query/react";
 import { useSyncExternalStore } from "react";
 import { example as autoRefetching } from "./examples/AutoRefetching.tsx";
 import { example as basic } from "./examples/Basic.tsx";
@@ -62,7 +62,7 @@ export function App() {
       }}
     >
       <nav style={{ flex: "0 0 220px" }}>
-        <h1 style={{ fontSize: 18 }}>effect-native-query</h1>
+        <h1 style={{ fontSize: 18 }}>effect-atom-query</h1>
         <GlobalIndicator />
         <ul style={{ listStyle: "none", padding: 0 }}>
           {examples.map((e) => (

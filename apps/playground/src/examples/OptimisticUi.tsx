@@ -1,4 +1,4 @@
-import { Mutation, Query, useMutation } from "@effect-native-query/react";
+import { Mutation, Query, useMutation } from "@effect-atom-query/react";
 import { useAtomValue } from "@effect/atom-react";
 import { Option } from "effect";
 import { useState } from "react";

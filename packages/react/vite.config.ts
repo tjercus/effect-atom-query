@@ -3,7 +3,7 @@ import { defaultClientConditions, defineConfig } from "vite-plus";
 export default defineConfig({
   resolve: {
     // Resolve workspace packages to their TypeScript sources in tests.
-    conditions: ["@effect-native-query/source", ...defaultClientConditions],
+    conditions: ["@effect-atom-query/source", ...defaultClientConditions],
   },
   pack: {
     entry: ["src/index.ts"],

@@ -31,13 +31,13 @@ import * as QueryResult from "./QueryResult.ts";
  * @since 0.1.0
  * @category symbols
  */
-export const TypeId: TypeId = "~@effect-native-query/query/Query";
+export const TypeId: TypeId = "~@effect-atom-query/query/Query";
 
 /**
  * @since 0.1.0
  * @category symbols
  */
-export type TypeId = "~@effect-native-query/query/Query";
+export type TypeId = "~@effect-atom-query/query/Query";
 
 /**
  * Per-query options. Unset options fall back to the client's
@@ -122,7 +122,7 @@ export interface SkippedQueryAtom<A, E = never> extends Atom.Atom<QueryResult.Qu
  * @since 0.1.0
  * @category symbols
  */
-export const skipToken: unique symbol = Symbol.for("@effect-native-query/query/skipToken");
+export const skipToken: unique symbol = Symbol.for("@effect-atom-query/query/skipToken");
 
 /**
  * @since 0.1.0

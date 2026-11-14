@@ -1,7 +1,7 @@
 import { defineConfig } from "vitepress";
 
 export default defineConfig({
-  title: "effect-native-query",
+  title: "effect-atom-query",
   description: "TanStack-Query-style server state for React, built on Effect and Effect Atoms.",
   cleanUrls: true,
   themeConfig: {

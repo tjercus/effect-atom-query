@@ -1,4 +1,4 @@
-import { type Mutation, MutationObserver, MutationResult } from "@effect-native-query/query";
+import { type Mutation, MutationObserver, MutationResult } from "@effect-atom-query/query";
 import { Cause, type Effect, Option } from "effect";
 import * as React from "react";
 import { useQueryClient } from "./QueryClientProvider.tsx";

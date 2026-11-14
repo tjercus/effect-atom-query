@@ -41,7 +41,7 @@ import type * as QueryResult from "./QueryResult.ts";
  * @category models
  */
 export interface Options {
-  /** Storage key. Default `"effect-native-query"`. */
+  /** Storage key. Default `"effect-atom-query"`. */
   readonly storageKey?: string | undefined;
   /** Change it to invalidate every stored snapshot (e.g. on deploy). Default `""`. */
   readonly buster?: string | undefined;
@@ -106,7 +106,7 @@ const decodeSnapshot = Schema.decodeUnknownOption(PersistedClientJson);
 const encodeSnapshot = Schema.encodeSync(PersistedClientJson);
 
 const resolve = (options: Options = {}) => ({
-  storageKey: options.storageKey ?? "effect-native-query",
+  storageKey: options.storageKey ?? "effect-atom-query",
   buster: options.buster ?? "",
   maxAge: Duration.toMillis(Duration.fromInputUnsafe(options.maxAge ?? "24 hours")),
   throttle: Duration.fromInputUnsafe(options.throttle ?? "1 second"),

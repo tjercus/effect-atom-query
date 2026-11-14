@@ -244,13 +244,13 @@ importers:
 
   apps/playground:
     dependencies:
-      '@effect-native-query/devtools':
+      '@effect-atom-query/devtools':
         specifier: workspace:*
         version: link:../../packages/devtools
-      '@effect-native-query/query':
+      '@effect-atom-query/query':
         specifier: workspace:*
         version: link:../../packages/query
-      '@effect-native-query/react':
+      '@effect-atom-query/react':
         specifier: workspace:*
         version: link:../../packages/react
       '@effect/atom-react':
@@ -290,10 +290,10 @@ importers:
 
   packages/devtools:
     devDependencies:
-      '@effect-native-query/query':
+      '@effect-atom-query/query':
         specifier: workspace:*
         version: link:../query
-      '@effect-native-query/react':
+      '@effect-atom-query/react':
         specifier: workspace:*
         version: link:../react
       '@effect/atom-react':
@@ -350,7 +350,7 @@ importers:
 
   packages/react:
     dependencies:
-      '@effect-native-query/query':
+      '@effect-atom-query/query':
         specifier: workspace:*
         version: link:../query
     devDependencies:

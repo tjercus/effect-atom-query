@@ -1,4 +1,4 @@
-import type { QueryClient } from "@effect-native-query/query";
+import type { QueryClient } from "@effect-atom-query/query";
 import * as React from "react";
 import { useQueryClient } from "./QueryClientProvider.tsx";
 

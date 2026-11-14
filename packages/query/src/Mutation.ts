@@ -31,13 +31,13 @@ export type { MutationKey } from "./internal/mutationEntry.ts";
  * @since 0.1.0
  * @category symbols
  */
-export const TypeId: TypeId = "~@effect-native-query/query/Mutation";
+export const TypeId: TypeId = "~@effect-atom-query/query/Mutation";
 
 /**
  * @since 0.1.0
  * @category symbols
  */
-export type TypeId = "~@effect-native-query/query/Mutation";
+export type TypeId = "~@effect-atom-query/query/Mutation";
 
 /**
  * A mutation definition. Callbacks are Effects that run inside the mutation

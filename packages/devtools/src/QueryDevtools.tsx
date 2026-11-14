@@ -1,5 +1,5 @@
-import { type QueryClient, QueryInspector } from "@effect-native-query/query";
-import { useQueryClient } from "@effect-native-query/react";
+import { type QueryClient, QueryInspector } from "@effect-atom-query/query";
+import { useQueryClient } from "@effect-atom-query/react";
 import { Option } from "effect";
 import * as React from "react";
 import { formatAgo, formatDuration, formatValue, type QueryLabel, queryLabel } from "./format.ts";
@@ -365,10 +365,10 @@ const Panel = ({
     <div
       style={{ ...styles.panel, ...style }}
       role="region"
-      aria-label="effect-native-query devtools"
+      aria-label="effect-atom-query devtools"
     >
       <div style={styles.header}>
-        <strong>effect-native-query</strong>
+        <strong>effect-atom-query</strong>
         <div role="tablist" style={{ display: "flex", gap: 4 }}>
           {(["queries", "mutations"] as const).map((t) => (
             <button

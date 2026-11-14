@@ -1,5 +1,5 @@
 /**
- * @effect-native-query/query: TanStack-Query-style server-state caching built
+ * @effect-atom-query/query: TanStack-Query-style server-state caching built
  * on Effect and Effect Atoms.
  *
  * @since 0.1.0

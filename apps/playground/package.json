@@ -9,9 +9,9 @@
     "preview": "vp preview"
   },
   "dependencies": {
-    "@effect-native-query/devtools": "workspace:*",
-    "@effect-native-query/query": "workspace:*",
-    "@effect-native-query/react": "workspace:*",
+    "@effect-atom-query/devtools": "workspace:*",
+    "@effect-atom-query/query": "workspace:*",
+    "@effect-atom-query/react": "workspace:*",
     "@effect/atom-react": "catalog:",
     "effect": "catalog:",
     "react": "catalog:",

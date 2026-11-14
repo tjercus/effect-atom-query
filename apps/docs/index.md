@@ -1,7 +1,7 @@
 ---
 layout: home
 hero:
-  name: effect-native-query
+  name: effect-atom-query
   text: Server state for React, the Effect way
   tagline: TanStack Query's caching model, built on Effect and Effect Atoms. Typed errors, services and Schedules all the way down, and Option instead of undefined.
   actions:
