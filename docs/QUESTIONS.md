@@ -1,6 +1,6 @@
 # Decisions and open questions
 
-## Decided (2026-11-13)
+## Decided
 
 | ID  | Question                                  | Decision                                                                                                                                                                                                                                                                                                                                           |
 | --- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -9,31 +9,21 @@
 | D3  | What is in v1 besides the core?           | **Suspense and error boundaries, infinite queries, and persistence with offline support.** SSR and hydration come after v1.                                                                                                                                                                                                                        |
 | D4  | Does `QueryClient` get an imperative API? | **Effect only.** There is no Promise or sync facade and no `mutateAsync`. `useMutation` exposes `mutate` (fire and forget) and `mutateEffect`.                                                                                                                                                                                                     |
 | D5  | What is the project called? (2026-11-14)  | **effect-atom-query**, renamed from effect-native-query. Packages: `@effect-atom-query/query`, `@effect-atom-query/react`, `@effect-atom-query/devtools`. "http" was rejected because `run` can be any Effect, not only HTTP.                                                                                                                      |
+| D6  | Publishing (2026-11-14)                   | **Prepare, don't publish yet.** Package metadata, Changesets, a release script and a CI publish dry run are set up; the owner claims the `@effect-atom-query` npm org and publishes manually.                                                                                                                                                      |
+| D7  | Are cancellations visible? (2026-11-14)   | **Never.** As in TanStack, a cancelled or superseded fetch returns the query to its previous state (or `idle`); interrupt-only causes never reach `error`, error boundaries or `onError`.                                                                                                                                                          |
+| D8  | Key representation (2026-11-14)           | **Plain tuples**, `readonly [string, ...unknown[]]`, compared structurally with `Equal` and prefix-matched by filters. No Schema required for keys; persisted queries only need JSON-compatible keys (`QueryKey.toJsonKey`). No key factory.                                                                                                       |
+| D9  | Devtools packaging (2026-11-14)           | **Separate optional package**, `@effect-atom-query/devtools`, stripped in production. No browser-extension integration for now.                                                                                                                                                                                                                    |
+| D10 | Effect language service (2026-11-14)      | **Keep it configured and track it.** TypeScript 7's native compiler has no plugin API, so the `@effect/language-service` tsconfig plugin is inert for now; Effect diagnostics return once TS 7 supports plugins or the language service integrates with tsgo.                                                                                      |
+| —   | Persistence storage targets               | **Any `KeyValueStore`** (resolved in phase 6): localStorage, IndexedDB, memory, file system, SQL, AsyncStorage via a custom store.                                                                                                                                                                                                                 |
 
-## Still open (I'll use the default unless you say otherwise)
+## Still open
 
-1. **Publishing.** Names are settled (D5). Still open: publish to npm, and
-   claim the `@effect-atom-query` npm org (the package names were free on
-   2026-11-14; the org itself is not verified)?
-2. **Defect handling.** The default is that defects (`Cause.Die`) always throw
-   to the nearest React error boundary, while typed `E` failures only throw
-   when `throwOnError` is set. Should interrupts (from `cancel`) ever be
-   visible to users? The default is no: the query reverts to its previous
-   state.
-3. **Key representation.** The default is tuples normalised to `Data`
-   structures, compared with `Equal`/`Hash`, plus a typed `QueryKey.factory`.
-   Alternatively, keys could be required to be `Schema`-encodable, which would
-   make persistence keys trivially serialisable but adds ceremony. The current
-   lean is to require a Schema only for persisted queries.
-4. **Persistence storage targets for v1.** _(Resolved in phase 6: any `KeyValueStore`, which covers localStorage, IndexedDB, memory, file system, SQL, and AsyncStorage via a custom store.)_ The default is localStorage and
-   IndexedDB through `KeyValueStore` layers. Is React Native (AsyncStorage)
-   needed?
-5. **Devtools.** _Addressed in phase 7:_ `@effect-atom-query/devtools` ships
-   an in-app panel (query/mutation inspector with actions), built on the
-   public `QueryInspector` API. Still open: should it also integrate with a
-   browser-extension devtools (e.g. TanStack's devtools protocol), and should
-   it be published as its own package or folded into `/react`?
-6. **Language service plugin.** `@effect/language-service` is installed and
-   configured. It patches the TS 5 language service and may not work fully
-   with TS 7's native server yet. That is acceptable for now. Do you want to
-   track this?
+Nothing. New questions go here.
+
+## Tracked
+
+- **Effect language service under TS 7** (D10): re-check when TypeScript 7
+  gains plugin support or `@effect/language-service` ships a tsgo
+  integration, then confirm its diagnostics run in the editor and in
+  `vp check`.
+- **SSR / hydration**: deferred from phase 7.
