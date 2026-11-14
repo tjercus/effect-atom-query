@@ -74,7 +74,8 @@ save.mutate(todo, {
 ```
 
 The client's imperative methods (`fetchQuery`, `ensureQueryData`, …) return
-Effects as well. Run them on the runtime you gave the provider.
+Effects as well. Where an API needs a Promise (route loaders, form
+libraries), see [Promise boundaries](./promises).
 
 ### Results use `Option`
 
@@ -110,7 +111,7 @@ const runtime = ManagedRuntime.make(QueryClient.layer().pipe(Layer.provideMerge(
   which is what makes the types flow.
 - `streamedQuery` and `experimental_prefetchInRender`.
 - Promise-returning client methods. The imperative API is Effect-only by
-  design.
+  design; see [Promise boundaries](./promises) for loaders and forms.
 
 ## Atoms all the way
 
