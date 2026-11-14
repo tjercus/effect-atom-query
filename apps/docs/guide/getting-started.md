@@ -16,6 +16,25 @@ pnpm add -D @effect-atom-query/devtools
 `@effect-atom-query/react` re-exports everything from the framework-agnostic
 `@effect-atom-query/query` package, so React apps import from one place.
 
+### Behind a company npm proxy
+
+If your company installs packages through a proxy registry (Sonatype Nexus,
+Artifactory, …) that does not serve the `@effect-atom-query` scope yet, the
+install fails with `404 Not Found`. Until the proxy is set up, fetch this scope
+from the public registry. Add to the project's `.npmrc`:
+
+```ini
+@effect-atom-query:registry=https://registry.npmjs.org/
+replace-registry-host=never
+```
+
+The second line is for npm: without it, npm rewrites the tarball URLs back to
+the proxy and fails with `EALLOWREMOTE`. As a one-off command:
+
+```sh
+npm install --@effect-atom-query:registry=https://registry.npmjs.org/ --replace-registry-host=never
+```
+
 ## Provide a client
 
 A `QueryClient` is an Effect service built by a `Layer`. Build it into a

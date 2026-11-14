@@ -41,6 +41,9 @@ pnpm add -D @effect-atom-query/devtools   # optional
 Requires `effect` 4.1+, `@effect/atom-react` 4.1+ and React 19. The library is
 developed and type-checked with TypeScript 7.
 
+Installing through a company npm proxy that returns `404 Not Found`? See
+[Behind a company npm proxy](https://tjercus.github.io/effect-atom-query/guide/getting-started#behind-a-company-npm-proxy).
+
 `@effect-atom-query/react` re-exports the framework-agnostic core
 (`@effect-atom-query/query`), so React apps import everything from one package.
 
