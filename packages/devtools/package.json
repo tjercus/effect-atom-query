@@ -2,6 +2,13 @@
   "name": "@effect-atom-query/devtools",
   "version": "0.0.0",
   "description": "In-app devtools panel for @effect-atom-query (query and mutation cache inspector).",
+  "keywords": [
+    "devtools",
+    "effect",
+    "effect-ts",
+    "query",
+    "react"
+  ],
   "license": "MIT",
   "files": [
     "dist"
@@ -17,7 +24,15 @@
     "./package.json": "./package.json"
   },
   "publishConfig": {
-    "access": "public"
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
+      },
+      "./package.json": "./package.json"
+    },
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
   },
   "scripts": {
     "build": "vp pack",
@@ -26,8 +41,8 @@
     "check": "vp check"
   },
   "devDependencies": {
-    "@effect-atom-query/query": "workspace:*",
-    "@effect-atom-query/react": "workspace:*",
+    "@effect-atom-query/query": "workspace:^",
+    "@effect-atom-query/react": "workspace:^",
     "@effect/atom-react": "catalog:",
     "@effect/vitest": "catalog:",
     "@testing-library/react": "catalog:",
@@ -42,8 +57,8 @@
     "vite-plus": "catalog:"
   },
   "peerDependencies": {
-    "@effect-atom-query/query": "workspace:*",
-    "@effect-atom-query/react": "workspace:*",
+    "@effect-atom-query/query": "workspace:^",
+    "@effect-atom-query/react": "workspace:^",
     "@effect/atom-react": "catalog:",
     "effect": "catalog:",
     "react": "catalog:"

@@ -1,7 +1,16 @@
 {
   "name": "@effect-atom-query/query",
   "version": "0.0.0",
-  "description": "TanStack-Query-style server-state caching built on Effect and Effect Atoms.",
+  "description": "Server-state caching on Effect and Effect Atoms, in the style of TanStack Query.",
+  "keywords": [
+    "atom",
+    "cache",
+    "effect",
+    "effect-ts",
+    "query",
+    "server-state",
+    "tanstack-query"
+  ],
   "license": "MIT",
   "files": [
     "dist"
@@ -17,7 +26,15 @@
     "./package.json": "./package.json"
   },
   "publishConfig": {
-    "access": "public"
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
+      },
+      "./package.json": "./package.json"
+    },
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
   },
   "scripts": {
     "build": "vp pack",

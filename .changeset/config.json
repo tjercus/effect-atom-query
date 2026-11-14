@@ -1,0 +1,12 @@
+{
+  "baseBranch": "main",
+  "access": "public",
+  "changelog": "@changesets/cli/changelog",
+  "format": false,
+  "commit": false,
+  "fixed": [
+    ["@effect-atom-query/query", "@effect-atom-query/react", "@effect-atom-query/devtools"]
+  ],
+  "ignore": [],
+  "updateInternalDependencies": "patch"
+}

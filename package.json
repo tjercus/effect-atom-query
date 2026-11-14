@@ -7,9 +7,14 @@
     "ready": "vp check && vp run -r test && vp run -r build && vp run size",
     "dev": "vp run playground#dev",
     "prepare": "vp config",
-    "size": "vpx ./scripts/size.ts"
+    "size": "vpx ./scripts/size.ts",
+    "changeset": "changeset",
+    "version-packages": "changeset version && vp install",
+    "release:check": "vp run -r build && pnpm -r --filter \"./packages/*\" publish --dry-run --no-git-checks",
+    "release": "vp run ready && changeset publish"
   },
   "devDependencies": {
+    "@changesets/cli": "catalog:",
     "@effect/language-service": "catalog:",
     "@types/node": "catalog:",
     "typescript": "catalog:",

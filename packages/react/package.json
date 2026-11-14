@@ -1,7 +1,17 @@
 {
   "name": "@effect-atom-query/react",
   "version": "0.0.0",
-  "description": "React bindings for @effect-atom-query/query (hooks, provider, suspense, hydration).",
+  "description": "React hooks for @effect-atom-query/query: useQuery, useMutation, Suspense, infinite queries.",
+  "keywords": [
+    "atom",
+    "effect",
+    "effect-ts",
+    "hooks",
+    "query",
+    "react",
+    "server-state",
+    "suspense"
+  ],
   "license": "MIT",
   "files": [
     "dist"
@@ -17,7 +27,15 @@
     "./package.json": "./package.json"
   },
   "publishConfig": {
-    "access": "public"
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
+      },
+      "./package.json": "./package.json"
+    },
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
   },
   "scripts": {
     "build": "vp pack",
@@ -26,7 +44,7 @@
     "check": "vp check"
   },
   "dependencies": {
-    "@effect-atom-query/query": "workspace:*"
+    "@effect-atom-query/query": "workspace:^"
   },
   "devDependencies": {
     "@effect/atom-react": "catalog:",
