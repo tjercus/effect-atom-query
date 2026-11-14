@@ -217,10 +217,8 @@ export const optimistic = <A, E, I>(
     const base = get(query);
     const unsubscribe = client.mutationCache.subscribe(() => get.refreshSelf());
     get.addFinalizer(unsubscribe);
-    const dataRequestedAt = Option.match(client.cache.get(query.key), {
-      onNone: () => 0,
-      onSome: (entry) => entry.state.dataRequestedAt,
-    });
+    // Reading `query` above built its entry, so this returns that same entry.
+    const dataRequestedAt = client.cache.build<A, E>(query).state.dataRequestedAt;
     const pending = client.mutationCache
       .findAll({ mutation, status: "pending" })
       // Already reflected in data requested after `run` succeeded. (A fetch
