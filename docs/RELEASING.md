@@ -35,7 +35,9 @@ git push --follow-tags
 
 ## Before the first publish
 
-- Claim the `@effect-atom-query` organisation on npmjs.com.
-- Add a `LICENSE` file (the packages declare MIT) with the copyright holder,
-  and `repository` / `homepage` / `bugs` fields once the repository is public.
-- Write the README (root and per package).
+- Create the `@effect-atom-query` organisation on npmjs.com from the
+  `tjercus` account.
+- Push the repository to `github.com/tjercus/effect-atom-query` (the
+  `repository`, `homepage` and `bugs` fields point there).
+
+Each package ships its own `README.md` and `LICENSE` (MIT © tjercus).

@@ -2,6 +2,11 @@
   "name": "effect-atom-query",
   "version": "0.0.0",
   "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tjercus/effect-atom-query.git"
+  },
   "type": "module",
   "scripts": {
     "ready": "vp check && vp run -r test && vp run -r build && vp run size",

@@ -12,7 +12,17 @@
     "server-state",
     "suspense"
   ],
+  "homepage": "https://github.com/tjercus/effect-atom-query/tree/main/packages/react#readme",
+  "bugs": {
+    "url": "https://github.com/tjercus/effect-atom-query/issues"
+  },
   "license": "MIT",
+  "author": "tjercus",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tjercus/effect-atom-query.git",
+    "directory": "packages/react"
+  },
   "files": [
     "dist"
   ],
