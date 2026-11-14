@@ -10,17 +10,98 @@ and hooks. What changes is the language around it.
 | `queryKey` + `queryFn` passed to every hook             | queries defined once (`Query.make`); hooks receive the atom         |
 | `queryOptions({ ... })`                                 | `Query.single` / `Query.make` (`Query.queryOptions` alias)          |
 | `data: T \| undefined`, `error: E \| null`              | `data: Option<A>`, `error: Option<E>`, plus `cause` for defects     |
+| `data ?? []`                                            | `Option.getOrElse(result.data, () => [])`                           |
+| `declare module ... Register { defaultError }`          | not needed: every query has its own error type                      |
 | `retry: 3`, `retryDelay`                                | `retry: 3`, or any `Schedule`                                       |
 | `AbortSignal`                                           | fiber interruption, so nested Effects are cancelled too             |
-| `enabled: !!id`                                         | `todoQuery(id ?? Query.skipToken)`, or `enabled`                    |
+| `enabled: !!id`                                         | `todoQuery(id ?? Query.skipToken)`, or `enabled: (arg) => ...`      |
 | `queryClient.fetchQuery()` → `Promise`                  | `client.fetchQuery(query)` → `Effect`                               |
 | `new QueryClient()` + `QueryClientProvider client`      | `QueryClient.layer()` in a runtime + `QueryClientProvider runtime`  |
+| `new QueryClient({ defaultOptions })`                   | `QueryClient.layer({ defaultOptions })`                             |
+| `mutateAsync(input).then().catch()`                     | `mutate(input, { onSuccess, onError })`, or `yield* mutateEffect`   |
 | `onMutate` / `onError` / `onSettled` returning promises | the same callbacks returning Effects, with `QueryClient` in context |
 | `onSettled: () => invalidateQueries(...)`               | `invalidates: [["todos"]]`                                          |
 | `useMutationState({ select })`                          | the same; also `Mutation.optimistic(query, mutation, apply)`        |
 | `persistQueryClient` + `dehydrate` options              | `QueryPersister.layer` + per-query `persist: { schema }`            |
 | `focusManager`, `onlineManager`                         | `FocusManager` / `OnlineManager` services                           |
 | `@tanstack/react-query-devtools`                        | `@effect-atom-query/devtools`                                       |
+
+## Differences you will notice while porting
+
+### `invalidates` waits for the refetch
+
+In TanStack Query, `onSettled: () => queryClient.invalidateQueries(...)` starts
+the refetch and the mutation settles straight away (unless you return the
+promise). Here, `invalidates` differs in two ways:
+
+- It runs only when the mutation **succeeds**, not on error.
+- The mutation stays **pending** until the active queries that match have
+  refetched, so the UI never shows stale data after a mutation.
+
+You can see this in the UI: a form that navigates in `onSuccess` now navigates
+after the refetch, and its submit button stays disabled while `isPending` is
+`true` a little longer. See [Invalidation](./mutations#invalidation).
+
+### Queries are defined once
+
+`useQuery({ queryKey, queryFn })` at each call site becomes a definition at
+module level, and hooks receive it:
+
+```ts
+// todoApi.ts
+export const todosQuery = Query.single({ key: ["todos"], run: TodoRepo.use((r) => r.list) });
+export const todoQuery = Query.make({
+  key: (id: string) => ["todos", id],
+  run: (id) => TodoRepo.use((r) => r.get(id)),
+});
+
+// in a component
+const todos = useQuery(todosQuery);
+const todo = useQuery(todoQuery(id));
+```
+
+### No Promises
+
+There is no `mutateAsync`. Use the callbacks of `mutate` for UI work, or
+`mutateEffect` inside an Effect:
+
+```ts
+const save = useMutation(saveTodo);
+save.mutate(todo, {
+  onSuccess: () => navigate("/todos"),
+  onError: (cause) => console.error(Cause.pretty(cause)),
+});
+```
+
+The client's imperative methods (`fetchQuery`, `ensureQueryData`, …) return
+Effects as well. Run them on the runtime you gave the provider.
+
+### Results use `Option`
+
+`data` and `error` are `Option`s, so check them instead of comparing with
+`undefined`:
+
+```ts
+const titles = Option.getOrElse(result.data, () => []);
+if (Option.isSome(result.error)) showError(result.error.value);
+```
+
+`error` holds only the query's typed failures. Defects (bugs, `Effect.die`)
+are thrown to the nearest error boundary.
+
+### Services come from the runtime
+
+Instead of creating a `QueryClient` and closing over API clients in `queryFn`,
+build one runtime with the client and your services. Queries get their
+services from it:
+
+```tsx
+const runtime = ManagedRuntime.make(QueryClient.layer().pipe(Layer.provideMerge(AppLayer)));
+
+<QueryClientProvider runtime={runtime}>
+  <App />
+</QueryClientProvider>;
+```
 
 ## Not (yet) supported
 

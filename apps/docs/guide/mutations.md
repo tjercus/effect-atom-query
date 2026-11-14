@@ -15,11 +15,11 @@ three ways:
 
 ```ts
 registry.set(addTodo, "buy milk"); // atom style
-yield * client.mutate(addTodo, "buy milk"); // Effect<Todo, TodoError, TodoRepo>
+client.mutate(addTodo, "buy milk"); // Effect<Todo, TodoError, TodoRepo>
 
 const add = useMutation(addTodo, { onSuccess: () => setTitle("") });
 add.mutate("buy milk"); // fire and forget
-yield * add.mutateEffect("buy milk"); // await as an Effect
+add.mutateEffect("buy milk"); // an Effect: yield* it to await the result
 ```
 
 `useMutation` keeps per-component state (`status`, `isPending`, `variables`,
