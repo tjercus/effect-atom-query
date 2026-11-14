@@ -38,14 +38,67 @@ and bundlers remove the panel code from production builds. The size budget
 checks this. Without a bundler (native ESM in the browser), define
 `process.env.NODE_ENV` yourself.
 
+## Coming from TanStack Query devtools
+
+`@effect-atom-query/devtools` replaces `@tanstack/react-query-devtools`: it
+shows the same information (key, status, staleness, observers, data and error)
+and has the same actions (refetch, invalidate, reset, cancel, remove). It works
+inside your app, so there is no browser extension to install.
+
 ## Building your own tools
 
-The panel is built on `QueryInspector` from the core package, a small public
-API of plain snapshots:
+The panel is built on `QueryInspector` from the core package. It is a small
+public API that returns snapshots as plain data, so you can log the cache or
+build your own view without React.
 
 ```ts
-QueryInspector.queries(client)   // ReadonlyArray<QuerySnapshot>
-QueryInspector.mutations(client) // ReadonlyArray<MutationSnapshot>
-QueryInspector.subscribe(client, () => ...)
-yield* QueryInspector.action(client, key, "invalidate")
+QueryInspector.queries(client); // ReadonlyArray<QuerySnapshot>
+QueryInspector.mutations(client); // ReadonlyArray<MutationSnapshot>, oldest first
+QueryInspector.subscribe(client, () => {}); // returns an unsubscribe function
+QueryInspector.action(client, key, "invalidate"); // Effect<void>; or refetch, reset, cancel, remove
+QueryInspector.run(client, effect); // run an action without Effect code, fire and forget
 ```
+
+A `QuerySnapshot` has the `key` and its `hash` (canonical JSON, for display and
+search), `status`, `fetchStatus`, `observers`, `isActive`, `isStale`,
+`isDisabled`, `isInvalidated`, `data`, `error` (as `Cause.pretty`),
+`dataUpdatedAt`, `errorUpdatedAt`, `failureCount`, `staleTime`, `gcTime`,
+`persisted` and `meta`. A `MutationSnapshot` has the mutation's `key`, `status`,
+`isPaused`, `variables`, `data`, `error`, `failureCount` and `submittedAt`.
+
+### Example: log the cache during development
+
+```tsx
+import { QueryInspector } from "@effect-atom-query/query";
+import { useQueryClient } from "@effect-atom-query/react";
+import { Option } from "effect";
+import { useEffect } from "react";
+
+function CacheLogger() {
+  const client = useQueryClient();
+  useEffect(
+    () =>
+      QueryInspector.subscribe(client, () => {
+        console.table(
+          QueryInspector.queries(client).map((q) => ({
+            key: q.hash,
+            status: q.status,
+            fetching: q.fetchStatus,
+            stale: q.isStale,
+            observers: q.observers,
+            error: Option.getOrElse(q.error, () => ""),
+          })),
+        );
+      }),
+    [client],
+  );
+  return null;
+}
+```
+
+Render `<CacheLogger />` inside the `QueryClientProvider`. To use the inspector
+outside React, get the client from the runtime instead:
+`runtime.runSync(QueryClient.QueryClient)`.
+
+Notifications are batched on a microtask. `isStale` changes as time passes
+without a notification, so poll for it if you need to show it live.

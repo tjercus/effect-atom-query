@@ -71,6 +71,6 @@
     "@effect-atom-query/react": "workspace:^",
     "@effect/atom-react": "catalog:",
     "effect": "catalog:",
-    "react": "catalog:"
+    "react": "^19.0.0"
   }
 }
