@@ -1,4 +1,5 @@
 import { type Query, QueryObserver, type QueryResult } from "@effect-atom-query/query";
+import { Option } from "effect";
 import * as React from "react";
 import { adjustOptions, shouldThrow, suspendOn, throwResult } from "./internal.ts";
 import { useQueryClient } from "./QueryClientProvider.tsx";
@@ -49,13 +50,29 @@ export type QueriesResults<Q extends QueriesInput> = {
 };
 
 /**
+ * An entry of {@link useSuspenseQueries}: always enabled, so no `enabled`,
+ * `placeholderData` or `throwOnError`, and no skipped queries.
+ *
+ * @since 0.1.0
+ * @category models
+ */
+export interface SuspenseQueriesEntry<A, E, B = A> extends Omit<
+  QueriesEntry<A, E, B>,
+  "query" | "enabled" | "placeholderData" | "throwOnError"
+> {
+  readonly query: Query.QueryAtom<A, E, any>;
+}
+
+/**
  * Results of {@link useSuspenseQueries}: `data` is always present.
  *
  * @since 0.1.0
  * @category models
  */
-export type SuspenseQueriesResults<Q extends QueriesInput> = {
-  readonly [K in keyof Q]: Q[K] extends QueriesEntry<any, infer E, infer B>
+export type SuspenseQueriesResults<
+  Q extends ReadonlyArray<Query.QueryAtom<any, any, any> | SuspenseQueriesEntry<any, any, any>>,
+> = {
+  readonly [K in keyof Q]: Q[K] extends SuspenseQueriesEntry<any, infer E, infer B>
     ? DefinedUseQueryResult<B, E>
     : Q[K] extends Query.QueryAtom<infer A, infer E, any>
       ? DefinedUseQueryResult<A, E>
@@ -82,13 +99,15 @@ const useBaseQueries = <Q extends QueriesInput, C>(
     ...input,
     options: adjustOptions(
       input,
-      {
+      ((entry) => ({
         suspense,
-        entryStaleTime:
-          suspense && !("skipped" in input.query)
-            ? client.cache.build(input.query as Query.QueryAtom<any, any, any>).options.staleTime
-            : undefined,
-      },
+        entryStaleTime: suspense ? entry?.options.staleTime : undefined,
+        cached: typeof input.throwOnError === "function" ? entry?.toResult() : undefined,
+      }))(
+        "skipped" in input.query
+          ? undefined
+          : client.cache.build(input.query as Query.QueryAtom<any, any, any>),
+      ),
       boundary,
     ),
   }));
@@ -98,8 +117,26 @@ const useBaseQueries = <Q extends QueriesInput, C>(
     [client],
   );
 
+  // What the last render showed, to catch changes between render and subscribe.
+  const rendered = React.useRef<{
+    inputs: ReadonlyArray<QueryObserver.QueriesInput>;
+    raw: ReadonlyArray<QueryResult.QueryResult<any, any>>;
+  } | null>(null);
   React.useSyncExternalStore(
-    React.useCallback((onStoreChange) => observer.subscribe(onStoreChange), [observer]),
+    React.useCallback(
+      (onStoreChange) => {
+        const unsubscribe = observer.subscribe(onStoreChange);
+        const last = rendered.current;
+        if (
+          last !== null &&
+          observer.getOptimisticResults(last.inputs).some((r, i) => r !== last.raw[i])
+        ) {
+          observer.notify();
+        }
+        return unsubscribe;
+      },
+      [observer],
+    ),
     () => observer.version,
     () => observer.version,
   );
@@ -112,7 +149,9 @@ const useBaseQueries = <Q extends QueriesInput, C>(
   }, [boundary]);
 
   const raw = observer.getOptimisticResults(inputs);
-  if (suspense && raw.some((result) => result.isPending)) {
+  const needsData = (result: QueryResult.QueryResult<any, any>) =>
+    Option.isNone(result.data) && (result.isPending || result.isFetching);
+  if (suspense && raw.some(needsData)) {
     const fibers = observer.fetchOptimistic(inputs);
     if (fibers.length > 0) throw Promise.all(fibers.map(suspendOn));
   }
@@ -120,7 +159,12 @@ const useBaseQueries = <Q extends QueriesInput, C>(
     if (shouldThrow(result, { suspense, throwOnError: inputs[i]!.throwOnError }, boundary)) {
       throwResult(result);
     }
+    if (suspense && Option.isNone(result.data)) {
+      throw new Error("Suspense query has no data and is not fetching");
+    }
   });
+  // oxlint-disable-next-line react-hooks/refs
+  rendered.current = { inputs, raw };
 
   // Keep result references stable while nothing changed.
   const cache = React.useRef<{
@@ -176,7 +220,9 @@ export function useQueries<const Q extends QueriesInput, C = QueriesResults<Q>>(
  * @category hooks
  */
 export function useSuspenseQueries<
-  const Q extends ReadonlyArray<Query.QueryAtom<any, any, any> | QueriesEntry<any, any, any>>,
+  const Q extends ReadonlyArray<
+    Query.QueryAtom<any, any, any> | SuspenseQueriesEntry<any, any, any>
+  >,
   C = SuspenseQueriesResults<Q>,
 >(options: {
   readonly queries: Q;

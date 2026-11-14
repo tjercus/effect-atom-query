@@ -33,4 +33,6 @@ instead, which re-exports this package. See the
 [main README](https://github.com/tjercus/effect-atom-query#readme) for the full
 introduction.
 
+Documentation: <https://tjercus.github.io/effect-atom-query/>
+
 MIT © tjercus

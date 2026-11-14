@@ -15,6 +15,7 @@ export {
   Query,
   QueryClient,
   QueryKey,
+  QueryInspector,
   QueryObserver,
   QueryResult,
 } from "@effect-atom-query/query";
@@ -50,6 +51,7 @@ export {
   type QueriesEntry,
   type QueriesInput,
   type QueriesResults,
+  type SuspenseQueriesEntry,
   type SuspenseQueriesResults,
   queriesEntry,
   useQueries,

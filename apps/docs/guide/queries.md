@@ -13,7 +13,7 @@ const userQuery = Query.make({
   key: (id: UserId) => ["user", id],
   run: (id) => Users.use((users) => users.get(id)), // Effect<User, UserNotFound, Users>
   staleTime: "1 minute",
-  retry: Schedule.spaced("2 seconds").pipe(Schedule.take(3)),
+  retry: Schedule.spaced("2 seconds").pipe(Schedule.upTo({ times: 3 })),
 });
 ```
 

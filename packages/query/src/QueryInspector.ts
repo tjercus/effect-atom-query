@@ -23,8 +23,13 @@ import type * as QueryResult from "./QueryResult.ts";
  * @category models
  */
 export interface QuerySnapshot {
+  /** Unique per cache entry; stable for the entry's lifetime. */
+  readonly id: number;
   readonly key: QueryKey.QueryKey;
-  /** Canonical JSON of the key; unique per entry. */
+  /**
+   * Canonical JSON of the key, for display and search. Not unique: keys that
+   * differ only in `undefined` vs missing properties print alike.
+   */
   readonly hash: string;
   readonly status: QueryResult.Status;
   readonly fetchStatus: QueryResult.FetchStatus;
@@ -75,11 +80,21 @@ const millis = (d: Duration.Duration): number =>
 
 const epoch = (n: number): Option.Option<number> => (n > 0 ? Option.some(n) : Option.none());
 
+/** `toJsonKey`, falling back to a readable form for non-JSON keys (bigint, cycles). */
+const safeHash = (key: QueryKey.QueryKey): string => {
+  try {
+    return QueryKey.toJsonKey(key);
+  } catch {
+    return `[${key.map((part) => (typeof part === "bigint" ? `${part}n` : String(part))).join(",")}]`;
+  }
+};
+
 const snapshotQuery = (entry: QueryEntry<any, any>): QuerySnapshot => {
   const { state, options } = entry;
   return {
+    id: entry.id,
     key: entry.key,
-    hash: QueryKey.toJsonKey(entry.key),
+    hash: safeHash(entry.key),
     status: state.status,
     fetchStatus: state.fetchStatus,
     observers: entry.observers,

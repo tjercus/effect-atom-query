@@ -10,7 +10,7 @@ import {
   Effect,
   Equal,
   Exit,
-  type Fiber,
+  Fiber,
   Option,
   Schedule,
 } from "effect";
@@ -281,6 +281,11 @@ export interface QueryState<A, E> {
   readonly data: Option.Option<A>;
   /** epoch millis; 0 = never */
   readonly dataUpdatedAt: number;
+  /**
+   * epoch millis when the request that produced `data` started (for a write,
+   * the write time). Data reflects every server change made before it.
+   */
+  readonly dataRequestedAt: number;
   readonly dataUpdateCount: number;
   readonly cause: Option.Option<Cause.Cause<E>>;
   readonly errorUpdatedAt: number;
@@ -297,6 +302,7 @@ const initialState: QueryState<never, never> = {
   fetchStatus: "idle",
   data: Option.none(),
   dataUpdatedAt: 0,
+  dataRequestedAt: 0,
   dataUpdateCount: 0,
   cause: Option.none(),
   errorUpdatedAt: 0,
@@ -330,13 +336,20 @@ export interface CancelOptions {
 // ---------------------------------------------------------------------------
 
 /** @internal */
+let nextEntryId = 0;
+
+/** @internal */
 export class QueryEntry<A, E> {
+  /** Unique per entry (keys that print alike can still be distinct entries). */
+  readonly id = nextEntryId++;
   state: QueryState<A, E> = initialState;
   options: ResolvedOptions<E>;
 
   private readonly records = new Set<ObserverRecord>();
   private readonly listeners = new Set<() => void>();
   private fetchId = 0;
+  /** When the running (or last) fetch started. */
+  private fetchStartedAt = 0;
   /** State before the running fetch started, for `cancel({ revert: true })`. */
   private revertState: QueryState<A, E> | undefined;
   private revertOnInterrupt = false;
@@ -396,6 +409,7 @@ export class QueryEntry<A, E> {
       status: "success",
       data: Option.some(data),
       dataUpdatedAt: preloaded.dataUpdatedAt,
+      dataRequestedAt: preloaded.dataUpdatedAt,
       cause: Option.none(),
     }));
   }
@@ -424,6 +438,7 @@ export class QueryEntry<A, E> {
       status: "success",
       data: Option.some(descriptor.initialData.data()),
       dataUpdatedAt: descriptor.initialData.updatedAt?.() ?? this.runtime.now(),
+      dataRequestedAt: descriptor.initialData.updatedAt?.() ?? this.runtime.now(),
     };
   }
 
@@ -458,6 +473,7 @@ export class QueryEntry<A, E> {
       status: "success",
       data: this.shareData(s.data, data),
       dataUpdatedAt: updatedAt,
+      dataRequestedAt: updatedAt,
       dataUpdateCount: s.dataUpdateCount + 1,
       cause: Option.none(),
       isInvalidated: false,
@@ -467,9 +483,11 @@ export class QueryEntry<A, E> {
 
   /** Back to the initial state (`initialData` if any), dropping a running fetch. */
   reset(): void {
-    this.fetchFiber?.interruptUnsafe();
+    const fiber = this.fetchFiber;
     this.fetchFiber = undefined;
+    // Bump first: interrupting runs the old fiber's exit handler synchronously.
     this.fetchId++;
+    fiber?.interruptUnsafe();
     this.revertState = undefined;
     this.cancelStaleTimer();
     this.setState(() => this.initialStateOf(this.descriptor));
@@ -684,6 +702,24 @@ export class QueryEntry<A, E> {
     return this.state.fetchStatus === "fetching";
   }
 
+  /**
+   * Wait for `fiber` (a fetch of this entry) to settle, or for the entry to
+   * be paused offline, whichever comes first (TanStack resolves refetches of
+   * paused queries immediately, so invalidation never hangs offline).
+   */
+  awaitUnlessPaused(fiber: Fiber.Fiber<A, E>): Effect.Effect<void> {
+    if (this.state.fetchStatus === "paused") return Effect.void;
+    const paused = Effect.callback<void>((resume) => {
+      const unsubscribe = this.subscribe(() => {
+        if (this.state.fetchStatus !== "paused") return;
+        unsubscribe();
+        resume(Effect.void);
+      });
+      return Effect.sync(unsubscribe);
+    });
+    return Effect.raceFirst(Effect.asVoid(Fiber.await(fiber)), paused);
+  }
+
   /** Interrupt the running fetch, if any. Resolves once it has stopped. */
   cancel(options?: CancelOptions): Fiber.Fiber<A, E> | undefined {
     const fiber = this.fetchFiber;
@@ -721,16 +757,23 @@ export class QueryEntry<A, E> {
   fetch(options?: FetchOptions<E>): Fiber.Fiber<A, E> {
     if (this.fetchFiber !== undefined) {
       if (!options?.cancelRefetch || Option.isNone(this.state.data)) return this.fetchFiber;
-      // Superseded: the new fetch takes over. Its exit is ignored (id mismatch).
-      this.fetchFiber.interruptUnsafe();
+      // Superseded: the new fetch takes over. Bump the id before interrupting,
+      // since the old fiber's exit handler runs synchronously and must be ignored.
+      const superseded = this.fetchFiber;
       this.fetchFiber = undefined;
+      this.fetchId++;
+      superseded.interruptUnsafe();
     }
 
     const id = ++this.fetchId;
+    this.fetchStartedAt = this.runtime.now();
     this.revertState = this.state;
     this.revertOnInterrupt = false;
     this.setState((s) => ({
       ...s,
+      // Without data, a (re)fetch after an error is a fresh load (TanStack's
+      // fetchState): pending, error cleared. Cancelling reverts to the error.
+      ...(Option.isNone(s.data) ? { status: "pending" as const, cause: Option.none() } : {}),
       fetchStatus: "fetching",
       failureCount: 0,
       failureReason: Option.none(),
@@ -784,6 +827,7 @@ export class QueryEntry<A, E> {
         fetchStatus: "idle",
         data: this.shareData(s.data, exit.value),
         dataUpdatedAt: now,
+        dataRequestedAt: this.fetchStartedAt,
         dataUpdateCount: s.dataUpdateCount + 1,
         cause: Option.none(),
         failureCount: 0,

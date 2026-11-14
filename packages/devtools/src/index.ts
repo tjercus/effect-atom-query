@@ -26,6 +26,9 @@ export type { QueryDevtoolsPanelProps, QueryDevtoolsProps } from "./QueryDevtool
 
 declare const process: { readonly env: { readonly NODE_ENV?: string | undefined } };
 
+// Kept as a plain `process.env.NODE_ENV` comparison so bundlers can replace it
+// and drop the panel from production builds (the size budget checks this).
+// Without a bundler (native ESM), define `process.env.NODE_ENV` yourself.
 const isProduction = process.env.NODE_ENV === "production";
 
 const Nothing = (): null => null;

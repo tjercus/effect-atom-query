@@ -86,7 +86,47 @@ describe("QueryDevtools", () => {
   });
 });
 
+describe("review regressions", () => {
+  it("tells apart entries whose keys print alike", async () => {
+    const client = makeClient();
+    await Effect.runPromise(
+      Effect.all([
+        client.setQueryData(["dup", { filter: undefined }], "first"),
+        client.setQueryData(["dup", {}], "second"),
+      ]),
+    );
+    render(<QueryDevtoolsPanel client={client} />);
+    const rows = await screen.findAllByText('["dup",{}]');
+    expect(rows).toHaveLength(2);
+    fireEvent.click(rows[1]!);
+    const shown = within(screen.getByLabelText("query details")).getByLabelText(
+      "query data",
+    ).textContent;
+    fireEvent.click(rows[0]!);
+    const other = within(screen.getByLabelText("query details")).getByLabelText(
+      "query data",
+    ).textContent;
+    expect(new Set([shown, other])).toEqual(new Set(['"first"', '"second"']));
+  });
+
+  it("does not crash on mutation keys that JSON cannot encode", async () => {
+    const client = makeClient();
+    const pay = Mutation.make({ key: ["invoice", 10n], run: () => Effect.void });
+    render(<QueryDevtoolsPanel client={client} />);
+    await act(() => Effect.runPromise(client.mutate(pay, undefined)));
+    fireEvent.click(screen.getByRole("tab", { name: /mutations/ }));
+    expect(await screen.findByText('["invoice","10n"]')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("filter"), { target: { value: "inv" } });
+    expect(screen.getByText('["invoice","10n"]')).toBeTruthy();
+  });
+});
+
 describe("formatValue", () => {
+  it("prints shared references in full (only real cycles are marked)", () => {
+    const user = { name: "ada" };
+    expect(formatValue({ a: user, b: user })).not.toContain("[Circular]");
+  });
+
   it("handles Effect data, bigints, maps and cycles", () => {
     const cyclic: Record<string, unknown> = { a: 1 };
     cyclic.self = cyclic;

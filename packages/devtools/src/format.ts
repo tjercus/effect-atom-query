@@ -4,35 +4,59 @@ import type { QueryInspector } from "@effect-atom-query/query";
 const MAX_LENGTH = 50_000;
 
 /**
- * Pretty JSON for any value: Effect data uses its `toJSON`, and bigints, Maps,
- * Sets, functions and cycles get readable placeholders.
+ * A JSON-safe copy of any value: Effect data uses its `toJSON`, and bigints,
+ * Maps, Sets, functions and cycles get readable placeholders. Only real
+ * cycles (an ancestor referenced again) are marked; shared references are
+ * printed in full.
  */
-export const formatValue = (value: unknown): string => {
-  const seen = new WeakSet<object>();
-  let text: string;
+const toJsonSafe = (value: unknown, ancestors: Set<object>, depth: number): unknown => {
+  if (typeof value === "bigint") return `${value}n`;
+  if (typeof value === "function") return `[Function ${value.name || "anonymous"}]`;
+  if (typeof value === "symbol") return value.toString();
+  if (value === undefined) return "[undefined]";
+  if (typeof value !== "object" || value === null) return value;
+  if (ancestors.has(value)) return "[Circular]";
+  if (depth > 50) return "[…]";
+  ancestors.add(value);
   try {
-    text =
-      JSON.stringify(
-        value,
-        function (_key, v: unknown) {
-          if (typeof v === "bigint") return `${v}n`;
-          if (typeof v === "function") return `[Function ${v.name || "anonymous"}]`;
-          if (typeof v === "symbol") return v.toString();
-          if (v === undefined) return "[undefined]";
-          if (v instanceof Map) return { _id: "Map", entries: Array.from(v.entries()) };
-          if (v instanceof Set) return { _id: "Set", values: Array.from(v.values()) };
-          if (typeof v === "object" && v !== null) {
-            if (seen.has(v)) return "[Circular]";
-            seen.add(v);
-          }
-          return v;
-        },
-        2,
-      ) ?? String(value);
-  } catch (error) {
-    text = `[unserialisable: ${error instanceof Error ? error.message : String(error)}]`;
+    const next = (v: unknown) => toJsonSafe(v, ancestors, depth + 1);
+    if (value instanceof Map) {
+      return { _id: "Map", entries: Array.from(value.entries(), ([k, v]) => [next(k), next(v)]) };
+    }
+    if (value instanceof Set) return { _id: "Set", values: Array.from(value.values(), next) };
+    if (Array.isArray(value)) return value.map(next);
+    const toJSON = (value as { toJSON?: unknown }).toJSON;
+    if (typeof toJSON === "function") {
+      const json: unknown = toJSON.call(value);
+      return json === value ? "[object]" : next(json);
+    }
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) out[k] = next(v);
+    return out;
+  } finally {
+    ancestors.delete(value);
   }
-  return text.length > MAX_LENGTH ? `${text.slice(0, MAX_LENGTH)}\n… (truncated)` : text;
+};
+
+const truncate = (text: string): string =>
+  text.length > MAX_LENGTH ? `${text.slice(0, MAX_LENGTH)}\n… (truncated)` : text;
+
+/** Pretty JSON for any value; never throws. */
+export const formatValue = (value: unknown): string => {
+  try {
+    return truncate(JSON.stringify(toJsonSafe(value, new Set(), 0), null, 2) ?? String(value));
+  } catch (error) {
+    return `[unserialisable: ${error instanceof Error ? error.message : String(error)}]`;
+  }
+};
+
+/** Compact one-line form of a key; never throws. */
+export const formatKey = (key: ReadonlyArray<unknown>): string => {
+  try {
+    return JSON.stringify(toJsonSafe(key, new Set(), 0));
+  } catch {
+    return String(key);
+  }
 };
 
 /** "3s ago", "2m ago", … */

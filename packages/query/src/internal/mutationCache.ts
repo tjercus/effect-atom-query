@@ -38,8 +38,15 @@ export class MutationCache {
   > = [];
   private notifyScheduled = false;
   private runtime!: MutationRuntime;
+  /** `defaultOptions.mutations` of the client. */
+  private clientDefaults: MutationOptions<any, any, any, any, any> = {};
 
-  setRuntime(client: ClientRuntime, invalidate: MutationRuntime["invalidate"]): void {
+  setRuntime(
+    client: ClientRuntime,
+    invalidate: MutationRuntime["invalidate"],
+    clientDefaults: MutationOptions<any, any, any, any, any> = {},
+  ): void {
+    this.clientDefaults = clientDefaults;
     this.runtime = {
       client,
       invalidate,
@@ -50,6 +57,10 @@ export class MutationCache {
           this.scopes.set(id, scope);
         }
         return scope;
+      },
+      // Forget idle scopes, so per-input scope ids do not accumulate.
+      releaseScope: (id) => {
+        if (this.scopes.get(id)?.running === 0) this.scopes.delete(id);
       },
       onChange: () => this.notifyChange(),
       remove: (entry) => this.remove(entry),
@@ -92,7 +103,12 @@ export class MutationCache {
     options: MutationOptions<I, A, E, any, C>,
     source?: unknown,
   ): MutationEntry<I, A, E, C> {
-    const merged = { ...this.defaultsFor(options.key), ...withoutUndefined(options) };
+    // client-wide defaults < `setMutationDefaults` (by key) < the definition
+    const merged = {
+      ...this.clientDefaults,
+      ...withoutUndefined(this.defaultsFor(options.key)),
+      ...withoutUndefined(options),
+    };
     const entry = new MutationEntry<I, A, E, C>(merged, this.runtime, source);
     this.entries.add(entry);
     this.notifyChange();

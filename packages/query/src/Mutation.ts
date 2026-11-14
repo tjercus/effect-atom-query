@@ -21,7 +21,7 @@ import type { MutationEntry, MutationKey, MutationOptions } from "./internal/mut
 import type { ReactivityKeys } from "./internal/queryEntry.ts";
 import type * as Query from "./Query.ts";
 import * as QueryClient from "./QueryClient.ts";
-import type * as QueryKey from "./QueryKey.ts";
+import * as QueryKey from "./QueryKey.ts";
 import * as MutationResult from "./MutationResult.ts";
 import * as QueryResult from "./QueryResult.ts";
 
@@ -156,7 +156,7 @@ export const make = <I = void, A = void, E = never, R = never, C = never>(
 ): MutationAtom<I, A, E, R, C> => {
   const options = definition as MutationOptions<I, A, E, R, C>;
   const latest = Atom.make(Option.none<MutationEntry<I, A, E, C>>()).pipe(
-    Atom.withLabel(`Mutation.latest(${JSON.stringify(definition.key ?? null)})`),
+    Atom.withLabel(`Mutation.latest(${QueryKey.toJsonKey(definition.key ?? [])})`),
   );
   const self: MutationAtom<I, A, E, R, C> = Object.assign(
     Atom.writable<MutationResult.MutationResult<A, E, I, C>, I | Atom.Reset>(
@@ -180,10 +180,7 @@ export const make = <I = void, A = void, E = never, R = never, C = never>(
           return;
         }
         const client = QueryClient.fromAtomContext(ctx);
-        const execution = client.mutationCache.build<I, A, E, C>(
-          { ...client.mutationDefaults, ...options },
-          self,
-        );
+        const execution = client.mutationCache.build<I, A, E, C>(options, self);
         ctx.set(latest, Option.some(execution));
         execution.execute(value as I);
       },
@@ -198,8 +195,9 @@ export const make = <I = void, A = void, E = never, R = never, C = never>(
  * execution of `mutation` applied on top, in submission order. Nothing is
  * written to the cache, so there is nothing to roll back: when a mutation
  * settles its overlay disappears. An execution whose `run` succeeded stops
- * being applied as soon as the query holds data fetched after that (its
- * `invalidates` refetch), so the change is never shown twice.
+ * being applied as soon as the query holds data *requested* after that (its
+ * `invalidates` refetch), so the change is never shown twice, and a fetch that
+ * started before the server write cannot hide it.
  *
  * ```ts
  * const optimisticTodos = Mutation.optimistic(todosQuery, addTodo, (todos, title) =>
@@ -219,14 +217,15 @@ export const optimistic = <A, E, I>(
     const base = get(query);
     const unsubscribe = client.mutationCache.subscribe(() => get.refreshSelf());
     get.addFinalizer(unsubscribe);
-    const dataUpdatedAt = Option.match(client.cache.get(query.key), {
+    const dataRequestedAt = Option.match(client.cache.get(query.key), {
       onNone: () => 0,
-      onSome: (entry) => entry.state.dataUpdatedAt,
+      onSome: (entry) => entry.state.dataRequestedAt,
     });
     const pending = client.mutationCache
       .findAll({ mutation, status: "pending" })
-      // Already reflected in data fetched after `run` succeeded.
-      .filter((execution) => execution.state.ranAt === 0 || execution.state.ranAt > dataUpdatedAt)
+      // Already reflected in data requested after `run` succeeded. (A fetch
+      // that started earlier but landed later may not contain the change.)
+      .filter((execution) => execution.state.ranAt === 0 || execution.state.ranAt > dataRequestedAt)
       .sort((a, b) => a.state.submittedAt - b.state.submittedAt || a.id - b.id);
     if (pending.length === 0 || Option.isNone(base.data)) return base;
     return QueryResult.map(base, (data) =>

@@ -109,6 +109,22 @@ export const throwResult = <B, E>(result: QueryResult.Failure<B, E>): never => {
   throw defectOrError(result);
 };
 
+const wouldThrowCached = <A, E, B>(
+  options: BaseOptions<A, E, B>,
+  mode: {
+    readonly suspense: boolean;
+    readonly cached?: QueryResult.QueryResult<unknown, E> | undefined;
+  },
+): boolean => {
+  if (mode.suspense) return true;
+  const { throwOnError } = options;
+  if (typeof throwOnError !== "function") return throwOnError === true;
+  const cached = mode.cached;
+  if (cached === undefined || cached.status !== "error") return false;
+  if (QueryResult.isDefect(cached)) return true;
+  return throwOnError(Option.getOrThrow(cached.error));
+};
+
 /**
  * Observer options adjusted for error boundaries and Suspense:
  * - while a boundary is not reset, errored queries do not refetch on mount;
@@ -120,11 +136,17 @@ export const adjustOptions = <A, E, B>(
   mode: {
     readonly suspense: boolean;
     readonly entryStaleTime?: Duration.Duration | "static" | undefined;
+    /** The cached result, to evaluate a `throwOnError` predicate against. */
+    readonly cached?: QueryResult.QueryResult<unknown, E> | undefined;
   },
   boundary: QueryErrorResetBoundaryValue,
 ): QueryObserver.Options<A, B> => {
   let adjusted: QueryObserver.Options<A, B> = options;
-  if ((mode.suspense || options.throwOnError) && !boundary.isReset()) {
+  // Suspense queries always run: a disabled one could never produce data.
+  if (mode.suspense) adjusted = { ...adjusted, enabled: true };
+  // Only an error that was (or would be) thrown to a boundary blocks the mount
+  // retry (TanStack's ensurePreventErrorBoundaryRetry).
+  if (!boundary.isReset() && wouldThrowCached(options, mode)) {
     adjusted = { ...adjusted, retryOnMount: false };
   }
   if (mode.suspense && options.staleTime === undefined) {
@@ -162,9 +184,16 @@ export const useBaseQuery = <A, E, B, V extends object = QueryResult.QueryResult
 } => {
   const client = useQueryClient();
   const boundary = useQueryErrorResetBoundary();
-  const entryStaleTime =
-    suspense && isQuery(query) ? client.cache.build<A, E>(query).options.staleTime : undefined;
-  const observerOptions = adjustOptions(options, { suspense, entryStaleTime }, boundary);
+  const entry = isQuery(query) ? client.cache.build<A, E>(query) : undefined;
+  const observerOptions = adjustOptions(
+    options,
+    {
+      suspense,
+      entryStaleTime: suspense ? entry?.options.staleTime : undefined,
+      cached: typeof options.throwOnError === "function" ? entry?.toResult() : undefined,
+    },
+    boundary,
+  );
 
   const observer = React.useMemo(
     () => QueryObserver.make<A, E, B>(client, query, observerOptions),
@@ -191,17 +220,21 @@ export const useBaseQuery = <A, E, B, V extends object = QueryResult.QueryResult
   React.useSyncExternalStore(
     React.useCallback(
       (onStoreChange) => {
-        const check = (force?: boolean) => {
+        const check = (mode?: "force" | "subscribe") => {
           const t = state.current!;
-          if (!force && t.observedVersion === observer.version) return;
+          if (mode === undefined && t.observedVersion === observer.version) return;
           const previous = t.view;
           const next = t.derive(observer.getCurrentResult(), observer);
           const props = t.notifyOnChangeProps;
+          const untracked = props === undefined && t.tracked.size === 0;
           const notify =
             previous === undefined ||
             props === "all" ||
-            (props === undefined && t.tracked.size === 0) ||
-            changedProps(previous, next, props ?? t.tracked);
+            // At subscribe time with nothing tracked, compare every property
+            // rather than always re-rendering.
+            (untracked && mode === "subscribe"
+              ? changedProps(previous, next, Object.keys(next))
+              : untracked || changedProps(previous, next, props ?? t.tracked));
           t.observedVersion = observer.version;
           if (notify) {
             t.snapshot++;
@@ -209,9 +242,10 @@ export const useBaseQuery = <A, E, B, V extends object = QueryResult.QueryResult
           }
         };
         const unsubscribe = observer.subscribe(() => check());
-        state.current!.recheck = () => check(true);
-        // Catch changes between render and subscription.
-        check();
+        state.current!.recheck = () => check("force");
+        // Catch changes between render and subscription. The observer's
+        // version only moves while subscribed, so compare the results.
+        check("subscribe");
         return () => {
           state.current!.recheck = undefined;
           unsubscribe();
@@ -233,12 +267,17 @@ export const useBaseQuery = <A, E, B, V extends object = QueryResult.QueryResult
   if (suspense && result.isPending && client.runtime.restoring.isRestoring()) {
     throw suspendUntilRestored(client.runtime.restoring);
   }
-  if (suspense && result.isPending) {
+  if (suspense && Option.isNone(result.data) && (result.isPending || result.isFetching)) {
     const fiber = observer.fetchOptimistic(query, observerOptions);
     if (fiber !== undefined) throw suspendOn(fiber);
   }
   if (shouldThrow(result, { suspense, throwOnError: options.throwOnError }, boundary)) {
     throwResult(result);
+  }
+  if (suspense && Option.isNone(result.data)) {
+    // Unreachable by design (suspense forces `enabled`); never hand out
+    // `data: None` under a type that promises data.
+    throw new Error("Suspense query has no data and is not fetching");
   }
 
   // Throwing to a boundary / suspending depends on these, read or not.

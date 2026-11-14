@@ -278,7 +278,7 @@ const descriptorOf = (
         key: queryOrKey as QueryKey.QueryKey,
         run: Effect.die(
           new Error(
-            `Query ${JSON.stringify(queryOrKey)} has no \`run\`: it was only written with setQueryData`,
+            `Query ${QueryKey.toJsonKey(queryOrKey as QueryKey.QueryKey)} has no \`run\`: it was only written with setQueryData`,
           ),
         ),
         options: {},
@@ -375,7 +375,11 @@ export const make: (options?: Options) => Effect.Effect<Service, never, Scope.Sc
         const entry = cache.build(query);
         if (Option.isNone(entry.state.data)) return fetchEntry(query, options);
         const data = entry.state.data.value;
-        if (options?.revalidateIfStale && entry.isStale()) {
+        const staleTime =
+          options?.staleTime === undefined
+            ? entry.options.staleTime
+            : resolveOptions({}, { staleTime: options.staleTime }).staleTime;
+        if (options?.revalidateIfStale && entry.isStale(staleTime)) {
           return prefetchQuery(query, { ...options, staleTime: 0 }).pipe(
             Effect.forkDetach,
             Effect.as(data),
@@ -391,10 +395,14 @@ export const make: (options?: Options) => Effect.Effect<Service, never, Scope.Sc
       cancelRefetch: boolean,
     ): Effect.Effect<void> =>
       Effect.suspend(() => {
-        const fibers = entries
+        const started = entries
           .filter((entry) => !entry.isDisabled && entry.options.staleTime !== "static")
-          .map((entry) => entry.fetch({ cancelRefetch }));
-        return Effect.forEach(fibers, Fiber.await, { discard: true, concurrency: "unbounded" });
+          .map((entry) => [entry, entry.fetch({ cancelRefetch })] as const);
+        // Paused (offline) fetches are not awaited, as in TanStack.
+        return Effect.forEach(started, ([entry, fiber]) => entry.awaitUnlessPaused(fiber), {
+          discard: true,
+          concurrency: "unbounded",
+        });
       });
 
     const refetchQueries: Service["refetchQueries"] = (filters, options) =>
@@ -492,7 +500,26 @@ export const make: (options?: Options) => Effect.Effect<Service, never, Scope.Sc
     const removeQueries: Service["removeQueries"] = (filters) =>
       Effect.sync(() => {
         for (const entry of cache.findAll(filters)) cache.remove(entry);
+        dropPreloaded(filters);
       });
+
+    /**
+     * Restored (persisted) data no query has claimed yet counts as cached data:
+     * removing matching queries removes it too, so it is not written back.
+     */
+    const dropPreloaded = (filters?: QueryFilters) => {
+      if (filters?.predicate !== undefined || filters?.type === "active") return;
+      for (const [jsonKey, preloaded] of runtime.preloaded) {
+        const key = preloaded.queryKey as QueryKey.QueryKey;
+        const matches =
+          filters?.queryKey === undefined ||
+          (Array.isArray(key) &&
+            (filters.exact
+              ? QueryKey.equals(key, filters.queryKey)
+              : QueryKey.matches(key, filters.queryKey)));
+        if (matches) runtime.preloaded.delete(jsonKey);
+      }
+    };
 
     // -- defaults -------------------------------------------------------------
 
@@ -516,16 +543,19 @@ export const make: (options?: Options) => Effect.Effect<Service, never, Scope.Sc
     // -- mutations ------------------------------------------------------------
 
     const mutationDefaults = options?.defaultOptions?.mutations ?? {};
-    mutationCache.setRuntime(runtime, (keys) =>
-      Effect.forEach(keys, (queryKey) => invalidateQueries({ queryKey }), {
-        discard: true,
-        concurrency: "unbounded",
-      }),
+    mutationCache.setRuntime(
+      runtime,
+      (keys) =>
+        Effect.forEach(keys, (queryKey) => invalidateQueries({ queryKey }), {
+          discard: true,
+          concurrency: "unbounded",
+        }),
+      mutationDefaults,
     );
 
     const mutate: Service["mutate"] = (mutation, input) =>
       Effect.contextWith((callerContext) => {
-        const entry = mutationCache.build({ ...mutationDefaults, ...mutation.options }, mutation);
+        const entry = mutationCache.build(mutation.options, mutation);
         return Fiber.join(entry.execute(input, callerContext));
       });
 
@@ -558,6 +588,7 @@ export const make: (options?: Options) => Effect.Effect<Service, never, Scope.Sc
       removeQueries,
       clear: Effect.sync(() => {
         cache.clear();
+        runtime.preloaded.clear();
         mutationCache.clear();
       }),
       setQueryDefaults,
@@ -587,7 +618,8 @@ export const make: (options?: Options) => Effect.Effect<Service, never, Scope.Sc
       Effect.sync(() => {
         unsubscribeFocus();
         unsubscribeOnline();
-        cache.clear();
+        // Observers must not re-create entries (and refetch) while shutting down.
+        cache.dispose();
         mutationCache.clear();
       }),
     );

@@ -32,7 +32,7 @@ Hooks: `useQuery`, `useSuspenseQuery`, `useQueries`, `useSuspenseQueries`,
 `useMutation`, `useMutationState`, `useIsFetching`, `useIsMutating`,
 `useIsRestoring`, `useQueryClient`, and `QueryErrorResetBoundary`.
 
-See the [main README](https://github.com/tjercus/effect-atom-query#readme) and
-the guide in [`apps/docs`](https://github.com/tjercus/effect-atom-query/tree/main/apps/docs).
+See the [documentation](https://tjercus.github.io/effect-atom-query/) and the
+[main README](https://github.com/tjercus/effect-atom-query#readme).
 
 MIT © tjercus

@@ -12,7 +12,7 @@ import {
   Option,
   type Semaphore,
 } from "effect";
-import type * as QueryKey from "../QueryKey.ts";
+import * as QueryKey from "../QueryKey.ts";
 import type * as MutationResult from "../MutationResult.ts";
 import {
   type ClientRuntime,
@@ -115,6 +115,7 @@ export const idleState: MutationState<never, never, never, never> = {
 export interface MutationRuntime {
   readonly client: ClientRuntime;
   readonly scope: (id: string) => { readonly semaphore: Semaphore.Semaphore; running: number };
+  readonly releaseScope: (id: string) => void;
   readonly invalidate: (keys: ReadonlyArray<QueryKey.QueryKey>) => Effect.Effect<void>;
   readonly onChange: () => void;
   readonly remove: (entry: MutationEntry<any, any, any, any>) => void;
@@ -202,7 +203,13 @@ export class MutationEntry<I, A, E, C> {
   resume(): Fiber.Fiber<A, E> | undefined {
     if (!this.awaitingResume || Option.isNone(this.state.variables)) return this.fiber;
     this.awaitingResume = false;
-    return this.execute(this.state.variables.value);
+    if (this.fiber !== undefined) return this.fiber;
+    // Restored: `onMutate` already ran before the reload (its effects, e.g. an
+    // optimistic write, were persisted), so it is skipped, as in TanStack.
+    this.fiber = this.runtime.client.runFork(
+      this.program(this.state.variables.value, { restored: true }),
+    );
+    return this.fiber;
   }
 
   /** Start executing. Returns the fiber settling with the mutation's outcome. */
@@ -212,25 +219,26 @@ export class MutationEntry<I, A, E, C> {
     return this.fiber;
   }
 
-  private program(input: I): Effect.Effect<A, E, any> {
+  private program(input: I, mode?: { readonly restored: boolean }): Effect.Effect<A, E, any> {
     const options = this.options;
     const run = options.run;
+    const restored = mode?.restored === true;
     return Effect.gen({ self: this }, function* () {
+      const submittedAt = restored ? this.state.submittedAt : this.runtime.client.now();
       this.setState(() => ({
         ...idleState,
         status: "pending",
         variables: Option.some(input),
-        submittedAt: this.runtime.client.now(),
+        submittedAt,
       }));
       if (run === undefined) {
         return yield* Effect.die(
-          new Error(`Mutation ${JSON.stringify(options.key)} has no \`run\``),
+          new Error(`Mutation ${QueryKey.toJsonKey(options.key ?? [])} has no \`run\``),
         );
       }
 
-      const context: Option.Option<C> = options.onMutate
-        ? Option.some(yield* options.onMutate(input))
-        : Option.none();
+      const context: Option.Option<C> =
+        options.onMutate && !restored ? Option.some(yield* options.onMutate(input)) : Option.none();
       if (Option.isSome(context)) this.setState((s) => ({ ...s, context }));
 
       const exit = yield* Effect.exit(this.runScoped(input, run));
@@ -299,7 +307,14 @@ export class MutationEntry<I, A, E, C> {
           withRetry,
         ),
       );
-    }).pipe(Effect.ensuring(Effect.sync(() => scope.running--)));
+    }).pipe(
+      Effect.ensuring(
+        Effect.sync(() => {
+          scope.running--;
+          this.runtime.releaseScope(scopeId);
+        }),
+      ),
+    );
   }
 
   private pauseWhileOffline(): Effect.Effect<void> {

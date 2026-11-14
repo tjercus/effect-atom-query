@@ -21,4 +21,6 @@ Props: `initialIsOpen`, `position` (`"bottom-right"` etc.), `height`, and
 `client`. Both components render nothing when `process.env.NODE_ENV` is
 `"production"`, and bundlers drop the panel code.
 
+Documentation: <https://tjercus.github.io/effect-atom-query/>
+
 MIT © tjercus

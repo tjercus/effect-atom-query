@@ -2,7 +2,14 @@ import { type QueryClient, QueryInspector } from "@effect-atom-query/query";
 import { useQueryClient } from "@effect-atom-query/react";
 import { Option } from "effect";
 import * as React from "react";
-import { formatAgo, formatDuration, formatValue, type QueryLabel, queryLabel } from "./format.ts";
+import {
+  formatAgo,
+  formatDuration,
+  formatKey,
+  formatValue,
+  type QueryLabel,
+  queryLabel,
+} from "./format.ts";
 
 /**
  * @since 0.1.0
@@ -303,8 +310,50 @@ export const QueryDevtoolsPanelImpl = (props: QueryDevtoolsPanelProps) => {
   if (client === undefined) {
     throw new Error("QueryDevtools needs a `client` prop or a QueryClientProvider");
   }
-  return <Panel {...props} client={client} />;
+  return (
+    <PanelBoundary style={props.style} onClose={props.onClose}>
+      <Panel {...props} client={client} />
+    </PanelBoundary>
+  );
 };
+
+/** Keeps a devtools failure (e.g. unusual data) from unmounting the host app. */
+class PanelBoundary extends React.Component<
+  {
+    readonly children: React.ReactNode;
+    readonly style?: React.CSSProperties | undefined;
+    readonly onClose?: (() => void) | undefined;
+  },
+  { readonly error: unknown }
+> {
+  override state = { error: undefined as unknown };
+  static getDerivedStateFromError(error: unknown) {
+    return { error };
+  }
+  override render() {
+    if (this.state.error === undefined) return this.props.children;
+    return (
+      <div style={{ ...styles.panel, ...this.props.style, padding: 8 }} role="alert">
+        <strong>effect-atom-query devtools crashed</strong>
+        <pre style={styles.pre}>
+          {this.state.error instanceof Error
+            ? this.state.error.message
+            : formatValue(this.state.error)}
+        </pre>
+        <div style={{ display: "flex", gap: 4, marginTop: 8 }}>
+          <button style={styles.button} onClick={() => this.setState({ error: undefined })}>
+            Reload panel
+          </button>
+          {this.props.onClose && (
+            <button style={styles.button} onClick={this.props.onClose}>
+              Close
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+}
 
 const Panel = ({
   client,
@@ -336,7 +385,7 @@ const Panel = ({
       .filter(
         (m) =>
           needle === "" ||
-          Option.match(m.key, { onNone: () => "", onSome: (k) => JSON.stringify(k) })
+          Option.match(m.key, { onNone: () => "", onSome: formatKey })
             .toLowerCase()
             .includes(needle),
       )
@@ -357,7 +406,7 @@ const Panel = ({
     return c;
   }, [queries]);
 
-  const selectedQuery = tab === "queries" ? queries.find((q) => q.hash === selected) : undefined;
+  const selectedQuery = tab === "queries" ? queries.find((q) => q.id === selected) : undefined;
   const selectedMutation =
     tab === "mutations" ? mutations.find((m) => m.id === selected) : undefined;
 
@@ -435,13 +484,13 @@ const Panel = ({
                 const label = queryLabel(q);
                 return (
                   <button
-                    key={q.hash}
+                    key={q.id}
                     role="listitem"
                     style={{
                       ...styles.row,
-                      background: q.hash === selected ? "#1e293b" : "transparent",
+                      background: q.id === selected ? "#1e293b" : "transparent",
                     }}
-                    onClick={() => setSelected(q.hash)}
+                    onClick={() => setSelected(q.id)}
                     title={label}
                   >
                     <Badge color={palette[label]}>{q.observers}</Badge>
@@ -469,7 +518,7 @@ const Panel = ({
                   <span>
                     {Option.match(m.key, {
                       onNone: () => `#${m.id}`,
-                      onSome: (k) => JSON.stringify(k),
+                      onSome: formatKey,
                     })}
                   </span>
                 </button>

@@ -129,9 +129,10 @@ export class QueryObserver<A, E, B = A> {
     const unsubscribe = entry.subscribe(() => {
       if (Option.isSome(entry.state.data)) this.previousData = entry.state.data;
       if (entry.isRemoved) {
-        // Removed from the cache while observed: start over on a fresh entry.
+        // Removed from the cache while observed: start over on a fresh entry,
+        // unless the client is shutting down.
         this.detach();
-        if (this.listeners.size > 0) this.attach();
+        if (this.listeners.size > 0 && !this.client.cache.isDisposed) this.attach();
       }
       this.notify();
     });
@@ -387,6 +388,11 @@ export class QueriesObserver {
   constructor(client: QueryClient.Service, inputs: ReadonlyArray<QueriesInput>) {
     this.client = client;
     this.ensure(inputs);
+  }
+
+  /** Notify subscribers (e.g. a binding noticed results it has not shown). */
+  notify(): void {
+    this.onChange();
   }
 
   private readonly onChange = () => {

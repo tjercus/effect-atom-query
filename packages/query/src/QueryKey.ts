@@ -104,6 +104,8 @@ export const toJsonKey = (key: QueryKey | ReadonlyArray<unknown>): string =>
   JSON.stringify(canonical(key));
 
 const canonical = (u: unknown): unknown => {
+  // JSON has no bigint; tag it so it neither throws nor collides with strings.
+  if (typeof u === "bigint") return { "~bigint": u.toString() };
   if (Array.isArray(u)) return u.map(canonical);
   if (isPlainContainer(u)) {
     const out: Record<string, unknown> = {};

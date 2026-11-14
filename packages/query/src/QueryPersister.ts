@@ -28,7 +28,7 @@
  *
  * @since 0.1.0
  */
-import { Duration, Effect, Layer, Option, Schema } from "effect";
+import { Duration, Effect, Fiber, Layer, Option, Schema } from "effect";
 import { KeyValueStore } from "effect/persistence";
 import { persistCodec } from "./internal/persistCodec.ts";
 import type * as Mutation from "./Mutation.ts";
@@ -153,8 +153,13 @@ const snapshot = (client: QueryClient.Service, options: Resolved): PersistedClie
       // Not encodable (e.g. a non-JSON key): skip this query.
     }
   }
-  // Restored data no atom has claimed yet is kept, not lost.
+  // Restored data no atom has claimed yet is kept, not lost, until it is
+  // older than `maxAge` (each write would otherwise renew it indefinitely).
   for (const [key, preloaded] of client.runtime.preloaded) {
+    if (now - preloaded.dataUpdatedAt > options.maxAge) {
+      client.runtime.preloaded.delete(key);
+      continue;
+    }
     if (seen.has(key)) continue;
     queries.push({
       key,
@@ -326,13 +331,12 @@ export const layer = (
         Effect.provideContext(context),
         Effect.ignore({ log: false }),
       );
-      let scheduled = false;
+      let pending: Fiber.Fiber<void> | undefined;
       const schedule = () => {
-        if (scheduled || restoring.isRestoring()) return;
-        scheduled = true;
-        client.runtime.runFork(
+        if (pending !== undefined || restoring.isRestoring()) return;
+        pending = client.runtime.runFork(
           Effect.sleep(resolved.throttle).pipe(
-            Effect.andThen(Effect.sync(() => (scheduled = false))),
+            Effect.andThen(Effect.sync(() => (pending = undefined))),
             Effect.andThen(write),
           ),
         );
@@ -340,10 +344,18 @@ export const layer = (
       const unsubscribeQueries = client.cache.subscribe(schedule);
       const unsubscribeMutations = client.mutationCache.subscribe(schedule);
       yield* Effect.addFinalizer(() =>
-        Effect.sync(() => {
+        Effect.suspend(() => {
           unsubscribeQueries();
           unsubscribeMutations();
-        }).pipe(Effect.andThen(write)),
+          // A throttled write must not land after the final one (or after
+          // `removeClient`).
+          const throttled = pending;
+          pending = undefined;
+          const stopThrottled = throttled ? Fiber.interrupt(throttled) : Effect.void;
+          // Closed before a background restore finished: the cache does not
+          // reflect storage yet, so writing it would wipe the stored snapshot.
+          return restoring.isRestoring() ? stopThrottled : Effect.andThen(stopThrottled, write);
+        }),
       );
     }),
   );

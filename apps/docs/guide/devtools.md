@@ -35,7 +35,8 @@ paused state. You can filter by key and sort by status, key or last update.
 
 Both components render nothing when `process.env.NODE_ENV === "production"`,
 and bundlers remove the panel code from production builds. The size budget
-checks this.
+checks this. Without a bundler (native ESM in the browser), define
+`process.env.NODE_ENV` yourself.
 
 ## Building your own tools
 

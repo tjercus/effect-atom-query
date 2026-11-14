@@ -787,3 +787,47 @@ SSR / hydration was explicitly skipped; everything else in phase 7 is done.
   headless Chromium all 12 examples and the devtools pass a scripted smoke
   test (including the offline item never rendering twice after a reload) with
   no console errors or warnings.
+
+### Pre-release review (2026-11-14)
+
+Four parallel reviews (core engine, mutations and persistence, React
+bindings, devtools / docs / release setup) found these, all fixed with
+regression tests in `packages/*/test/regressions.test.*` (each verified to
+fail without its fix):
+
+- **Core:** invalidate / refetch / reset (and mutations with `invalidates`)
+  hung while offline; now paused fetches are not awaited. Closing the client
+  re-created observed entries and refetched; the cache is now disposed first.
+  A refetch without data after an error now shows `pending` (TanStack's
+  `fetchState`). `ensureQueryData({ revalidateIfStale })` honours its
+  `staleTime`. Superseding a fetch no longer emits an intermediate `idle`.
+  Bigint keys no longer throw (`toJsonKey` tags them).
+- **Mutations / persistence:** closing during a background restore wiped
+  storage. Unclaimed restored data survived `clear` / `removeQueries` and was
+  renewed forever; it is now dropped and expires after `maxAge`. A pending
+  throttled write could land after the final one. Resumed mutations re-ran
+  `onMutate`. Client-wide mutation defaults overrode `setMutationDefaults`.
+  The `Mutation.optimistic` handover now uses the _request start_ time of the
+  data (`dataRequestedAt`), so an earlier fetch landing late cannot hide the
+  change. Idle mutation scopes are released.
+- **React:** Suspense hooks could render with `data: None` after an
+  error-boundary reset; they now suspend whenever there is no data and a fetch
+  is running, force `enabled`, and `useSuspenseQueries` entries can no longer
+  be disabled or skipped. Changes between render and subscribe were missed in
+  real browsers; both `useQuery` and `useQueries` now compare at subscribe
+  time. A `throwOnError` predicate that returns `false` no longer blocks the
+  mount retry.
+- **Devtools / docs / release:** entries whose keys print alike are told apart
+  by a per-entry id; non-JSON keys no longer crash the panel, which is also
+  wrapped in its own error boundary; shared references are no longer shown as
+  circular. `QueryInspector` is re-exported from `/react`. A docs sample used
+  a non-existent `Schedule.take`. The Pages workflow gives write permissions
+  only to the deploy job, deploys only from `main`, and redeploys on lockfile
+  changes.
+
+Not changed (noted): `select` throwing still throws during render; keys that
+differ only in `undefined` vs missing properties are distinct entries (they
+compare with `Equal`); restored mutations resume on start, not on reconnect,
+when `resumePausedMutations` is off; the tracking view is written during render
+(a discarded concurrent render can leave it stale until the next change); peer
+range `react: ^19.3.1` is what is tested.

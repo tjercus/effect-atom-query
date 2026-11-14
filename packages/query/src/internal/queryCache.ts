@@ -95,6 +95,18 @@ export class QueryCache {
   clear(): void {
     for (const entry of this.all()) this.remove(entry);
   }
+
+  private disposed = false;
+
+  /** The client is shutting down: remove everything; observers stop re-attaching. */
+  dispose(): void {
+    this.disposed = true;
+    this.clear();
+  }
+
+  get isDisposed(): boolean {
+    return this.disposed;
+  }
 }
 
 /** @internal */

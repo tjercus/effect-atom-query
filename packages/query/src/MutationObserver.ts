@@ -93,10 +93,7 @@ export class MutationObserver<I, A, E, R, C> {
   }
 
   private start(input: I, callbacks?: Callbacks<A, E, I>): MutationEntry<I, A, E, C> {
-    const entry = this.client.mutationCache.build<I, A, E, C>(
-      { ...this.client.mutationDefaults, ...this.mutation.options },
-      this.mutation,
-    );
+    const entry = this.client.mutationCache.build<I, A, E, C>(this.mutation.options, this.mutation);
     this.entry = entry;
     if (this.listeners.size > 0) this.attach(entry);
     else this.detach();
