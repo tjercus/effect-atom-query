@@ -20,6 +20,41 @@ Every hook needs a `QueryClientProvider` above it.
 Atom hooks from `@effect/atom-react` (`useAtomValue`, `useAtom`, …) work on
 query and mutation atoms too. The `use*Query` hooks add per-component options.
 
+## One app-wide registry
+
+`QueryClientProvider` creates a fresh `AtomRegistry` by default. In an app that
+also uses atoms outside React (actions that set state after a login, an HTTP
+layer that reads the auth token), create the registry yourself and pass it in.
+The provider binds the client into it and provides it to hooks, so React, plain
+code and query atoms all share one registry:
+
+```tsx
+import { scheduleTask } from "@effect/atom-react";
+import { AtomRegistry } from "effect/reactivity";
+
+// the same settings RegistryProvider uses
+export const registry = AtomRegistry.make({ scheduleTask, defaultIdleTTL: 400 });
+
+// plain code, outside React
+export const login = (user: User) => registry.set(userAtom, Option.some(user));
+
+createRoot(el).render(
+  <QueryClientProvider runtime={runtime} registry={registry}>
+    <App />
+  </QueryClientProvider>,
+);
+```
+
+With `registry`, the `defaultIdleTTL`, `scheduleTask` and `timeoutResolution`
+props are not available: set them in `AtomRegistry.make` instead. Pass
+`scheduleTask` from `@effect/atom-react` so registry work runs on React's
+scheduler, as it does with the provider's own registry. The provider
+does not dispose a registry you pass in.
+
+To read query atoms from the registry before the provider renders, bind the
+client yourself:
+`AtomRegistry.make({ initialValues: [QueryClient.initialValue(client)] })`.
+
 ## Per-component options
 
 The definition holds the shared options. Each `useQuery` call can add:

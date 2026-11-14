@@ -1,12 +1,14 @@
 import { act, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { useAtomValue } from "@effect/atom-react";
 import { Effect, Option } from "effect";
+import { Atom, AtomRegistry } from "effect/reactivity";
 import * as React from "react";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import {
   MissingQueryClientProviderError,
   Query,
   queriesEntry,
+  QueryClient,
   QueryClientProvider,
   useIsFetching,
   useQueries,
@@ -52,6 +54,74 @@ describe("QueryClientProvider", () => {
       ),
     });
     expect(result.current).toBe(client);
+  });
+
+  describe("with an existing registry", () => {
+    it("binds the client into it and provides it to hooks", async () => {
+      const { client } = setup();
+      const registry = AtomRegistry.make();
+      const user = Atom.make("anonymous");
+      const q = Query.single({ key: ["shared-registry"], run: Effect.succeed("data") });
+      function View() {
+        const name = useAtomValue(user);
+        const r = useQuery(q);
+        return <p>{`${name}:${r.isSuccess ? r.data.value : "…"}`}</p>;
+      }
+      render(
+        <QueryClientProvider client={client} registry={registry}>
+          <View />
+        </QueryClientProvider>,
+      );
+      expect(registry.get(QueryClient.current)).toEqual(Option.some(client));
+      expect(await screen.findByText("anonymous:data")).toBeTruthy();
+
+      // plain code writes to the same registry, outside React
+      act(() => registry.set(user, "ada"));
+      expect(await screen.findByText("ada:data")).toBeTruthy();
+      // and reads query atoms from it
+      const fromRegistry = registry.get(q);
+      expect(fromRegistry.isSuccess && fromRegistry.data.value).toBe("data");
+    });
+
+    it("lets query atoms render through atom hooks on the first render", async () => {
+      const { client } = setup();
+      const registry = AtomRegistry.make();
+      const q = Query.single({ key: ["shared-registry-atom"], run: Effect.succeed("via atom") });
+      function ViaAtom() {
+        const r = useAtomValue(q);
+        return <p>{r.isSuccess ? r.data.value : "…"}</p>;
+      }
+      render(
+        <QueryClientProvider client={client} registry={registry}>
+          <ViaAtom />
+        </QueryClientProvider>,
+      );
+      expect(await screen.findByText("via atom")).toBeTruthy();
+    });
+
+    it("rebinds when the client changes", () => {
+      const a = setup();
+      const b = setup();
+      const registry = AtomRegistry.make();
+      const { rerender } = render(<QueryClientProvider client={a.client} registry={registry} />);
+      expect(registry.get(QueryClient.current)).toEqual(Option.some(a.client));
+      rerender(<QueryClientProvider client={b.client} registry={registry} />);
+      expect(registry.get(QueryClient.current)).toEqual(Option.some(b.client));
+    });
+
+    it("accepts a ManagedRuntime", () => {
+      const { runtime, client } = setup();
+      const registry = AtomRegistry.make();
+      const { result } = renderHook(() => useQueryClient(), {
+        wrapper: ({ children }) => (
+          <QueryClientProvider runtime={runtime} registry={registry}>
+            {children}
+          </QueryClientProvider>
+        ),
+      });
+      expect(result.current).toBe(client);
+      expect(registry.get(QueryClient.current)).toEqual(Option.some(client));
+    });
   });
 
   it("throws a helpful error without a provider", () => {
