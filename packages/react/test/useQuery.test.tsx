@@ -117,6 +117,46 @@ describe("QueryClientProvider", () => {
       await waitFor(() => expect(registry.get(QueryClient.current)).toEqual(Option.none()));
     });
 
+    it("stays bound when a new provider takes over before the deferred unbind", async () => {
+      const { client } = setup();
+      const registry = AtomRegistry.make();
+      const first = render(<QueryClientProvider client={client} registry={registry} />);
+      first.unmount();
+      render(<QueryClientProvider client={client} registry={registry} />);
+      await new Promise((r) => setTimeout(r, 20)); // past the first provider's unbind
+      expect(registry.get(QueryClient.current)).toEqual(Option.some(client));
+    });
+
+    it("unbinds the previous registry when the registry changes", async () => {
+      const { client } = setup();
+      const a = AtomRegistry.make();
+      const b = AtomRegistry.make();
+      const { rerender } = render(<QueryClientProvider client={client} registry={a} />);
+      rerender(<QueryClientProvider client={client} registry={b} />);
+      await new Promise((r) => setTimeout(r, 20));
+      expect(a.get(QueryClient.current)).toEqual(Option.none());
+      expect(b.get(QueryClient.current)).toEqual(Option.some(client));
+    });
+
+    it("replaces a client left behind by no committed provider on the first render", () => {
+      const stale = setup();
+      const { client } = setup();
+      const registry = AtomRegistry.make();
+      // e.g. bound by a provider whose first render was discarded
+      registry.set(QueryClient.current, Option.some(stale.client));
+      const seen: Array<QueryClient.Service | undefined> = [];
+      function View() {
+        seen.push(Option.getOrUndefined(useAtomValue(QueryClient.current)));
+        return null;
+      }
+      render(
+        <QueryClientProvider client={client} registry={registry}>
+          <View />
+        </QueryClientProvider>,
+      );
+      expect(seen[0]).toBe(client);
+    });
+
     it("stays bound under StrictMode", async () => {
       const { client } = setup();
       const registry = AtomRegistry.make();

@@ -15,7 +15,9 @@ three ways:
 
 ```ts
 registry.set(addTodo, "buy milk"); // atom style
-client.mutate(addTodo, "buy milk"); // Effect<Todo, TodoError, TodoRepo>
+const program = Effect.gen(function* () {
+  const todo = yield* client.mutate(addTodo, "buy milk"); // in an Effect, with TodoRepo
+});
 
 const add = useMutation(addTodo, { onSuccess: () => setTitle("") });
 add.mutate("buy milk"); // fire and forget
@@ -43,7 +45,9 @@ add.mutate(title, {
 
 `invalidates` takes query keys, matched by prefix, or a function of
 `(data, input)`. The mutation stays **pending until the active matching queries
-have refetched**, so a UI that waits for the mutation never flashes stale data.
+have refetched**, so a UI that waits for the mutation does not flash the data
+from before it. A refetch that fails keeps the previous data and sets the
+query's error; the mutation still succeeds.
 
 `reactivityKeys` does the same through Effect's `Reactivity` service, which
 also drives `AtomHttpApi` and `AtomRpc` queries.
@@ -67,26 +71,32 @@ over to the refetched list without showing the item twice.
 
 ## Optimistic updates via the cache
 
-`Mutation.optimisticUpdate(query, update)` returns an `onMutate` / `onError`
-pair to spread into a definition. Before `run`, it cancels the query's running
-fetches, snapshots its data and writes `update(data, input)`. If the mutation
-fails, it restores the snapshot and refetches the query, so the cache matches
-the server even when several mutations overlap:
+`Mutation.optimisticUpdate(query, update)` returns `onMutate`, `onError` and
+`onSettled` callbacks to spread into a definition. Before `run`, it cancels the
+query's running fetches, snapshots its data and writes `update(data, input)`.
+If the mutation fails, it restores the snapshot. Once the mutation settles,
+after success or failure, it invalidates the query and waits for it to
+refetch, so the cache matches the server even when several mutations overlap
+and one rolls back another's update:
 
 ```ts
 const deleteTodo = Mutation.make({
   run: (id: string) => TodoRepo.use((repo) => repo.delete(id)),
   ...Mutation.optimisticUpdate(todosQuery, (todos, id) => todos.filter((t) => t.id !== id)),
-  invalidates: [["todos"]],
 });
 ```
 
+The query is refetched already, so it needs no `invalidates` entry (one would
+refetch it a second time). Only an active query refetches; an inactive one is
+marked stale, keeps the restored snapshot, and refetches when it is next used.
+
 To update one member of a family, pass a function of the input:
 `Mutation.optimisticUpdate((todo: Todo) => todoQuery(todo.id), (_old, todo) => todo)`.
-While the query has no data, nothing is written.
+While the query has no data, nothing is written and a first load keeps
+running.
 
-The helper provides `onMutate` and `onError`. To add your own as well, call
-the helper's from yours:
+To add your own callbacks as well, spread the helper and call its callback
+from yours:
 
 ```ts
 const cache = Mutation.optimisticUpdate(todosQuery, (todos, id: string) =>
@@ -94,10 +104,9 @@ const cache = Mutation.optimisticUpdate(todosQuery, (todos, id: string) =>
 );
 const deleteTodo = Mutation.make({
   run: (id: string) => TodoRepo.use((repo) => repo.delete(id)),
-  onMutate: (id) => Effect.tap(cache.onMutate(id), () => Effect.log("deleting", id)),
+  ...cache,
   onError: (cause, id, context) =>
     Effect.andThen(cache.onError(cause, id, context), Effect.logWarning("delete failed")),
-  invalidates: [["todos"]],
 });
 ```
 

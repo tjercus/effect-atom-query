@@ -238,40 +238,45 @@ export const optimistic = <A, E, I>(
   });
 
 /**
- * Optimistic updates "via the cache": the `onMutate` / `onError` pair that
- * writes `update` into `query`'s cached data before `run`, and rolls it back
- * if the mutation fails. Spread it into a definition:
+ * Optimistic updates "via the cache": the `onMutate` / `onError` / `onSettled`
+ * callbacks that write `update` into `query`'s cached data before `run`, roll
+ * it back if the mutation fails, and refetch the query once it settles. Spread
+ * them into a definition:
  *
  * ```ts
  * const deleteTodo = Mutation.make({
  *   run: (id: string) => TodoRepo.use((repo) => repo.delete(id)),
  *   ...Mutation.optimisticUpdate(todosQuery, (todos, id) => todos.filter((t) => t.id !== id)),
- *   invalidates: [["todos"]],
  * })
  * ```
  *
- * `onMutate` cancels the query's running fetches (so they cannot overwrite the
- * update), snapshots its data and applies `update`; it does nothing while the
- * query has no data. `query` can also be a function of the input, to target
- * one member of a family: `(todo) => todoQuery(todo.id)`.
+ * `onMutate` does nothing while the query has no data, so a first load keeps
+ * running. Otherwise it cancels the query's running fetches (so they cannot
+ * overwrite the update), snapshots the data and applies `update`. `query` can
+ * also be a function of the input, to target one member of a family:
+ * `(todo) => todoQuery(todo.id)`.
  *
- * `onError` restores the snapshot, then invalidates the query (waiting for
- * an active one to refetch) so the cache ends up matching the server. That
- * also corrects the cache when executions overlap and a rollback restores a
- * snapshot taken during another one, when the snapshot is older than the
- * fetch that was cancelled, and when a resumed persisted execution has no
- * snapshot. An interrupted execution runs no callbacks, so its update stays
- * until the query refetches.
+ * `onError` restores the snapshot. `onSettled` then invalidates the query,
+ * after success and failure alike, and waits for an active query to refetch,
+ * so the cache ends up matching the server. That also corrects the cache when
+ * executions overlap: a rollback restores a snapshot taken before another
+ * execution's update, and the refetch after that other execution settles
+ * brings its change back. It also covers a snapshot older than the fetch that
+ * was cancelled, and a resumed persisted execution, which has no snapshot.
+ * An inactive query is only marked stale, and refetches when it is next used.
+ * An interrupted execution runs no callbacks, so its update stays until the
+ * query refetches.
  *
- * Unlike {@link optimistic}, this changes the cache, so every reader sees the
- * update, also outside React. To add your own `onMutate` / `onError`, call
+ * The query is refetched already: list it in `invalidates` only if you want a
+ * second refetch. Unlike {@link optimistic}, this changes the cache, so every
+ * reader sees the update, also outside React. To add your own callbacks, call
  * these from yours:
  *
  * ```ts
  * const cache = Mutation.optimisticUpdate(todosQuery, removeTodo)
  * Mutation.make({
  *   run,
- *   onMutate: (id) => Effect.tap(cache.onMutate(id), () => Effect.log("deleting", id)),
+ *   ...cache,
  *   onError: (cause, id, context) => Effect.andThen(cache.onError(cause, id, context), showError),
  * })
  * ```
@@ -289,6 +294,11 @@ export const optimisticUpdate = <A, I>(
     input: I,
     context: Option.Option<Option.Option<A>>,
   ) => Effect.Effect<void, never, QueryClient.QueryClient>;
+  readonly onSettled: (
+    exit: Exit.Exit<unknown, unknown>,
+    input: I,
+    context: Option.Option<Option.Option<A>>,
+  ) => Effect.Effect<void, never, QueryClient.QueryClient>;
 } => {
   const target = (input: I): Query.QueryAtom<A, any, any> =>
     Query.isQueryAtom(query) ? query : query(input);
@@ -297,7 +307,9 @@ export const optimisticUpdate = <A, I>(
       Effect.gen(function* () {
         const client = yield* QueryClient.QueryClient;
         const atom = target(input);
+        if (Option.isNone(yield* client.getQueryData(atom))) return Option.none();
         yield* client.cancelQueries({ queryKey: atom.key, exact: true });
+        // Read again: cancelling restores the state from before the fetch.
         const previous = yield* client.getQueryData(atom);
         if (Option.isSome(previous)) {
           yield* client.setQueryData(atom, () => Option.some(update(previous.value, input)));
@@ -306,11 +318,18 @@ export const optimisticUpdate = <A, I>(
       }),
     onError: (_cause, input, context) =>
       Effect.gen(function* () {
-        const client = yield* QueryClient.QueryClient;
-        const atom = target(input);
         const previous = Option.flatten(context);
-        if (Option.isSome(previous)) yield* client.setQueryData(atom, () => previous);
-        yield* client.invalidateQueries({ queryKey: atom.key, exact: true });
+        if (Option.isNone(previous)) return;
+        const client = yield* QueryClient.QueryClient;
+        yield* client.setQueryData(target(input), () => previous);
+      }),
+    onSettled: (_exit, input, context) =>
+      Effect.gen(function* () {
+        // `onMutate` found no data, so it wrote nothing (a resumed execution,
+        // with no context at all, may have written before the reload).
+        if (Option.isSome(context) && Option.isNone(context.value)) return;
+        const client = yield* QueryClient.QueryClient;
+        yield* client.invalidateQueries({ queryKey: target(input).key, exact: true });
       }),
   };
 };

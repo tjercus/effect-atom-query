@@ -76,22 +76,21 @@ import { useEffect } from "react";
 
 function CacheLogger() {
   const client = useQueryClient();
-  useEffect(
-    () =>
-      QueryInspector.subscribe(client, () => {
-        console.table(
-          QueryInspector.queries(client).map((q) => ({
-            key: q.hash,
-            status: q.status,
-            fetching: q.fetchStatus,
-            stale: q.isStale,
-            observers: q.observers,
-            error: Option.getOrElse(q.error, () => ""),
-          })),
-        );
-      }),
-    [client],
-  );
+  useEffect(() => {
+    const log = () =>
+      console.table(
+        QueryInspector.queries(client).map((q) => ({
+          key: q.hash,
+          status: q.status,
+          fetching: q.fetchStatus,
+          stale: q.isStale,
+          observers: q.observers,
+          error: Option.getOrElse(q.error, () => ""),
+        })),
+      );
+    log(); // what is cached already: `subscribe` only reports later changes
+    return QueryInspector.subscribe(client, log);
+  }, [client]);
   return null;
 }
 ```

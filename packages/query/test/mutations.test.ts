@@ -182,10 +182,15 @@ describe("mutations", () => {
       const good = yield* Effect.forkChild(client.mutate(add, "b"));
       yield* settle;
       expect(registry.get(todos).data).toEqual(Option.some(["a", "b"]));
+      const fetches = server.fetches;
+      yield* TestClock.adjust("100 millis"); // saved on the server
+      yield* settle;
+      expect(registry.get(todos).isFetching).toBe(true); // refetching after success too
       yield* TestClock.adjust("100 millis");
       expect((yield* Fiber.await(good))._tag).toBe("Success");
       yield* settle;
-      expect(registry.get(todos).data).toEqual(Option.some(["a", "b"])); // kept
+      expect(server.fetches).toBe(fetches + 1);
+      expect(registry.get(todos).data).toEqual(Option.some(["a", "b"])); // from the server
     }),
   );
 
@@ -216,6 +221,64 @@ describe("mutations", () => {
       yield* Fiber.await(a);
       yield* Fiber.await(b);
       expect(registry.get(todos).data).toEqual(Option.some(["a"]));
+    }),
+  );
+
+  it.effect("Mutation.optimisticUpdate brings back a success rolled back by another failure", () =>
+    Effect.gen(function* () {
+      const { client, registry } = yield* setup();
+      const server = makeServer();
+      const todos = server.todosQuery;
+      const add = Mutation.make({
+        // "slow" is saved on the server only after the other's rollback refetch
+        run: (title: string) =>
+          server.add(title).pipe(Effect.delay(title === "slow" ? "300 millis" : "0 millis")),
+        ...Mutation.optimisticUpdate(todos, (list, title: string) => [...list, title]),
+      });
+      registry.mount(todos);
+      yield* TestClock.adjust("100 millis");
+      yield* settle;
+
+      const bad = yield* Effect.forkChild(client.mutate(add, "bad"));
+      yield* settle;
+      const slow = yield* Effect.forkChild(client.mutate(add, "slow"));
+      yield* settle;
+      expect(registry.get(todos).data).toEqual(Option.some(["a", "bad", "slow"]));
+      yield* TestClock.adjust("100 millis"); // "bad" fails: rollback to [a]
+      yield* settle;
+      yield* TestClock.adjust("100 millis"); // its refetch lands, "slow" not saved yet
+      yield* settle;
+      expect((yield* Fiber.await(bad))._tag).toBe("Failure");
+      expect(registry.get(todos).data).toEqual(Option.some(["a"]));
+      yield* TestClock.adjust("200 millis"); // "slow" is saved
+      yield* settle;
+      yield* TestClock.adjust("100 millis"); // and its refetch lands
+      expect((yield* Fiber.await(slow))._tag).toBe("Success");
+      yield* settle;
+      expect(registry.get(todos).data).toEqual(Option.some(["a", "slow"]));
+    }),
+  );
+
+  it.effect("Mutation.optimisticUpdate does not cancel a first load", () =>
+    Effect.gen(function* () {
+      const { client, registry } = yield* setup();
+      const server = makeServer();
+      const add = Mutation.make({
+        run: server.add,
+        ...Mutation.optimisticUpdate(server.todosQuery, (list, title: string) => [...list, title]),
+      });
+      registry.mount(server.todosQuery);
+      yield* settle;
+      expect(registry.get(server.todosQuery).isLoading).toBe(true);
+      const fiber = yield* Effect.forkChild(client.mutate(add, "b"));
+      yield* settle;
+      expect(registry.get(server.todosQuery).isFetching).toBe(true); // still loading
+      yield* TestClock.adjust("100 millis");
+      yield* Fiber.await(fiber);
+      yield* settle;
+      const result = registry.get(server.todosQuery);
+      expect(result.isSuccess).toBe(true);
+      expect(server.fetches).toBe(1);
     }),
   );
 

@@ -20,7 +20,7 @@ and hooks. What changes is the language around it.
 | `new QueryClient({ defaultOptions })`                   | `QueryClient.layer({ defaultOptions })`                             |
 | `mutateAsync(input).then().catch()`                     | `mutate(input, { onSuccess, onError })`, or `yield* mutateEffect`   |
 | `onMutate` / `onError` / `onSettled` returning promises | the same callbacks returning Effects, with `QueryClient` in context |
-| `onSettled: () => invalidateQueries(...)`               | `invalidates: [["todos"]]`                                          |
+| `onSuccess: () => invalidateQueries(...)`               | `invalidates: [["todos"]]`                                          |
 | `useMutationState({ select })`                          | the same; also `Mutation.optimistic(query, mutation, apply)`        |
 | `persistQueryClient` + `dehydrate` options              | `QueryPersister.layer` + per-query `persist: { schema }`            |
 | `focusManager`, `onlineManager`                         | `FocusManager` / `OnlineManager` services                           |
@@ -30,17 +30,19 @@ and hooks. What changes is the language around it.
 
 ### `invalidates` waits for the refetch
 
-In TanStack Query, `onSettled: () => queryClient.invalidateQueries(...)` starts
-the refetch and the mutation settles straight away (unless you return the
-promise). Here, `invalidates` differs in two ways:
+In TanStack Query, the mutation waits for the refetch only if the callback
+returns the promise: `onSettled: () => queryClient.invalidateQueries(...)` waits,
+while `onSettled: () => { queryClient.invalidateQueries(...) }` settles straight
+away. `invalidates` always waits, and runs only when the mutation **succeeds**,
+not on error.
 
-- It runs only when the mutation **succeeds**, not on error.
-- The mutation stays **pending** until the active queries that match have
-  refetched, so the UI never shows stale data after a mutation.
-
-You can see this in the UI: a form that navigates in `onSuccess` now navigates
-after the refetch, and its submit button stays disabled while `isPending` is
-`true` a little longer. See [Invalidation](./mutations#invalidation).
+The mutation stays **pending** until the refetches of the active queries that
+match have finished. A refetch that fails keeps the query's previous data and
+error; the mutation still succeeds. If you port callbacks that did not return
+the promise, you will see this in the UI: a form that navigates in
+`onSuccess` now navigates after the refetch, and its submit button stays
+disabled while `isPending` is `true` a little longer. See
+[Invalidation](./mutations#invalidation).
 
 ### Queries are defined once
 

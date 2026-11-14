@@ -105,8 +105,26 @@ export function QueryClientProvider(props: QueryClientProviderProps): React.Reac
   );
 }
 
-/** Which provider currently binds each shared registry, to catch two at once. */
-const owners = new WeakMap<AtomRegistry.AtomRegistry, object>();
+/**
+ * Per shared registry: the committed provider that binds it, and the deferred
+ * unbind left by the last one that unmounted. Kept per registry, not per
+ * provider instance, so a provider that takes over a registry (a remount, a
+ * StrictMode replay, another provider) cancels the unbind of the one before it.
+ */
+interface Binding {
+  owner: object | undefined;
+  unbind: ReturnType<typeof setTimeout> | undefined;
+}
+const bindings = new WeakMap<AtomRegistry.AtomRegistry, Binding>();
+
+const bindingOf = (registry: AtomRegistry.AtomRegistry): Binding => {
+  let binding = bindings.get(registry);
+  if (binding === undefined) {
+    binding = { owner: undefined, unbind: undefined };
+    bindings.set(registry, binding);
+  }
+  return binding;
+};
 
 const boundClient = (registry: AtomRegistry.AtomRegistry): QueryClient.Service | undefined =>
   Option.getOrUndefined(registry.get(QueryClient.current));
@@ -114,38 +132,51 @@ const boundClient = (registry: AtomRegistry.AtomRegistry): QueryClient.Service |
 /**
  * Binds `client` into a registry passed by the app, and unbinds it on unmount.
  *
- * The first bind happens during render, so children can read query atoms on
- * their first render. Nothing can depend on a client that is not there yet,
- * so this write notifies no rendered component. Rebinding to another client
- * would, so it waits for the layout effect: until then, atom hooks see the
- * previous client for one render.
+ * While no committed provider owns the registry, the bind happens during
+ * render, so children can read query atoms on their first render. No mounted
+ * component can depend on an unowned binding, so this write notifies none.
+ * If React discards that render (a suspended first mount that is then
+ * removed), the client stays bound only until the next provider renders.
+ * Rebinding an owned registry to another client would notify mounted
+ * components, so it waits for the layout effect: until then, atom hooks see
+ * the previous client for one render.
  */
 const useRegistryBinding = (
   registry: AtomRegistry.AtomRegistry | undefined,
   client: QueryClient.Service,
 ): void => {
-  if (registry !== undefined && boundClient(registry) === undefined) {
+  if (
+    registry !== undefined &&
+    bindingOf(registry).owner === undefined &&
+    boundClient(registry) !== client
+  ) {
     registry.set(QueryClient.current, Option.some(client));
   }
   const token = React.useRef<object>({}).current;
-  const pendingUnbind = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   React.useLayoutEffect(() => {
     if (registry === undefined) return;
-    clearTimeout(pendingUnbind.current);
-    const owner = owners.get(registry);
-    if (owner !== undefined && owner !== token) {
+    const binding = bindingOf(registry);
+    clearTimeout(binding.unbind);
+    binding.unbind = undefined;
+    if (binding.owner !== undefined && binding.owner !== token) {
       console.error(
         "Two QueryClientProviders share one AtomRegistry: query atoms in both trees use " +
           "whichever client was bound last. Give each provider its own registry.",
       );
     }
-    owners.set(registry, token);
+    binding.owner = token;
     if (boundClient(registry) !== client) registry.set(QueryClient.current, Option.some(client));
     return () => {
-      if (owners.get(registry) === token) owners.delete(registry);
-      // Deferred, so a StrictMode remount or a client change rebinds first.
-      pendingUnbind.current = setTimeout(() => {
-        if (boundClient(registry) === client) registry.set(QueryClient.current, Option.none());
+      // Another provider took the registry over: its binding stays.
+      if (binding.owner !== token) return;
+      binding.owner = undefined;
+      // Deferred, so a StrictMode replay, a client change or a provider
+      // mounting in the same commit takes the registry over first.
+      binding.unbind = setTimeout(() => {
+        binding.unbind = undefined;
+        if (binding.owner === undefined && boundClient(registry) === client) {
+          registry.set(QueryClient.current, Option.none());
+        }
       }, 0);
     };
   }, [registry, client, token]);

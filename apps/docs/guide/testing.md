@@ -93,7 +93,9 @@ that partially mocks `spaceshipApi.ts` crashes on import with
 `No "spaceshipKeys" export is defined on the mock`. Two fixes:
 
 - Use the function form for keys from other modules. It is read only when the
-  mutation succeeds:
+  mutation succeeds, so tests that never complete the mutation import fine.
+  A test that does run it to success still reads the export: keep the real
+  module there (next option), or mock `spaceshipKeys` too.
 
   ```ts
   export const deletePlanetMutation = Mutation.make({

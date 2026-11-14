@@ -29,10 +29,18 @@ replace-registry-host=never
 ```
 
 The second line is for npm: without it, npm rewrites the tarball URLs back to
-the proxy and fails with `EALLOWREMOTE`. As a one-off command:
+the proxy and fails with `EALLOWREMOTE`. It applies to every package in the
+project, not only this scope: npm then also leaves other lockfile entries that
+point at `registry.npmjs.org` as they are, instead of fetching them through
+the proxy, and npm 12 refuses those with `EALLOWREMOTE` too. If that happens,
+regenerate those entries through the proxy, or use the one-off command below
+instead of the `.npmrc` lines. Remove the setting once the proxy serves the
+scope.
+
+As a one-off command:
 
 ```sh
-npm install --@effect-atom-query:registry=https://registry.npmjs.org/ --replace-registry-host=never
+npm install @effect-atom-query/react @effect-atom-query/query --@effect-atom-query:registry=https://registry.npmjs.org/ --replace-registry-host=never
 ```
 
 ## Provide a client
