@@ -177,11 +177,11 @@ More in the [migration guide](https://tjercus.github.io/effect-atom-query/guide/
 
 ## Packages
 
-| Package                                            | Contents                                                       | Size (min+gzip)              |
-| -------------------------------------------------- | -------------------------------------------------------------- | ---------------------------- |
-| [`@effect-atom-query/query`](packages/query)       | framework-agnostic core: queries, mutations, client, persister | 14.3 kB                      |
-| [`@effect-atom-query/react`](packages/react)       | provider and hooks; re-exports the core                        | 16.4 kB including the core   |
-| [`@effect-atom-query/devtools`](packages/devtools) | devtools panel                                                 | 0.15 kB in production builds |
+| Package                                                                                                   | Contents                                                       | Size (min+gzip)              |
+| --------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- | ---------------------------- |
+| [`@effect-atom-query/query`](https://github.com/tjercus/effect-atom-query/tree/main/packages/query)       | framework-agnostic core: queries, mutations, client, persister | 14.3 kB                      |
+| [`@effect-atom-query/react`](https://github.com/tjercus/effect-atom-query/tree/main/packages/react)       | provider and hooks; re-exports the core                        | 16.4 kB including the core   |
+| [`@effect-atom-query/devtools`](https://github.com/tjercus/effect-atom-query/tree/main/packages/devtools) | devtools panel                                                 | 0.15 kB in production builds |
 
 Sizes exclude the peer dependencies (`effect`, `react`, `@effect/atom-react`).
 A typical app (provider + `useQuery`) adds 12.3 kB. CI enforces these budgets
@@ -189,7 +189,7 @@ A typical app (provider + `useQuery`) adds 12.3 kB. CI enforces these budgets
 
 ## Documentation
 
-**Documentation site: <https://tjercus.github.io/effect-atom-query/>**. Its source is in [`apps/docs`](apps/docs)
+**Documentation site: <https://tjercus.github.io/effect-atom-query/>**. Its source is in [`apps/docs`](https://github.com/tjercus/effect-atom-query/tree/main/apps/docs)
 (VitePress; run it locally with `vp run docs#dev`).
 
 - [Getting started](https://tjercus.github.io/effect-atom-query/guide/getting-started)
@@ -198,13 +198,13 @@ A typical app (provider + `useQuery`) adds 12.3 kB. CI enforces these budgets
 - [The QueryClient](https://tjercus.github.io/effect-atom-query/guide/query-client) · [Persistence & offline](https://tjercus.github.io/effect-atom-query/guide/persistence)
 - [Devtools](https://tjercus.github.io/effect-atom-query/guide/devtools) · [Testing](https://tjercus.github.io/effect-atom-query/guide/testing)
 
-**Examples:** [`apps/playground`](apps/playground) has 12 runnable examples that
+**Examples:** [`apps/playground`](https://github.com/tjercus/effect-atom-query/tree/main/apps/playground) has 12 runnable examples that
 mirror TanStack Query's React examples (pagination, infinite scroll, optimistic
 updates, Suspense, offline, …). They run against a fake backend service. Start
 them with `vp run dev`. See the [examples index](https://tjercus.github.io/effect-atom-query/examples).
 
-Design notes: [plan](docs/PLAN.md), [TanStack feature matrix](docs/FEATURE-MATRIX.md),
-[decisions](docs/QUESTIONS.md).
+Design notes: [plan](https://github.com/tjercus/effect-atom-query/blob/main/docs/PLAN.md), [TanStack feature matrix](https://github.com/tjercus/effect-atom-query/blob/main/docs/FEATURE-MATRIX.md),
+[decisions](https://github.com/tjercus/effect-atom-query/blob/main/docs/QUESTIONS.md).
 
 ## Development
 
@@ -219,8 +219,8 @@ vp run docs#dev       # documentation site
 pnpm run ready        # everything CI runs: check, tests, builds, size budget
 ```
 
-Releases use Changesets; see [docs/RELEASING.md](docs/RELEASING.md).
+Releases use Changesets; see [docs/RELEASING.md](https://github.com/tjercus/effect-atom-query/blob/main/docs/RELEASING.md).
 
 ## License
 
-[MIT](LICENSE) © tjercus
+[MIT](https://github.com/tjercus/effect-atom-query/blob/main/LICENSE) © tjercus
