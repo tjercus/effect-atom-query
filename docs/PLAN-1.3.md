@@ -1,0 +1,359 @@
+# effect-atom-query 1.3 — plan
+
+Status: **proposed, 2026-11-15.** 1.2.1 (WP1, WP2, WP8) implemented on
+branch `fix/1.2.1`; 1.3.0 not started.
+Input: [effect-atom-query-migration-report.md](./effect-atom-query-migration-report.md),
+a trial migration of a production React app (Redux Toolkit, RTK Query and two
+localStorage libraries) to effect-atom-query 1.2.0.
+
+The trial worked: every RTK Query endpoint could be expressed. The cost was in
+the integration. The library has one bug that broke every component spec, a
+type inference problem, no Promise helper for mutations, no test helpers, and
+behaviour that is only documented in the source. This plan fixes what the
+library can reasonably own. For everything else it gives the reason it is out
+of scope.
+
+## 1. Triage
+
+Every issue in the report, and what this plan does with it.
+
+| Report ref | Issue                                                      | Disposition                                           | Work package |
+| ---------- | ---------------------------------------------------------- | ----------------------------------------------------- | ------------ |
+| 1.1        | Deferred unbind throws on a disposed registry              | **fix**                                               | WP1          |
+| 3          | `useQuery` infers `B` from the return context              | **fix** (fix verified, see WP2)                       | WP2          |
+| 3          | Key constants need `as const`                              | docs + small helper                                   | WP3          |
+| 3          | `skipToken` doesn't apply to `Query.single`                | docs                                                  | WP8          |
+| 2.2        | No Promise-based mutation API, runtime not readable        | **feature**, needs a decision (amends D4)             | WP4          |
+| 2.5        | No test helpers (idle result, hook results, pending fakes) | **feature**                                           | WP5          |
+| 2.4        | Persistence needs Effect Schema; zod apps carry both       | **feature** (Standard Schema for `persist`)           | WP6          |
+| 2.4        | `Atom.kvs` behaviour (default, write on read, cross-tab)   | out of scope: `effect/reactivity`, report it upstream | WP6          |
+| 2.3        | No `transformErrorResponse`                                | docs (`Effect.mapError` in `run`)                     | WP7          |
+| 4          | `"static"` ignores invalidation                            | docs + JSDoc                                          | WP8          |
+| 4          | Provider supplies `RegistryContext`                        | docs + JSDoc                                          | WP8          |
+| 4          | `mutateEffect` updates hook state                          | docs + JSDoc                                          | WP8          |
+| 4          | Structural sharing unverified                              | docs (already tested)                                 | WP8          |
+| 5, 6       | Redux migration pitfalls, app-side friction                | docs: "Coming from Redux / RTK Query" (**done**)      | WP8          |
+| 2.1        | No HTTP layer                                              | out of scope; documented recipe (**done**)            | §4           |
+| Verdict    | Package maturity: same-day releases, one maintainer        | release process                                       | WP9          |
+
+## 2. Releases
+
+Everything below is additive, so no major version is needed.
+
+- **1.2.1 (patch)**: WP1, WP2 and the WP8 docs. These are fixes that users
+  of 1.2.0 hit today, and they do not need any API decisions.
+- **1.3.0 (minor)**: WP3 to WP7. WP4 needs the owner to decide on amending
+  D4 first.
+
+Leave at least a few days between the two releases (see WP9).
+
+## 3. Work packages
+
+### WP1: Guard the deferred unbind (bug, size S)
+
+**Problem.** `useRegistryBinding` in
+`packages/react/src/QueryClientProvider.tsx` unbinds an app-supplied
+registry in a `setTimeout(0)` after unmount. When the registry is disposed
+before the timer fires, `boundClient(registry)` calls `registry.get(...)`,
+which throws `Cannot access Atom QueryClient.current: registry is disposed`
+as an uncaught exception. Vitest runs a spec's `afterEach` (which disposes the
+registry) before React Testing Library's auto-cleanup (which unmounts), so
+every component spec that passes `registry` hits this.
+
+**Fix.** A disposed registry needs no unbind. The `AtomRegistry` interface
+does not expose `disposed`, so in the timer callback:
+
+- catch the error from `registry.get` / `registry.set` and return, or
+- record disposal ourselves. Not possible without wrapping `dispose`, so
+  prefer the `try` / `catch`, kept narrow to the timer body.
+
+Also clear the pending timer in `bindings` when a new owner takes over (this
+already happens) and drop the `Binding` entry once the unbind ran, so the
+`WeakMap` doesn't hold stale state.
+
+**Tests** (`packages/react/test/regressions.test.tsx`):
+
+- Mount a provider with `registry`, dispose the registry, then unmount and
+  flush timers. Expect no uncaught error (`vi.fn` on `process` /
+  `window` `error` events, or Vitest's `onUnhandledError`).
+- The existing StrictMode and takeover tests keep passing.
+
+**Docs.** Remove the teardown-order warning from the Redux guide once the
+fix is released.
+
+### WP2: Infer `B` only from `select` (types, size S)
+
+**Problem.** `useQuery<A, E, R, B = A>` returns `UseQueryResult<B, E>`.
+When the call is an argument of another generic function
+(`adapt(useQuery(q))`), TypeScript infers `B` from the contextual return type
+instead of using the default `A`, and gets `undefined` or `A | undefined`. The
+error surfaces far from the cause, usually in JSX props. The app had to hoist
+about 10 calls into variables.
+
+**Fix (verified).** Put `NoInfer` on the return type:
+
+```ts
+export function useQuery<A, E, R, B = A>(
+  query: Query.QueryAtom<A, E, R> | Query.SkippedQueryAtom<A, E>,
+  options?: UseQueryOptions<NoInfer<A>, NoInfer<E>, B>,
+): UseQueryResult<NoInfer<B>, E>;
+```
+
+A probe against the current source confirmed that the nested call then infers
+`A`, and that `select: (n) => String(n)` still infers `B = string`.
+
+Apply the same change to every hook that has a `B` parameter:
+`useQuery` (both overloads), `useSuspenseQuery`, `useInfiniteQuery` and
+`useSuspenseInfiniteQuery`. (`queriesEntry` already infers correctly; its
+type test stays as a guard.)
+
+**Tests.** Add type tests (`expectTypeOf`) for each hook: a nested generic
+call without `select` infers the data type, and a call with `select` infers
+the selected type.
+
+**Changelog.** Call it a fix. Code that relied on inference from the return
+context was getting the wrong type, so nothing correct breaks.
+
+### WP3: Query keys without `as const` (types, size S)
+
+**Problem.** `QueryKey` is `readonly [string, ...unknown[]]`. Shared key
+constants built with spreads and no `as const` widen to `string[]`, and
+`Query.make` / `invalidates` fail with "No overload matches this call", or a
+long error that includes the app's branded zod types.
+
+**Plan.**
+
+1. Add `QueryKey.make`, a constructor with a `const` type parameter, so
+   tuples are inferred without `as const`:
+
+   ```ts
+   export const make = <const K extends QueryKey>(...key: K): K => key;
+
+   const postKeys = {
+     all: QueryKey.make("posts"),
+     detail: (id: number) => QueryKey.make("posts", "detail", id),
+   };
+   ```
+
+   This is a typed constructor, not a key factory, so decision D8 ("no key
+   factory") still holds. Record the clarification in QUESTIONS.md.
+
+2. Docs: a "Key constants" section in `queries.md` showing both `as const`
+   and `QueryKey.make`, and the error message that a widened key produces, so
+   people can find it by searching for the message.
+
+### WP4: Promise boundary for mutations (feature, size M, needs a decision)
+
+**Problem.** Forms and `try { await trigger(x).unwrap() }` flows need a
+Promise. Today that needs the app runtime, which the provider accepts but
+gives no way to read back. The app wrote `useRunPromise()` and
+`settleMutation()` (an `Effect.match` to `{ data } | { error }`). Its hook was
+typed for one service set, so `QueryClient` Effects did not fit. And
+`cond ? update.mutateEffect(x) : create.mutateEffect(x)` did not type-check,
+because a union of two Effects does not fit a single generic call.
+
+PLAN.md goal 5 already planned a `useQueryClientRuntime()` "or a
+hook-provided runner" for this. It was never built.
+
+**Proposal (amends D4 as D11).** The `QueryClient` API stays Effect-only. The
+React package gets two Promise boundaries that **never reject**:
+
+1. `useMutation(...).mutateExit(input): Promise<Exit<A, E>>`. It runs like
+   `mutate`, with the client's context, so it needs no runtime and is typed
+   per mutation. It updates the hook's state (`isPending`, `error`, …) and
+   runs the per-call callbacks. Each branch of a conditional is a separate
+   Promise, so the union problem goes away:
+
+   ```ts
+   const exit = await(mode === "edit" ? update.mutateExit(x) : create.mutateExit(x));
+   if (Exit.isSuccess(exit)) navigate(`/posts/${exit.value.id}`);
+   ```
+
+   Interruption (the component unmounting, `reset`) resolves with an
+   interrupt-only `Exit` and never reaches `onError` (D7).
+
+2. `useRunEffect()`, a runner bound to the client's context:
+   `{ runPromiseExit, runPromise, runFork }`. It is for one-off Effects in
+   event handlers (`client.fetchQuery`, `client.invalidateQueries`, an app
+   service). The services available are declared once per app, the way
+   TanStack's `Register` declares a default error type:
+
+   ```ts
+   declare module "@effect-atom-query/react" {
+     interface Register {
+       readonly services: ApiClient | Navigation;
+     }
+   }
+   ```
+
+   Without the augmentation, only `QueryClient` is available. When the
+   provider was given a `client` rather than a `runtime`, the runner uses the
+   context the client was built with. This is the same path `mutate` takes
+   today (`ClientRuntime.runFork`), so it needs no new plumbing in the core.
+
+`runPromise` (rejecting) is included because loaders expect rejection; the
+docs recommend `runPromiseExit` / `mutateExit` for forms.
+
+**Decision needed.** Amending D4 is the owner's call. If D4 stays as it is,
+do only the docs (the current `runtime.runPromiseExit(mutateEffect(x))`
+pattern, done in the Redux guide) and drop this work package.
+
+**Tests.** `mutateExit` success, typed failure, defect and interruption;
+hook state during and after; per-call callbacks fire once. `useRunEffect`
+uses the provider's services, and the `Register` augmentation compiles in a
+type test.
+
+**Docs.** Update `promises.md`, the "No Promises" section of
+`from-tanstack.md` and the mutations part of `from-redux.md`.
+
+### WP5: Test utilities (feature, size M)
+
+**Problem.** The app built its own `makeTestAppState`, runtime wiring, a fake
+mutation hook and result adapters. The specific gaps:
+
+- No idle (disabled) query result. `QueryResult.disabled` needs an
+  `AsyncResult` argument.
+- `QueryResult.success(...)` builds a `QueryResult`, not a
+  `UseQueryResult`, so standing in for the hook needs a cast (no `refetch`).
+- Fake responses resolve at once, so loading states cannot be tested without
+  mocking `useQuery`.
+
+**Plan.**
+
+1. Core (`@effect-atom-query/query`):
+   - `QueryResult.idle()`: `status: "pending"`, `fetchStatus: "idle"`,
+     `isLoading: false`, which is what a disabled query returns.
+   - Make the `QueryResult.disabled` argument optional, with the same
+     meaning.
+2. A new subpath, `@effect-atom-query/react/testing`, so the main entry and
+   its size budget do not change. It has no test-runner dependency:
+   - `UseQueryResult` / `UseMutationResult` constructors that take a core
+     result plus optional overrides and fill in the hook fields (`refetch`,
+     `mutate`, `mutateEffect`, `mutateExit`, `reset`) with no-ops:
+
+     ```ts
+     useTodosQuery.mockReturnValue(queryHookResult(QueryResult.success(todos)));
+     useSave.mockReturnValue(mutationHookResult(MutationResult.idle(), { mutate: vi.fn() }));
+     ```
+
+   - `TestQueryClient.layer(options?)`: no retries, no focus or reconnect
+     refetches, `gcTime: "Infinity"`, so tests do not time out or refetch
+     unexpectedly. This is the configuration `testing.md` already
+     recommends.
+   - `controlled<A, E>()`: `{ effect, succeed(a), fail(e) }` on a
+     `Deferred`, so a fake service can stay pending until the test completes
+     it. Loading-state tests no longer need hook mocks.
+   - `makeTestHarness(layer)`: `{ runtime, registry, Wrapper, dispose }`,
+     where `Wrapper` is the provider for `render` / `renderHook` and
+     `dispose` disposes the runtime and the registry. With WP1 fixed, the
+     order of teardown no longer matters.
+3. Docs: rework `testing.md` around the helpers, with a "Mock a named hook,
+   not `useQuery`" section. The trial had to mock the generic `useQuery` with
+   a dispatcher keyed on atom identity, which needed a dynamic `import()`
+   inside `vi.mock`. Per-endpoint wrapper hooks avoid that.
+
+**Size.** Add a `react: testing` entry to `size-budget.json`, and confirm the
+main entries are unchanged.
+
+### WP6: Persistence with Standard Schema (feature, size M)
+
+**Problem.** `persist: { schema }` requires an Effect Schema codec. Apps
+that validate with zod now carry two schema libraries.
+
+**Plan.** Accept any [Standard Schema v1](https://standardschema.dev)
+validator (zod, Valibot, ArkType) in `persist.schema` for **JSON-compatible**
+data:
+
+- decode: `schema["~standard"].validate(json)`, with issues mapped to the
+  same decode failure the Effect codec path produces (the entry is dropped
+  and the query refetches);
+- encode: identity, as the data is already JSON.
+
+Effect Schema values keep the codec path, so `DateTime`, `Option` and branded
+types still round-trip. Check for an Effect Schema first, in case Effect
+schemas also expose `~standard`. An async `validate` result can be
+supported, because restoring is already an Effect.
+
+`Persist<A>` becomes a union. Type tests check that the validator's output
+type has to match the query's `A`.
+
+**Not in scope: `Atom.kvs`.** Persisting client state is `effect/reactivity`'s
+`Atom.kvs`, not this library. Its behaviour (the default is bound when the
+atom is defined, a missing key is written on first read, no cross-tab sync,
+an external removal is not noticed) is documented in the Redux guide. Open
+upstream issues for cross-tab sync and external-removal detection. Shipping a
+competing client-state persistence API here would blur the library's scope
+(server state).
+
+### WP7: Error transforms (docs, size S)
+
+RTK's `transformErrorResponse` has no counterpart because `run` is an
+Effect: `Effect.mapError` in `run` already changes the error, and the error
+type flows to `useQuery` and `throwOnError`. A separate option would be a
+second way to do the same thing. Document the pattern in `queries.md`, with a
+shared-transform example (`run: (id) => api.get(id).pipe(Effect.mapError(toUiError))`).
+
+### WP8: Documentation (docs, size M)
+
+| Topic                                                                                                    | Where                                                      |
+| -------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| `"static"` is skipped by invalidation and refetch; use `"Infinity"` for "cached until invalidated"       | `queries.md` options table + callout; `staleTime` JSDoc    |
+| `QueryClientProvider` supplies `RegistryContext`: do not add a `RegistryProvider`                        | `react.md`; provider JSDoc                                 |
+| `mutateEffect` updates the hook's state like `mutate`                                                    | `mutations.md`; `UseMutationResult.mutateEffect` JSDoc     |
+| What structural sharing keeps: plain objects and arrays only, class instances and `Data` values replaced | `queries.md` (behaviour tested in `QueryObserver.test.ts`) |
+| `skipToken` for families, `enabled: false` for `Query.single`                                            | `queries.md` "Disabling queries"                           |
+| Key constants: `as const` / `QueryKey.make`                                                              | `queries.md` (WP3)                                         |
+| `Data.TaggedError` has `message: ""`: set a real message on API errors                                   | `from-redux.md` (done), `queries.md` errors note           |
+| `Service.use` trips `react-hooks/rules-of-hooks`                                                         | `from-redux.md` (done), `getting-started.md`               |
+| **Coming from Redux / RTK Query**                                                                        | `guide/from-redux.md` (**done** with this plan), README    |
+
+### WP9: Release process (process, size S)
+
+The report's adoption concern was the package's age more than any code
+issue. 0.0.0, 1.0.0 and 1.2.0 were published on one day by one maintainer,
+and a consumer's `minimum-release-age` setting would have blocked the
+install. The plan:
+
+- **Cadence.** At most one stable release per week, except for security
+  fixes. Ship changes to the `next` dist-tag first (`changeset pre enter
+  next`), and promote to `latest` after a soak period.
+- **Provenance.** Publish from GitHub Actions with npm trusted publishing
+  and `--provenance`, instead of from a laptop (amends D6). Consumers can
+  then verify where each tarball was built.
+- **Review.** Require a second reviewer (human, or a bot plus a human) on
+  changes to `packages/*/src`.
+- **Support policy.** Write down in `RELEASING.md` which versions get fixes
+  and how deprecations are announced.
+
+## 4. Out of scope, and why
+
+- **An HTTP layer (2.1).** `run` is any Effect, which is why "http" was
+  rejected from the name (D5). An HTTP layer would tie the library to one
+  transport and one error shape. Instead, the Redux guide shows a
+  `fetchBaseQuery`-style service on `HttpClient` from `effect/http` (base URL,
+  bearer token, status, fetch and parse errors). Revisit as a separate
+  optional package if several adopters ask for it.
+- **Generated per-endpoint hooks.** Definitions are atoms (D1). The docs
+  recommend thin named wrappers instead, which also solves the mocking
+  problem (WP5).
+- **App-side adapters** (RTK-shaped results, `unvalidated<T>` casts, auth
+  config pulled into component tests, base URL timing, storage key prefixes,
+  migration order). These belong to the app. The Redux guide covers each one.
+- **Translated fallback error messages.** That is an app concern.
+
+## 5. Definition of done
+
+For every work package:
+
+- `vp check` and `vp run -r test` pass, and coverage stays at 90% or more
+  in every package.
+- `vp run size` stays within `size-budget.json` (new entries for new
+  subpaths).
+- A changeset describes the user-facing change.
+- The docs site pages listed in the work package are updated, and
+  `FEATURE-MATRIX.md` reflects new APIs.
+- WP1, WP2 and WP4 each have a regression or type test that fails on 1.2.0.
+
+Before releasing 1.3.0, re-run the trial migration branch on
+it. Delete `useRunPromise`, `settleMutation`, the result-hook casts and the
+teardown workaround, and confirm the suite stays green.

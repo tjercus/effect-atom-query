@@ -45,7 +45,7 @@ export type TypeId = "~@effect-atom-query/query/Query";
  *
  * | option              | default                                       |
  * | ------------------- | --------------------------------------------- |
- * | `staleTime`         | `0`; `"static"` never goes stale              |
+ * | `staleTime`         | `0`; `"Infinity"` until invalidated; `"static"` never, not even when invalidated |
  * | `gcTime`            | `"5 minutes"`                                 |
  * | `retry`             | `3`, exponential backoff from 1 s capped at 30 s. A number, `boolean` or any `Schedule` |
  * | `refetchOnMount`    | `true` (when stale); `"always"`               |

@@ -38,7 +38,11 @@ export type MutateEffect<A, E, R, I> = [I] extends [void]
 export type UseMutationResult<A, E, I, C, R> = MutationResult.MutationResult<A, E, I, C> & {
   /** Fire and forget. The mutation's services must be in the client's context. */
   readonly mutate: Mutate<A, E, I>;
-  /** Run and await as an Effect, with the caller's services (decision D4: no Promise API). */
+  /**
+   * Run and await as an Effect, with the caller's services (decision D4: no
+   * Promise API). Like `mutate`, it updates this hook's state (`isPending`,
+   * `data`, `error`, …) while it runs and when it settles.
+   */
   readonly mutateEffect: MutateEffect<A, E, R, I>;
   /** Forget the latest execution (it keeps running in the cache). */
   readonly reset: () => void;
