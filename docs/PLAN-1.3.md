@@ -371,14 +371,17 @@ install. The plan:
 
 ### Found during implementation
 
-- **Closing the client refetches every mounted query once (pre-existing,
-  not fixed).** Found while testing WP6: with a registry that outlives the
-  client (as in the persister tests), closing the client's scope starts one
-  more fetch for each mounted query, persisted or not. It reproduces on the
-  code before 1.3. The finalizer in `QueryClient.make` says "Observers must
-  not re-create entries (and refetch) while shutting down", so this is a bug.
-  Investigate as a patch (1.3.1 or earlier): a fetch during shutdown wastes a
-  request and can run against a disposed runtime.
+- **Closing the client refetched every mounted query atom once (pre-existing,
+  fixed in 1.2.1).** Found while testing WP6. When the client's scope closes, its
+  cache removes every entry. A query atom read through a registry
+  (`registry.mount`, `useAtomValue`, code outside React) reacted to the
+  removal by rebuilding itself, which created a new entry in the closed cache
+  and fetched it, against a runtime that was shutting down. `QueryObserver`
+  (the `use*Query` hooks) already checked `cache.isDisposed`; the atom path
+  did not, and the existing regression test only covered the observer. The
+  atom now keeps its last result instead of rebuilding, and an atom first read
+  after shutdown returns a disabled result without creating an entry.
+  Regression test in `regressions.test.ts`.
 
 ## 4. Out of scope, and why
 
