@@ -1,6 +1,6 @@
 # effect-atom-query 1.3 — plan
 
-Status: **proposed, 2026-11-15.** 1.2.1 (WP1, WP2, WP8, WP9, and a shutdown refetch fix) implemented on branch `fix/1.2.1`; WP9 needs one-time setup on npm and GitHub (see RELEASING.md). 1.3.0 in progress on `feat/1.3.0` (WP4 done).
+Status: **proposed, 2026-11-15.** 1.2.1 (WP1, WP2, WP8, WP9, and a shutdown refetch fix) implemented on branch `fix/1.2.1`; WP9 needs one-time setup on npm and GitHub (see RELEASING.md). 1.3.0 in progress on `feat/1.3.0` (WP4, WP3 done).
 Input: [effect-atom-query-migration-report.md](./effect-atom-query-migration-report.md),
 a trial migration of a production React app (Redux Toolkit, RTK Query and two
 localStorage libraries) to effect-atom-query 1.2.0.
@@ -135,7 +135,7 @@ long error that includes the app's branded zod types.
    ```
 
    This is a typed constructor, not a key factory, so decision D8 ("no key
-   factory") still holds. Record the clarification in QUESTIONS.md.
+   factory") still holds. The clarification is recorded in QUESTIONS.md.
 
 2. Docs: a "Key constants" section in `queries.md` showing both `as const`
    and `QueryKey.make`, and the error message that a widened key produces, so

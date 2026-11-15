@@ -234,9 +234,9 @@ export const { useGetPostsQuery, useGetPostQuery, useUpdatePostMutation } = post
 ```ts
 // effect-atom-query
 export const postKeys = {
-  all: ["posts"] as const,
-  list: () => [...postKeys.all, "list"] as const,
-  detail: (id: number) => [...postKeys.all, "detail", id] as const,
+  all: QueryKey.make("posts"),
+  list: () => QueryKey.make(...postKeys.all, "list"),
+  detail: (id: number) => QueryKey.make(...postKeys.all, "detail", id),
 };
 
 export const postsQuery = Query.single({
@@ -265,10 +265,10 @@ export const usePostQuery = (id: number | undefined) => useQuery(postQuery(id ??
 
 Some notes on the port:
 
-- **Keys need `as const`.** A key is a tuple whose first element is a string.
-  A key constant built with spreads and no `as const` widens to `string[]`,
-  and `Query.make` / `invalidates` then fail with a long "No overload matches
-  this call" error.
+- **Build key constants with `QueryKey.make`** (or `as const`). A key is a
+  tuple whose first element is a string. A plain array constant widens to
+  `string[]`, and `Query.make` / `invalidates` then fail with a long "No
+  overload matches this call" error. See [Key constants](./queries#key-constants).
 - **Cross-API invalidation is just a key.** RTK needs the same `tagTypes`
   registered on both APIs. Here a mutation in `planetApi.ts` lists
   `spaceshipKeys.all` in `invalidates`. Use the function form
