@@ -88,6 +88,13 @@ export const todoQuery = Query.make({
 `Query.make` is a family: `todoQuery("1")` returns the same atom every time it
 is called with an equal argument.
 
+::: tip `Service.use` and the hooks lint rule
+`eslint-plugin-react-hooks` treats `TodoRepo.use(...)` as a React hook (a
+PascalCase object with a method named `use`), so `rules-of-hooks` reports it
+outside components. If your project uses that rule, write
+`Effect.flatMap(TodoRepo, (repo) => repo.list)` or `Effect.gen` instead.
+:::
+
 ## Use it
 
 ```tsx

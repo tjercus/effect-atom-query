@@ -45,7 +45,7 @@ export type TypeId = "~@effect-atom-query/query/Query";
  *
  * | option              | default                                       |
  * | ------------------- | --------------------------------------------- |
- * | `staleTime`         | `0`; `"static"` never goes stale              |
+ * | `staleTime`         | `0`; `"Infinity"` until invalidated; `"static"` never, not even when invalidated |
  * | `gcTime`            | `"5 minutes"`                                 |
  * | `retry`             | `3`, exponential backoff from 1 s capped at 30 s. A number, `boolean` or any `Schedule` |
  * | `refetchOnMount`    | `true` (when stale); `"always"`               |
@@ -307,14 +307,23 @@ export const makeAtom = <A, E, R, W = never, Extra extends object = {}>(
   let current: QueryEntry<A, E> | undefined;
   const read = (get: Atom.AtomContext): QueryResult.QueryResult<A, E> => {
     const client = QueryClient.fromAtomContext(get);
+    // The client is shut down: creating an entry now would fetch on a closed
+    // runtime. Keep showing the last result, if any.
+    if (client.cache.isDisposed) {
+      return Option.getOrElse(get.self<QueryResult.QueryResult<A, E>>(), () =>
+        QueryResult.disabled<A, E>(AsyncResult.initial()),
+      );
+    }
     const entry = client.cache.build<A, E>(self);
     current = entry;
     const fetchedAtMount = entry.fetchCount;
     const observer = entry.addObserver();
     const unsubscribe = entry.subscribe(() => {
-      // The entry was removed from the cache: rebuild against a fresh one.
+      // The entry was removed from the cache: rebuild against a fresh one,
+      // unless the client is shutting down (the cache removes every entry).
       if (entry.isRemoved) {
-        get.refreshSelf();
+        if (client.cache.isDisposed) get.setSelf(entry.toResult({ fetchedAtMount }));
+        else get.refreshSelf();
       } else {
         get.setSelf(entry.toResult({ fetchedAtMount }));
       }

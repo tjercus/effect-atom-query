@@ -92,7 +92,7 @@ export const useInfiniteQuery = <Page, Param, E, R, B = InfiniteQuery.InfiniteDa
     | InfiniteQuery.InfiniteQueryAtom<Page, Param, E, R>
     | Query.SkippedQueryAtom<InfiniteQuery.InfiniteData<Page, Param>, E>,
   options: UseQueryOptions<NoInfer<InfiniteQuery.InfiniteData<Page, Param>>, NoInfer<E>, B> = {},
-): UseInfiniteQueryResult<B, E> => usePaging(query, options, false);
+): UseInfiniteQueryResult<NoInfer<B>, E> => usePaging(query, options, false);
 
 /**
  * Suspense variant of {@link useInfiniteQuery}: suspends for the first page.
@@ -113,5 +113,5 @@ export const useSuspenseInfiniteQuery = <
     NoInfer<E>,
     B
   > = {},
-): UseSuspenseInfiniteQueryResult<B, E> =>
+): UseSuspenseInfiniteQueryResult<NoInfer<B>, E> =>
   usePaging(query, options, true) as UseSuspenseInfiniteQueryResult<B, E>;

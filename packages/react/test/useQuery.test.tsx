@@ -117,6 +117,22 @@ describe("QueryClientProvider", () => {
       await waitFor(() => expect(registry.get(QueryClient.current)).toEqual(Option.none()));
     });
 
+    it("does not throw when the registry is disposed before the deferred unbind", () => {
+      // Vitest runs a spec's afterEach (disposing the registry) before
+      // testing-library's cleanup (unmounting the provider).
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      try {
+        const { client } = setup();
+        const registry = AtomRegistry.make();
+        const { unmount } = render(<QueryClientProvider client={client} registry={registry} />);
+        registry.dispose();
+        unmount();
+        expect(() => vi.runAllTimers()).not.toThrow();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it("stays bound when a new provider takes over before the deferred unbind", async () => {
       const { client } = setup();
       const registry = AtomRegistry.make();
