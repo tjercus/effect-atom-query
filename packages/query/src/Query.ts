@@ -14,7 +14,7 @@
  *
  * @since 0.1.0
  */
-import { type Effect, Option, type Schema } from "effect";
+import { type Effect, Option } from "effect";
 import { AsyncResult, Atom } from "effect/reactivity";
 import type {
   InitialData,
@@ -22,7 +22,11 @@ import type {
   QueryEntry,
   QueryOptions as InternalQueryOptions,
 } from "./internal/queryEntry.ts";
-import { persistCodec } from "./internal/persistCodec.ts";
+import {
+  persistCodec,
+  type PersistSchema as InternalPersistSchema,
+  type StandardSchema as InternalStandardSchema,
+} from "./internal/persistCodec.ts";
 import * as QueryClient from "./QueryClient.ts";
 import type * as QueryKey from "./QueryKey.ts";
 import * as QueryResult from "./QueryResult.ts";
@@ -164,13 +168,37 @@ export interface Definition<Arg, A, E, R> extends Omit<QueryOptions<E>, "enabled
 }
 
 /**
+ * A [Standard Schema v1](https://standardschema.dev) validator producing `A`,
+ * such as a zod, Valibot or ArkType schema.
+ *
+ * @since 1.3.0
+ * @category models
+ */
+export type StandardSchema<A> = InternalStandardSchema<A>;
+
+/**
+ * What persisted data is stored and restored with:
+ *
+ * - an Effect `Schema`: data is encoded with its JSON codec and decoded when
+ *   restored, so `DateTime`, `Option` and branded types round-trip;
+ * - a Standard Schema validator (zod, Valibot, ArkType): data is stored as
+ *   is, so it must be JSON-compatible, and validated when restored. The
+ *   validator must be synchronous, and must accept its own output (no
+ *   transforms that change the type).
+ *
+ * @since 1.3.0
+ * @category models
+ */
+export type PersistSchema<A> = InternalPersistSchema<A>;
+
+/**
  * Persistence of a query's data. The key must be JSON-compatible.
  *
  * @since 0.1.0
  * @category models
  */
 export interface Persist<A> {
-  readonly schema: Schema.Codec<A, any>;
+  readonly schema: PersistSchema<A>;
 }
 
 /**

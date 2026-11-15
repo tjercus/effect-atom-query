@@ -1,6 +1,6 @@
 # effect-atom-query 1.3 — plan
 
-Status: **proposed, 2026-11-15.** 1.2.1 (WP1, WP2, WP8, WP9, and a shutdown refetch fix) implemented on branch `fix/1.2.1`; WP9 needs one-time setup on npm and GitHub (see RELEASING.md). 1.3.0 in progress on `feat/1.3.0` (WP4, WP3, WP5 done).
+Status: **proposed, 2026-11-15.** 1.2.1 (WP1, WP2, WP8, WP9, and a shutdown refetch fix) implemented on branch `fix/1.2.1`; WP9 needs one-time setup on npm and GitHub (see RELEASING.md). 1.3.0 in progress on `feat/1.3.0` (WP4, WP3, WP5, WP6 done).
 Input: [effect-atom-query-migration-report.md](./effect-atom-query-migration-report.md),
 a trial migration of a production React app (Redux Toolkit, RTK Query and two
 localStorage libraries) to effect-atom-query 1.2.0.
@@ -314,8 +314,9 @@ data:
 
 Effect Schema values keep the codec path, so `DateTime`, `Option` and branded
 types still round-trip. Check for an Effect Schema first, in case Effect
-schemas also expose `~standard`. An async `validate` result can be
-supported, because restoring is already an Effect.
+schemas also expose `~standard`. Restoring is synchronous (entries are
+decoded in `claimPersisted` when a query is first used), so only synchronous
+validators are supported; an async result drops the entry and warns once.
 
 `Persist<A>` becomes a union. Type tests check that the validator's output
 type has to match the query's `A`.
@@ -367,6 +368,17 @@ install. The plan:
   changes to `packages/*/src`.
 - **Support policy.** Write down in `RELEASING.md` which versions get fixes
   and how deprecations are announced.
+
+### Found during implementation
+
+- **Closing the client refetches every mounted query once (pre-existing,
+  not fixed).** Found while testing WP6: with a registry that outlives the
+  client (as in the persister tests), closing the client's scope starts one
+  more fetch for each mounted query, persisted or not. It reproduces on the
+  code before 1.3. The finalizer in `QueryClient.make` says "Observers must
+  not re-create entries (and refetch) while shutting down", so this is a bug.
+  Investigate as a patch (1.3.1 or earlier): a fetch during shutdown wastes a
+  request and can run against a disposed runtime.
 
 ## 4. Out of scope, and why
 

@@ -464,7 +464,8 @@ Two mechanisms replace `redux-persist` / `redux-localstorage-simple`:
 - **Client state** (a slice, a `use-local-storage-state` value): `Atom.kvs`
   from `effect/reactivity`, with an Effect `Schema` for the stored value.
 - **The query cache**: `QueryPersister.layer` with `persist: { schema }` on
-  the queries that opt in. See [Persistence](./persistence).
+  the queries that opt in. The schema can be the zod schema you already
+  validate with. See [Persistence](./persistence).
 
 `Atom.kvs` behaves differently from most React storage hooks: the default
 value is fixed when the atom is defined, a missing key is written with the
