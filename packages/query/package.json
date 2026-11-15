@@ -1,6 +1,6 @@
 {
   "name": "@effect-atom-query/query",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Server-state caching on Effect and Effect Atoms, in the style of TanStack Query.",
   "keywords": [
     "atom",
