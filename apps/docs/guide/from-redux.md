@@ -318,7 +318,7 @@ If many components feed results into helpers that expect RTK's shape
 everywhere, rather than converting each helper at once.
 
 ::: tip On 1.2.0? Assign hook results before passing them on
-Before 1.2.1, nesting the call inside another generic function
+Before 1.3.0, nesting the call inside another generic function
 (`toLegacy(useQuery(q))`) could make TypeScript infer the data type as
 `undefined`, with the error showing up far away in JSX props. Upgrade, or
 assign the result first: `const posts = useQuery(q); return toLegacy(posts)`.
@@ -524,7 +524,7 @@ failures show at once. See [Testing](./testing) for loading states with
 more reason to keep named wrappers.
 
 ::: warning On 1.2.0? Mind the teardown order
-Before 1.2.1, a test that passed its own `registry` to `QueryClientProvider`
+Before 1.3.0, a test that passed its own `registry` to `QueryClientProvider`
 and disposed it in `afterEach` got an unhandled "registry is disposed" error,
 because Vitest runs `afterEach` before React Testing Library unmounts the
 tree. Upgrade, or unmount first: call `cleanup()`, wait a tick, then
