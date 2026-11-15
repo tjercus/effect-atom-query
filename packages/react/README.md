@@ -30,7 +30,13 @@ const runtime = ManagedRuntime.make(QueryClient.layer().pipe(Layer.provideMerge(
 Hooks: `useQuery`, `useSuspenseQuery`, `useQueries`, `useSuspenseQueries`,
 `useInfiniteQuery`, `useSuspenseInfiniteQuery`, `usePrefetchQuery`,
 `useMutation`, `useMutationState`, `useIsFetching`, `useIsMutating`,
-`useIsRestoring`, `useQueryClient`, and `QueryErrorResetBoundary`.
+`useIsRestoring`, `useQueryClient`, `useRunEffect` (the Promise boundary for
+form libraries and callbacks), and `QueryErrorResetBoundary`.
+
+Test utilities live in a separate entry point that does not depend on a test
+runner: `makeTestHarness`, `controlled`, `queryHookResult`,
+`mutationHookResult` and `testQueryClientLayer` from
+`@effect-atom-query/react/testing`.
 
 See the [documentation](https://tjercus.github.io/effect-atom-query/) and the
 [main README](https://github.com/tjercus/effect-atom-query#readme).

@@ -6,7 +6,7 @@ export default defineConfig({
     conditions: ["@effect-atom-query/source", ...defaultClientConditions],
   },
   pack: {
-    entry: ["src/index.ts"],
+    entry: ["src/index.ts", "src/testing.tsx"],
     dts: { generator: "tsgo" },
   },
   test: {

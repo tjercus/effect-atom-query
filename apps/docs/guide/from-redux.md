@@ -478,19 +478,22 @@ not match.
 
 ## Step 5: tests
 
-Most of RTK's test setup disappears.
+Most of RTK's test setup disappears. `@effect-atom-query/react/testing`
+replaces the store helpers.
 
-| RTK test setup                               | effect-atom-query                                                                     |
-| -------------------------------------------- | ------------------------------------------------------------------------------------- |
-| `setupApiStore(api)` + global `fetch` mocks  | a fake `ApiClient` layer in the test runtime                                          |
-| `store.dispatch(api.endpoints.x.initiate())` | `runtime.runPromise(Effect.flatMap(QueryClient.QueryClient, (c) => c.fetchQuery(q)))` |
-| `preloadedState`                             | `registry.set(atom, fixture)` before rendering                                        |
-| asserting dispatched actions                 | asserting `registry.get(atom)`                                                        |
-| `vi.spyOn(api, "useGetPostQuery")`           | mock your named hook (`usePostQuery`), returning `QueryResult.success(...)`           |
+| RTK test setup                               | effect-atom-query                                                                      |
+| -------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `setupApiStore(api)` + global `fetch` mocks  | `makeTestHarness({ layer: FakeApiClient })`                                            |
+| `renderWithProviders(ui, { store })`         | `render(ui, { wrapper: harness.Wrapper })`                                             |
+| `store.dispatch(api.endpoints.x.initiate())` | `harness.run(Effect.flatMap(QueryClient.QueryClient, (c) => c.fetchQuery(q)))`         |
+| `preloadedState`                             | `harness.registry.set(atom, fixture)` before rendering                                 |
+| asserting dispatched actions                 | asserting `harness.registry.get(atom)`                                                 |
+| a `fetch` mock that never resolves           | `controlled()`, completed by the test                                                  |
+| `vi.spyOn(api, "useGetPostQuery")`           | mock your named hook (`usePostQuery`) with `queryHookResult(QueryResult.success(...))` |
 
 A fake service replaces the network:
 
-```ts
+```tsx
 const FakeApiClient = Layer.succeed(
   ApiClient,
   ApiClient.of({
@@ -500,20 +503,24 @@ const FakeApiClient = Layer.succeed(
         : Effect.fail(new ApiError({ status: 404, message: "Not found" })),
   }),
 );
-const runtime = ManagedRuntime.make(
-  QueryClient.layer({ defaultOptions: { queries: { retry: false } } }).pipe(
-    Layer.provideMerge(FakeApiClient),
-  ),
-);
+
+let harness: TestHarness<ApiClient, never>;
+beforeEach(() => {
+  harness = makeTestHarness({ layer: FakeApiClient });
+});
+afterEach(() => harness.dispose());
+
+it("shows the post", async () => {
+  render(<PostTitle id={1} />, { wrapper: harness.Wrapper });
+  expect(await screen.findByText("Hello")).toBeTruthy();
+});
 ```
 
-To test a loading state, return an Effect that does not complete yet
-(`Effect.never`, or a `Deferred` you complete later in the test).
-
-If you mock hooks rather than render with a client, the
-[result constructors](./testing#mocking-hooks) build correctly shaped
-results. A per-endpoint hook (`usePostQuery`) is easier to mock than the
-generic `useQuery`, which is one more reason to keep named wrappers.
+The harness's client does not retry and does not refetch on focus, so
+failures show at once. See [Testing](./testing) for loading states with
+`controlled()` and for mocking named hooks. A per-endpoint hook
+(`usePostQuery`) is easier to mock than the generic `useQuery`, which is one
+more reason to keep named wrappers.
 
 ::: warning On 1.2.0? Mind the teardown order
 Before 1.2.1, a test that passed its own `registry` to `QueryClientProvider`

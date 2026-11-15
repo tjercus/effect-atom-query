@@ -45,6 +45,10 @@ export const layer = QueryClient.layer()`,
     bundlePeers: true,
   },
   {
+    name: "react: testing",
+    code: `export * from "@effect-atom-query/react/testing"`,
+  },
+  {
     name: "devtools (production build)",
     code: `export { QueryDevtools, QueryDevtoolsPanel } from "@effect-atom-query/devtools"`,
   },
@@ -73,6 +77,7 @@ const measure = async (entry: Entry, index: number): Promise<number> => {
     resolve: {
       alias: {
         "@effect-atom-query/query": `${root}packages/query/dist/index.mjs`,
+        "@effect-atom-query/react/testing": `${root}packages/react/dist/testing.mjs`,
         "@effect-atom-query/react": `${root}packages/react/dist/index.mjs`,
         "@effect-atom-query/devtools": `${root}packages/devtools/dist/index.mjs`,
       },

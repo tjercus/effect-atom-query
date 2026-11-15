@@ -100,3 +100,12 @@ Source: TanStack Query v5 React docs (important defaults, `useQuery`,
 | ✅ bundle size tracking                 | `size-budget.json`, checked by `pnpm size` in `ready`                                         | 7     |
 | ✅ docs site + examples                 | `apps/docs` (VitePress); 12 playground examples matching TanStack's                           | 7     |
 | SSR (`dehydrate` / `HydrationBoundary`) | not started (deferred)                                                                        | later |
+
+## Testing (`@effect-atom-query/react/testing`, 1.3)
+
+| TanStack / RTK                                   | effect-atom-query                                                            |
+| ------------------------------------------------ | ---------------------------------------------------------------------------- |
+| test `QueryClient` with `retry: false`           | `testQueryClientLayer()` / `testDefaultOptions`                              |
+| `renderWithProviders` / wrapper helpers          | `makeTestHarness({ layer })`: runtime, registry, `Wrapper`, `run`, `dispose` |
+| never-resolving `fetch` mocks for loading states | `controlled()`                                                               |
+| hook result fixtures                             | `queryHookResult` / `mutationHookResult` + `QueryResult.idle()` etc.         |

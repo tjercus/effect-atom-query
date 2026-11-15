@@ -4,5 +4,6 @@
   "react: everything": 20416,
   "react: provider + useQuery": 14720,
   "react: provider + useQuery, with effect and react": 73664,
+  "react: testing": 11200,
   "devtools (production build)": 256
 }

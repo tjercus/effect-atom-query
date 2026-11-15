@@ -1,6 +1,6 @@
 # effect-atom-query 1.3 — plan
 
-Status: **proposed, 2026-11-15.** 1.2.1 (WP1, WP2, WP8, WP9, and a shutdown refetch fix) implemented on branch `fix/1.2.1`; WP9 needs one-time setup on npm and GitHub (see RELEASING.md). 1.3.0 in progress on `feat/1.3.0` (WP4, WP3 done).
+Status: **proposed, 2026-11-15.** 1.2.1 (WP1, WP2, WP8, WP9, and a shutdown refetch fix) implemented on branch `fix/1.2.1`; WP9 needs one-time setup on npm and GitHub (see RELEASING.md). 1.3.0 in progress on `feat/1.3.0` (WP4, WP3, WP5 done).
 Input: [effect-atom-query-migration-report.md](./effect-atom-query-migration-report.md),
 a trial migration of a production React app (Redux Toolkit, RTK Query and two
 localStorage libraries) to effect-atom-query 1.2.0.
@@ -279,7 +279,7 @@ mutation hook and result adapters. The specific gaps:
      useSave.mockReturnValue(mutationHookResult(MutationResult.idle(), { mutate: vi.fn() }));
      ```
 
-   - `TestQueryClient.layer(options?)`: no retries, no focus or reconnect
+   - `testQueryClientLayer(options?)` (and `testDefaultOptions`): no retries, no focus or reconnect
      refetches, `gcTime: "Infinity"`, so tests do not time out or refetch
      unexpectedly. This is the configuration `testing.md` already
      recommends.
