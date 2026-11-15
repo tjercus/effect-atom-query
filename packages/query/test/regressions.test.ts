@@ -8,6 +8,7 @@ import { AtomRegistry } from "effect/reactivity";
 import { TestClock } from "effect/testing";
 import {
   FocusManager,
+  InfiniteQuery,
   Mutation,
   MutationObserver,
   OnlineManager,
@@ -84,6 +85,59 @@ describe("core engine", () => {
       yield* settle;
       expect(client.cache.all()).toHaveLength(0);
       expect(runs.count).toBe(1);
+    }),
+  );
+
+  it.effect("closing the client does not rebuild mounted query atoms or refetch", () =>
+    Effect.gen(function* () {
+      // Query atoms read through a registry (registry.mount, useAtomValue)
+      // take a different path than QueryObserver; the registry outlives the
+      // client, as an app-supplied registry can.
+      const focus = FocusManager.make({ setup: () => () => {}, isFocused: () => true });
+      const online = OnlineManager.make({ setup: () => () => {} });
+      const scope = yield* Scope.make();
+      const client = yield* QueryClient.make().pipe(
+        Effect.provideService(FocusManager.FocusManager, focus),
+        Effect.provideService(OnlineManager.OnlineManager, online),
+        Scope.provide(scope),
+      );
+      const registry = AtomRegistry.make({
+        initialValues: [QueryClient.initialValue(client)],
+        scheduleTask: (f) => {
+          queueMicrotask(f);
+          return () => {};
+        },
+      });
+      const runs = counter();
+      const q = Query.single({ key: ["shutdown-atom"], run: runs.tick });
+      const pages = counter();
+      const feed = InfiniteQuery.make({
+        key: () => ["shutdown-feed"],
+        run: (_: void, cursor: number) => pages.tick.pipe(Effect.as(cursor)),
+        initialPageParam: 0,
+        getNextPageParam: () => Option.none(),
+      })();
+      registry.mount(q);
+      registry.mount(feed);
+      yield* settle;
+      expect([runs.count, pages.count]).toEqual([1, 1]);
+      yield* Scope.close(scope, Exit.void);
+      yield* settle;
+      expect(client.cache.all()).toHaveLength(0);
+      expect([runs.count, pages.count]).toEqual([1, 1]);
+      // Mounted atoms keep their last result instead of resetting.
+      const last = registry.get(q);
+      expect(last.isSuccess && last.data.value).toBe(1);
+
+      // A query first read after shutdown does not create an entry or fetch.
+      const late = counter();
+      const lateQuery = Query.single({ key: ["after-shutdown"], run: late.tick });
+      registry.mount(lateQuery);
+      yield* settle;
+      expect(late.count).toBe(0);
+      expect(client.cache.all()).toHaveLength(0);
+      expect(registry.get(lateQuery).isEnabled).toBe(false);
+      registry.dispose();
     }),
   );
 
