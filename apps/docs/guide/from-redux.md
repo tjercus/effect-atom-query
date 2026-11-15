@@ -20,32 +20,32 @@ differences that turned into bugs in a real port.
 
 ### RTK Query
 
-| RTK Query                                          | effect-atom-query                                                                |
-| -------------------------------------------------- | -------------------------------------------------------------------------------- |
-| `createApi({ baseQuery, endpoints })`              | a service (`ApiClient`) in a `Layer`, plus module-level definitions              |
-| `fetchBaseQuery({ baseUrl, prepareHeaders })`      | `HttpClient` from `effect/http` with `mapRequest` / `mapRequestEffect`           |
-| `builder.query`                                    | `Query.make` (with an argument) or `Query.single` (without)                      |
-| `builder.mutation`                                 | `Mutation.make`                                                                  |
-| `builder.infiniteQuery`                            | `InfiniteQuery.make` + `useInfiniteQuery`                                        |
-| `providesTags`                                     | the query's `key`                                                                |
-| `invalidatesTags`                                  | the mutation's `invalidates` (keys, matched by prefix)                           |
-| `api.util.invalidateTags([...])`                   | `client.invalidateQueries({ queryKey })`                                         |
-| `useGetPostQuery(id)` (generated)                  | `useQuery(postQuery(id))`, or your own `usePostQuery` wrapper                    |
-| `useGetPostQuery(id ?? skipToken)`, `skip: true`   | `useQuery(postQuery(id ?? Query.skipToken))`, or `enabled: false`                |
-| `selectFromResult`                                 | `select`                                                                         |
-| `transformResponse`                                | inside `run`: parse or `Effect.map`                                              |
-| `transformErrorResponse`                           | inside `run`: `Effect.mapError`                                                  |
-| `keepUnusedDataFor: 60` (seconds)                  | `gcTime` (default `"5 minutes"`)                                                 |
-| `refetchOnMountOrArgChange`                        | `staleTime` and `refetchOnMount`                                                 |
-| `pollingInterval`                                  | `refetchInterval`                                                                |
-| `refetchOnFocus` / `refetchOnReconnect`            | `refetchOnWindowFocus` / `refetchOnReconnect`, **on by default**                 |
-| `const [trigger, state] = useUpdatePostMutation()` | `const update = useMutation(updatePost)`                                         |
-| `await trigger(x).unwrap()`                        | `mutate(x, { onSuccess, onError })`, or `runPromiseExit(update.mutateEffect(x))` |
-| `onQueryStarted` + `updateQueryData` (optimistic)  | `Mutation.optimisticUpdate(query, update)`                                       |
-| `dispatch(api.util.prefetch(...))`                 | `usePrefetchQuery`, or `client.prefetchQuery` in an Effect                       |
-| `serializeQueryArgs` / `merge` / `forceRefetch`    | an infinite query, or nothing: structural sharing keeps unchanged data stable    |
-| `data?: T`, `error?: FetchBaseQueryError`          | `data: Option<A>`, `error: Option<E>` with your own typed `E`                    |
-| `isLoading`, `isFetching`, `isSuccess`, `isError`  | the same flags; `isSuccess` narrows `data` to `Some`                             |
+| RTK Query                                          | effect-atom-query                                                                            |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `createApi({ baseQuery, endpoints })`              | a service (`ApiClient`) in a `Layer`, plus module-level definitions                          |
+| `fetchBaseQuery({ baseUrl, prepareHeaders })`      | `HttpClient` from `effect/http` with `mapRequest` / `mapRequestEffect`                       |
+| `builder.query`                                    | `Query.make` (with an argument) or `Query.single` (without)                                  |
+| `builder.mutation`                                 | `Mutation.make`                                                                              |
+| `builder.infiniteQuery`                            | `InfiniteQuery.make` + `useInfiniteQuery`                                                    |
+| `providesTags`                                     | the query's `key`                                                                            |
+| `invalidatesTags`                                  | the mutation's `invalidates` (keys, matched by prefix)                                       |
+| `api.util.invalidateTags([...])`                   | `client.invalidateQueries({ queryKey })`                                                     |
+| `useGetPostQuery(id)` (generated)                  | `useQuery(postQuery(id))`, or your own `usePostQuery` wrapper                                |
+| `useGetPostQuery(id ?? skipToken)`, `skip: true`   | `useQuery(postQuery(id ?? Query.skipToken))`, or `enabled: false`                            |
+| `selectFromResult`                                 | `select`                                                                                     |
+| `transformResponse`                                | inside `run`: parse or `Effect.map`                                                          |
+| `transformErrorResponse`                           | inside `run`: `Effect.mapError`                                                              |
+| `keepUnusedDataFor: 60` (seconds)                  | `gcTime` (default `"5 minutes"`)                                                             |
+| `refetchOnMountOrArgChange`                        | `staleTime` and `refetchOnMount`                                                             |
+| `pollingInterval`                                  | `refetchInterval`                                                                            |
+| `refetchOnFocus` / `refetchOnReconnect`            | `refetchOnWindowFocus` / `refetchOnReconnect`, **on by default**                             |
+| `const [trigger, state] = useUpdatePostMutation()` | `const update = useMutation(updatePost)`                                                     |
+| `await trigger(x).unwrap()`                        | `mutate(x, { onSuccess, onError })`, or `useRunEffect().promiseExit(update.mutateEffect(x))` |
+| `onQueryStarted` + `updateQueryData` (optimistic)  | `Mutation.optimisticUpdate(query, update)`                                                   |
+| `dispatch(api.util.prefetch(...))`                 | `usePrefetchQuery`, or `client.prefetchQuery` in an Effect                                   |
+| `serializeQueryArgs` / `merge` / `forceRefetch`    | an infinite query, or nothing: structural sharing keeps unchanged data stable                |
+| `data?: T`, `error?: FetchBaseQueryError`          | `data: Option<A>`, `error: Option<E>` with your own typed `E`                                |
+| `isLoading`, `isFetching`, `isSuccess`, `isError`  | the same flags; `isSuccess` narrows `data` to `Some`                                         |
 
 ### Redux slices
 
@@ -341,24 +341,26 @@ update.mutate(post, {
 ```
 
 Where an API needs a Promise (a form library's awaited `onSubmit`, a
-`try { await trigger(x).unwrap() }` flow), run `mutateEffect` on the runtime
-you gave the provider. It updates the hook's `isPending` / `isError` like
-`mutate` does. `runPromiseExit` never rejects, which is the closest thing to
-handling `unwrap()` in a `try` / `catch`:
+`try { await trigger(x).unwrap() }` flow), run `mutateEffect` through
+`useRunEffect`. It updates the hook's `isPending` / `isError` like `mutate`
+does. `promiseExit` never rejects, which is the closest thing to handling
+`unwrap()` in a `try` / `catch`:
 
 ```ts
+const run = useRunEffect();
 const submit = async (next: Post) => {
-  const exit = await runtime.runPromiseExit(update.mutateEffect(next));
+  const exit = await run.promiseExit(
+    mode === "edit" ? update.mutateEffect(next) : create.mutateEffect(next),
+  );
   if (Exit.isSuccess(exit)) onDone(exit.value);
   else setFormError(Cause.pretty(exit.cause));
 };
 ```
 
-For a create-or-edit form, run each branch on its own
-(`mode === "edit" ? runtime.runPromiseExit(update.mutateEffect(x)) : runtime.runPromiseExit(create.mutateEffect(x))`):
-a union of two Effects does not always fit a single call. See
-[Promise boundaries](./promises) for route loaders and code outside
-components.
+To use your own services in Effects run this way (here `ApiClient`), declare
+them once; see [Declaring your services](./promises#declaring-your-services).
+For route loaders and code outside components, see
+[Promise boundaries](./promises#outside-react-the-runtime).
 
 ### Invalidation waits for the refetch
 

@@ -1,8 +1,6 @@
 # effect-atom-query 1.3 — plan
 
-Status: **proposed, 2026-11-15.** 1.2.1 (WP1, WP2, WP8, WP9, and a shutdown
-refetch fix) implemented on branch `fix/1.2.1`; WP9 needs one-time setup on npm
-and GitHub (see RELEASING.md). 1.3.0 in progress on `feat/1.3.0`.
+Status: **proposed, 2026-11-15.** 1.2.1 (WP1, WP2, WP8, WP9, and a shutdown refetch fix) implemented on branch `fix/1.2.1`; WP9 needs one-time setup on npm and GitHub (see RELEASING.md). 1.3.0 in progress on `feat/1.3.0` (WP4 done).
 Input: [effect-atom-query-migration-report.md](./effect-atom-query-migration-report.md),
 a trial migration of a production React app (Redux Toolkit, RTK Query and two
 localStorage libraries) to effect-atom-query 1.2.0.

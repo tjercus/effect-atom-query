@@ -4,27 +4,27 @@ The caching model is TanStack Query's: the same defaults, the same lifecycle
 (fresh, stale, inactive, garbage collected), and the same triggers, filters
 and hooks. What changes is the language around it.
 
-| TanStack Query                                          | effect-atom-query                                                   |
-| ------------------------------------------------------- | ------------------------------------------------------------------- |
-| `queryFn: () => Promise<T>`                             | `run: Effect<A, E, R>`: typed errors, services from the runtime     |
-| `queryKey` + `queryFn` passed to every hook             | queries defined once (`Query.make`); hooks receive the atom         |
-| `queryOptions({ ... })`                                 | `Query.single` / `Query.make` (`Query.queryOptions` alias)          |
-| `data: T \| undefined`, `error: E \| null`              | `data: Option<A>`, `error: Option<E>`, plus `cause` for defects     |
-| `data ?? []`                                            | `Option.getOrElse(result.data, () => [])`                           |
-| `declare module ... Register { defaultError }`          | not needed: every query has its own error type                      |
-| `retry: 3`, `retryDelay`                                | `retry: 3`, or any `Schedule`                                       |
-| `AbortSignal`                                           | fiber interruption, so nested Effects are cancelled too             |
-| `enabled: !!id`                                         | `todoQuery(id ?? Query.skipToken)`, or `enabled: (arg) => ...`      |
-| `queryClient.fetchQuery()` → `Promise`                  | `client.fetchQuery(query)` → `Effect`                               |
-| `new QueryClient()` + `QueryClientProvider client`      | `QueryClient.layer()` in a runtime + `QueryClientProvider runtime`  |
-| `new QueryClient({ defaultOptions })`                   | `QueryClient.layer({ defaultOptions })`                             |
-| `mutateAsync(input).then().catch()`                     | `mutate(input, { onSuccess, onError })`, or `yield* mutateEffect`   |
-| `onMutate` / `onError` / `onSettled` returning promises | the same callbacks returning Effects, with `QueryClient` in context |
-| `onSuccess: () => invalidateQueries(...)`               | `invalidates: [["todos"]]`                                          |
-| `useMutationState({ select })`                          | the same; also `Mutation.optimistic(query, mutation, apply)`        |
-| `persistQueryClient` + `dehydrate` options              | `QueryPersister.layer` + per-query `persist: { schema }`            |
-| `focusManager`, `onlineManager`                         | `FocusManager` / `OnlineManager` services                           |
-| `@tanstack/react-query-devtools`                        | `@effect-atom-query/devtools`                                       |
+| TanStack Query                                          | effect-atom-query                                                                                                    |
+| ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `queryFn: () => Promise<T>`                             | `run: Effect<A, E, R>`: typed errors, services from the runtime                                                      |
+| `queryKey` + `queryFn` passed to every hook             | queries defined once (`Query.make`); hooks receive the atom                                                          |
+| `queryOptions({ ... })`                                 | `Query.single` / `Query.make` (`Query.queryOptions` alias)                                                           |
+| `data: T \| undefined`, `error: E \| null`              | `data: Option<A>`, `error: Option<E>`, plus `cause` for defects                                                      |
+| `data ?? []`                                            | `Option.getOrElse(result.data, () => [])`                                                                            |
+| `declare module ... Register { defaultError }`          | not needed: every query has its own error type                                                                       |
+| `retry: 3`, `retryDelay`                                | `retry: 3`, or any `Schedule`                                                                                        |
+| `AbortSignal`                                           | fiber interruption, so nested Effects are cancelled too                                                              |
+| `enabled: !!id`                                         | `todoQuery(id ?? Query.skipToken)`, or `enabled: (arg) => ...`                                                       |
+| `queryClient.fetchQuery()` → `Promise`                  | `client.fetchQuery(query)` → `Effect`                                                                                |
+| `new QueryClient()` + `QueryClientProvider client`      | `QueryClient.layer()` in a runtime + `QueryClientProvider runtime`                                                   |
+| `new QueryClient({ defaultOptions })`                   | `QueryClient.layer({ defaultOptions })`                                                                              |
+| `mutateAsync(input).then().catch()`                     | `mutate(input, { onSuccess, onError })`, `yield* mutateEffect`, or `useRunEffect().promiseExit(mutateEffect(input))` |
+| `onMutate` / `onError` / `onSettled` returning promises | the same callbacks returning Effects, with `QueryClient` in context                                                  |
+| `onSuccess: () => invalidateQueries(...)`               | `invalidates: [["todos"]]`                                                                                           |
+| `useMutationState({ select })`                          | the same; also `Mutation.optimistic(query, mutation, apply)`                                                         |
+| `persistQueryClient` + `dehydrate` options              | `QueryPersister.layer` + per-query `persist: { schema }`                                                             |
+| `focusManager`, `onlineManager`                         | `FocusManager` / `OnlineManager` services                                                                            |
+| `@tanstack/react-query-devtools`                        | `@effect-atom-query/devtools`                                                                                        |
 
 ## Differences you will notice while porting
 
@@ -76,8 +76,18 @@ save.mutate(todo, {
 ```
 
 The client's imperative methods (`fetchQuery`, `ensureQueryData`, …) return
-Effects as well. Where an API needs a Promise (route loaders, form
-libraries), see [Promise boundaries](./promises).
+Effects as well. Where an API needs a Promise, such as a form library's
+awaited submit handler, `useRunEffect` turns an Effect into one at that edge:
+
+```ts
+const run = useRunEffect();
+const onSubmit = async (todo: Todo) => {
+  const exit = await run.promiseExit(save.mutateEffect(todo)); // never rejects
+  if (Exit.isSuccess(exit)) navigate("/todos");
+};
+```
+
+See [Promise boundaries](./promises), also for route loaders.
 
 ### Results use `Option`
 
@@ -112,8 +122,9 @@ const runtime = ManagedRuntime.make(QueryClient.layer().pipe(Layer.provideMerge(
 - A default `queryFn` keyed by `queryKey`. Every query declares its own `run`,
   which is what makes the types flow.
 - `streamedQuery` and `experimental_prefetchInRender`.
-- Promise-returning client methods. The imperative API is Effect-only by
-  design; see [Promise boundaries](./promises) for loaders and forms.
+- Promise-returning client methods and `mutateAsync`. The library is
+  Effect-only by design; `useRunEffect` is the one Promise boundary, see
+  [Promise boundaries](./promises).
 
 ## Atoms all the way
 

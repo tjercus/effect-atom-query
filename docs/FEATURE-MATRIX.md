@@ -53,21 +53,22 @@ Source: TanStack Query v5 React docs (important defaults, `useQuery`,
 
 ## React API
 
-| TanStack                                                                            | effect-atom-query                                                  | Phase   |
-| ----------------------------------------------------------------------------------- | ------------------------------------------------------------------ | ------- |
-| ✅ `QueryClientProvider`, `useQueryClient`                                          | same (wraps `RegistryProvider`)                                    | 2       |
-| ✅ `useQuery`                                                                       | `useQuery`                                                         | 2       |
-| ✅ `useQueries` (+`combine`)                                                        | `useQueries`                                                       | 2       |
-| ✅ `useIsFetching`                                                                  | `useIsFetching`                                                    | 2       |
-| ✅ `useMutation`                                                                    | `useMutation`: `mutate` + `mutateEffect` (no `mutateAsync`, D4)    | 4       |
-| ✅ `useMutationState`, `useIsMutating`                                              | same                                                               | 4       |
-| ✅ `useSuspenseQuery`, `useSuspenseQueries`                                         | same (`useAtomSuspense`)                                           | 5       |
-| ✅ `useInfiniteQuery`, `useSuspenseInfiniteQuery`                                   | same                                                               | 5       |
-| ✅ `usePrefetchQuery`, `usePrefetchInfiniteQuery`                                   | same                                                               | 5       |
-| ✅ `QueryErrorResetBoundary`, `useQueryErrorResetBoundary`                          | same                                                               | 5       |
-| `HydrationBoundary`                                                                 | same (atom-react `HydrationBoundary`)                              | post-v1 |
-| ✅ `useIsRestoring`                                                                 | `useIsRestoring`; no provider needed (the client tracks restoring) | 6       |
-| `queryOptions` ✅, `infiniteQueryOptions` ✅, `mutationOptions` (= `Mutation.make`) | thin aliases over `Query.single` etc. (D1)                         | 1       |
+| TanStack                                                                            | effect-atom-query                                                             | Phase   |
+| ----------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- | ------- |
+| ✅ `QueryClientProvider`, `useQueryClient`                                          | same (wraps `RegistryProvider`)                                               | 2       |
+| ✅ `useQuery`                                                                       | `useQuery`                                                                    | 2       |
+| ✅ `useQueries` (+`combine`)                                                        | `useQueries`                                                                  | 2       |
+| ✅ `useIsFetching`                                                                  | `useIsFetching`                                                               | 2       |
+| ✅ `useMutation`                                                                    | `useMutation`: `mutate` + `mutateEffect` (no `mutateAsync`, D4)               | 4       |
+| ✅ `mutateAsync` (Promise)                                                          | `useRunEffect().promiseExit(mutateEffect(x))`: the one Promise boundary (D11) | 1.3     |
+| ✅ `useMutationState`, `useIsMutating`                                              | same                                                                          | 4       |
+| ✅ `useSuspenseQuery`, `useSuspenseQueries`                                         | same (`useAtomSuspense`)                                                      | 5       |
+| ✅ `useInfiniteQuery`, `useSuspenseInfiniteQuery`                                   | same                                                                          | 5       |
+| ✅ `usePrefetchQuery`, `usePrefetchInfiniteQuery`                                   | same                                                                          | 5       |
+| ✅ `QueryErrorResetBoundary`, `useQueryErrorResetBoundary`                          | same                                                                          | 5       |
+| `HydrationBoundary`                                                                 | same (atom-react `HydrationBoundary`)                                         | post-v1 |
+| ✅ `useIsRestoring`                                                                 | `useIsRestoring`; no provider needed (the client tracks restoring)            | 6       |
+| `queryOptions` ✅, `infiniteQueryOptions` ✅, `mutationOptions` (= `Mutation.make`) | thin aliases over `Query.single` etc. (D1)                                    | 1       |
 
 ## QueryClient (every method returns `Effect`, with no Promise facade, D4; getters return `Option`, D2)
 
