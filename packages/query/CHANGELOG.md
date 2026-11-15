@@ -2,9 +2,7 @@
 
 ## 1.2.0
 
-### Minor Changes
-
-- integration DX and lots of review findings in real world usage
+First npm release of the 1.1.0 changes: 1.1.0 was tagged on GitHub but never published to npm. There are no code changes since 1.1.0; see the 1.1.0 entry below for what's new since 1.0.0.
 
 ## 1.1.0
 
