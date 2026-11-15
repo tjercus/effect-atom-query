@@ -30,20 +30,25 @@ A key is a readonly tuple starting with a string: `["user", id]`,
 
 ### Key constants
 
-Shared key constants need `as const`. Without it, a key built from a spread
-widens to `string[]`, which is not a tuple starting with a string, and
-`Query.make` or `invalidates` fails with "No overload matches this call":
+A shared key constant written as a plain array widens to `string[]`, which
+is not a tuple starting with a string. `Query.make` or `invalidates` then
+fails with "No overload matches this call", far from where the key was
+written. Build key constants with `QueryKey.make`, which infers the exact
+tuple:
 
 ```ts
 export const postKeys = {
-  all: ["posts"] as const,
-  list: () => [...postKeys.all, "list"] as const,
-  detail: (id: number) => [...postKeys.all, "detail", id] as const,
+  all: QueryKey.make("posts"), // readonly ["posts"]
+  list: () => QueryKey.make(...postKeys.all, "list"),
+  detail: (id: number) => QueryKey.make(...postKeys.all, "detail", id),
 };
 
 Query.make({ key: (id: number) => postKeys.detail(id), run: (id) => api.post(id) });
 Mutation.make({ run: api.savePost, invalidates: [postKeys.all] });
 ```
+
+`as const` on each array does the same. `QueryKey.make` also reports a
+widened array (`QueryKey.make(...someStrings)`) where the key is built.
 
 Keys of query atoms are `QueryKey.Tagged<A, E>`, so
 `client.getQueryData(userQuery(id).key)` is typed as `Option<User>`.

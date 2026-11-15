@@ -3,7 +3,8 @@
 ## Persisting queries
 
 Persistence is **opt-in per query** and **typed**. A query declares the
-`Schema` of its data:
+`Schema` of its data (an Effect Schema, or
+[a zod, Valibot or ArkType schema](#with-zod-valibot-or-arktype)):
 
 ```ts
 const todosQuery = Query.single({
@@ -46,6 +47,47 @@ const runtime = ManagedRuntime.make(
 | `mutations`             | `[]`                  |
 | `resumePausedMutations` | `true`                |
 | `shouldPersistQuery`    | successful queries    |
+
+### With zod, Valibot or ArkType
+
+`persist.schema` also takes any [Standard Schema](https://standardschema.dev)
+validator, so an app that validates API data with zod does not need an Effect
+Schema as well:
+
+```ts
+const Todo = z.object({ id: z.string(), title: z.string(), done: z.boolean() });
+
+const todosQuery = Query.single({
+  key: ["todos"],
+  run: TodoRepo.use((repo) => repo.list),
+  persist: { schema: z.array(Todo) },
+});
+```
+
+The same goes for infinite queries (`persist: { page, pageParam }`) and
+offline mutations (`persist: { variables }`).
+
+A Standard Schema validates, but cannot encode, so the two kinds differ:
+
+|                                       | Effect Schema         | Standard Schema (zod, …)                  |
+| ------------------------------------- | --------------------- | ----------------------------------------- |
+| stored as                             | its JSON encoding     | the data as is                            |
+| restored by                           | decoding              | validating                                |
+| `Date`, `DateTime`, `Option`, classes | round-trip            | do not survive: keep data JSON-compatible |
+| when restoring fails                  | dropped and refetched | dropped and refetched                     |
+
+Two rules for Standard Schema validators:
+
+- **Synchronous only.** Restoring happens synchronously when a query is first
+  used. A validator with async refinements cannot run there: its data is not
+  restored, and a warning is logged once.
+- **It must accept its own output.** The stored value is the validated
+  output, which is validated again on restore. A transform that changes the
+  type (`z.string().transform(Number)`) rejects its own output, so the data
+  is dropped each time.
+
+If a value is both (an Effect Schema with a `~standard` property), the Effect
+Schema codec is used.
 
 ### Restore modes
 

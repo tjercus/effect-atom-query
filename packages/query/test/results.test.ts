@@ -53,6 +53,28 @@ describe("QueryResult constructors", () => {
     }),
   );
 
+  it.effect("idle() matches a real disabled query", () =>
+    Effect.gen(function* () {
+      const { registry } = yield* setup();
+      const off = Query.single({ key: ["off"], run: Effect.succeed(1), enabled: false });
+      registry.mount(off);
+      yield* settle;
+      expect(queryFlags(QueryResult.idle())).toEqual(queryFlags(registry.get(off)));
+      expect(QueryResult.idle().isLoading).toBe(false);
+    }),
+  );
+
+  it.effect("disabled() without an argument matches a skipped query", () =>
+    Effect.gen(function* () {
+      const { registry } = yield* setup();
+      const family = Query.make({ key: (id: number) => ["skip", id], run: Effect.succeed });
+      const skipped = family(Query.skipToken);
+      registry.mount(skipped);
+      yield* settle;
+      expect(queryFlags(QueryResult.disabled())).toEqual(queryFlags(registry.get(skipped)));
+    }),
+  );
+
   it("are deterministic: no timestamps from the clock", () => {
     const query = QueryResult.success(1).result;
     const mutation = MutationResult.success(4, 2).result;

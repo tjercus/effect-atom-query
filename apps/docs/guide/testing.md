@@ -29,61 +29,157 @@ QueryClient.make().pipe(Effect.provideService(OnlineManager.OnlineManager, onlin
 online.setOnline(false);
 ```
 
-## Components
+## Components and hooks
 
-Build a client on a `ManagedRuntime` with fake services and render inside
-`QueryClientProvider`. Disposing the runtime stops every background fiber:
+`@effect-atom-query/react/testing` has the pieces a component test needs. It
+does not depend on a test runner.
+
+```ts
+import {
+  controlled,
+  makeTestHarness,
+  mutationHookResult,
+  queryHookResult,
+  type TestHarness,
+} from "@effect-atom-query/react/testing";
+```
+
+### A harness per test
+
+`makeTestHarness` builds a client with [test defaults](#test-defaults), your
+fake services, a registry, and a provider component:
 
 ```tsx
-const runtime = ManagedRuntime.make(QueryClient.layer().pipe(Layer.provideMerge(FakeRepo)));
-render(
-  <QueryClientProvider runtime={runtime}>
-    <Todos />
-  </QueryClientProvider>,
+const FakeTodoRepo = Layer.succeed(
+  TodoRepo,
+  TodoRepo.of({ list: Effect.succeed([{ id: "1", title: "learn Effect" }]) }),
 );
-await screen.findByText("learn Effect");
-await runtime.dispose();
+
+let harness: TestHarness<TodoRepo, never>;
+beforeEach(() => {
+  harness = makeTestHarness({ layer: FakeTodoRepo });
+});
+afterEach(() => harness.dispose());
+
+it("lists todos", async () => {
+  render(<Todos />, { wrapper: harness.Wrapper });
+  expect(await screen.findByText("learn Effect")).toBeTruthy();
+});
 ```
 
-### Mocking hooks
+| field                 | use it to                                                                 |
+| --------------------- | ------------------------------------------------------------------------- |
+| `harness.Wrapper`     | wrap `render(ui, { wrapper })` and `renderHook`                           |
+| `harness.registry`    | set atoms before rendering (Redux's `preloadedState`) and read them after |
+| `harness.run(effect)` | run an Effect with the client and your services, as a Promise             |
+| `harness.client`      | read the cache directly                                                   |
+| `harness.runtime`     | the `ManagedRuntime`, for anything else                                   |
+| `harness.dispose()`   | stop every fiber and dispose the registry                                 |
 
-To test a container component without a client, mock the hooks it uses and
-return results built with the constructors. They set every flag consistently,
-and are type-checked against the real result types:
+`dispose` can run before React Testing Library unmounts the tree, which is
+the order Vitest uses (`afterEach` before the automatic cleanup).
+
+`harness.run` makes query specs short, without rendering anything:
 
 ```ts
-vi.mock("./todoApi", () => ({
-  useTodosQuery: () => QueryResult.success([{ id: "1", title: "learn Effect" }]),
-  useSaveTodoMutation: () => ({ ...MutationResult.idle(), mutate: vi.fn() }),
-}));
+it("caches the list", async () => {
+  await harness.run(Effect.flatMap(QueryClient.QueryClient, (c) => c.fetchQuery(todosQuery)));
+  const cached = Effect.runSync(harness.client.getQueryData(todosQuery));
+  expect(Option.isSome(cached)).toBe(true);
+});
 ```
 
-| constructor                            | state                                |
-| -------------------------------------- | ------------------------------------ |
-| `QueryResult.pending()`                | first load running (`isLoading`)     |
-| `QueryResult.success(data)`            | loaded                               |
-| `QueryResult.failure(error)`           | first load failed with a typed error |
-| `MutationResult.idle()`                | not run yet                          |
-| `MutationResult.pending(input)`        | running                              |
-| `MutationResult.success(data, input)`  | succeeded                            |
-| `MutationResult.failure(error, input)` | failed with a typed error            |
+### Loading states
+
+A fake that answers at once skips the loading state. `controlled()` gives a
+response that stays pending until the test completes it:
+
+```tsx
+it("shows a spinner, then the error", async () => {
+  const list = controlled<ReadonlyArray<Todo>, Offline>();
+  harness = makeTestHarness({ layer: Layer.succeed(TodoRepo, TodoRepo.of({ list: list.effect })) });
+  render(<Todos />, { wrapper: harness.Wrapper });
+  expect(screen.getByText("Loading…")).toBeTruthy();
+
+  await act(async () => list.fail(new Offline()));
+  expect(await screen.findByText("You are offline")).toBeTruthy();
+});
+```
+
+`succeed`, `fail` and `die` complete it, and the first completion wins.
+Every run of `list.effect` waits for that same outcome, so a refetch gets it
+too.
+
+### Test defaults
+
+The harness's client does not retry, does not refetch on window focus or
+reconnect, and runs no garbage collection timers. Failures show at once and
+nothing refetches unexpectedly. Override any of it with
+`makeTestHarness({ client: { defaultOptions: { queries: { staleTime: "1 minute" } } } })`.
+
+Without the harness, use the same defaults with `testQueryClientLayer()`
+in place of `QueryClient.layer()`, or spread `testDefaultOptions`.
+
+## Mocking hooks
+
+To test a container component without a client, mock the hooks it uses.
+
+### Mock a named hook, not `useQuery`
+
+Export a small hook per query or mutation, and use it in components:
+
+```ts
+// todoApi.ts
+export const useTodosQuery = () => useQuery(todosQuery);
+export const useSaveTodo = () => useMutation(saveTodo);
+```
+
+A test can then replace exactly that hook. Mocking the generic `useQuery`
+instead means one mock for every query in the tree, dispatching on which atom
+it received.
+
+Build the return values with `queryHookResult` and `mutationHookResult`.
+They add the hook's functions (`refetch`, `mutate`, `mutateEffect`, `reset`)
+to a result, so no cast is needed:
+
+```ts
+vi.mock("./todoApi", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./todoApi")>()),
+  useTodosQuery: vi.fn(),
+  useSaveTodo: vi.fn(),
+}));
+
+it("renders the list and saves", () => {
+  const mutate = vi.fn();
+  vi.mocked(useTodosQuery).mockReturnValue(queryHookResult(QueryResult.success([todo])));
+  vi.mocked(useSaveTodo).mockReturnValue(mutationHookResult(MutationResult.idle(), { mutate }));
+  render(<TodoList />);
+  fireEvent.click(screen.getByText("Save"));
+  expect(mutate).toHaveBeenCalledWith(todo);
+});
+```
+
+`refetch`, `mutate` and `reset` do nothing unless you pass your own.
+`mutateEffect` fails with a defect unless you pass one, so a component that
+awaits it does not silently succeed.
+
+The results come from constructors that set every flag the way a real query
+or mutation does:
+
+| constructor                            | state                                             |
+| -------------------------------------- | ------------------------------------------------- |
+| `QueryResult.idle()`                   | disabled (`enabled: false`): pending, not loading |
+| `QueryResult.disabled()`               | skipped with `Query.skipToken`                    |
+| `QueryResult.pending()`                | first load running (`isLoading`)                  |
+| `QueryResult.success(data)`            | loaded                                            |
+| `QueryResult.failure(error)`           | first load failed with a typed error              |
+| `MutationResult.idle()`                | not run yet                                       |
+| `MutationResult.pending(input)`        | running                                           |
+| `MutationResult.success(data, input)`  | succeeded                                         |
+| `MutationResult.failure(error, input)` | failed with a typed error                         |
 
 Timestamps are `None`. Spread to change a flag:
-`{ ...QueryResult.success(todos), isRefetching: true, isFetching: true }`.
-
-### A client for tests that use real hooks
-
-Turn off retries and window-focus refetches, so failures show up at once and
-tests do not refetch unexpectedly:
-
-```ts
-const TestQueryClient = QueryClient.layer({
-  defaultOptions: {
-    queries: { retry: false, refetchOnWindowFocus: false },
-  },
-});
-const runtime = ManagedRuntime.make(TestQueryClient.pipe(Layer.provideMerge(FakeRepo)));
-```
+`queryHookResult({ ...QueryResult.success(todos), isRefetching: true, isFetching: true })`.
 
 ### Mocking hooks from another module
 

@@ -1,8 +1,6 @@
 # effect-atom-query 1.3 — plan
 
-Status: **proposed, 2026-11-15.** 1.2.1 (WP1, WP2, WP8, WP9, and a shutdown
-refetch fix) implemented on branch `fix/1.2.1`; WP9 needs one-time setup on npm
-and GitHub (see RELEASING.md). 1.3.0 not started.
+Status: **proposed, 2026-11-15.** 1.2.1 (WP1, WP2, WP8, WP9, and a shutdown refetch fix) implemented on branch `fix/1.2.1`; WP9 needs one-time setup on npm and GitHub (see RELEASING.md). 1.3.0 in progress on `feat/1.3.0` (WP4, WP3, WP5, WP6 done).
 Input: [effect-atom-query-migration-report.md](./effect-atom-query-migration-report.md),
 a trial migration of a production React app (Redux Toolkit, RTK Query and two
 localStorage libraries) to effect-atom-query 1.2.0.
@@ -24,7 +22,7 @@ Every issue in the report, and what this plan does with it.
 | 3          | `useQuery` infers `B` from the return context              | **fix** (fix verified, see WP2)                       | WP2          |
 | 3          | Key constants need `as const`                              | docs + small helper                                   | WP3          |
 | 3          | `skipToken` doesn't apply to `Query.single`                | docs                                                  | WP8          |
-| 2.2        | No Promise-based mutation API, runtime not readable        | **feature**, needs a decision (amends D4)             | WP4          |
+| 2.2        | No Promise-based mutation API, runtime not readable        | **feature**: one Promise boundary helper (D11)        | WP4          |
 | 2.5        | No test helpers (idle result, hook results, pending fakes) | **feature**                                           | WP5          |
 | 2.4        | Persistence needs Effect Schema; zod apps carry both       | **feature** (Standard Schema for `persist`)           | WP6          |
 | 2.4        | `Atom.kvs` behaviour (default, write on read, cross-tab)   | out of scope: `effect/reactivity`, report it upstream | WP6          |
@@ -44,8 +42,7 @@ Everything below is additive, so no major version is needed.
 - **1.2.1 (patch)**: WP1, WP2, the WP8 docs, and WP9, so 1.2.1 is the first
   release published from CI with provenance. These are fixes that users of
   1.2.0 hit today, and they do not need any API decisions.
-- **1.3.0 (minor)**: WP3 to WP7. WP4 needs the owner to decide on amending
-  D4 first.
+- **1.3.0 (minor)**: WP3 to WP7.
 
 Leave at least a few days between the two releases (see WP9).
 
@@ -138,75 +135,119 @@ long error that includes the app's branded zod types.
    ```
 
    This is a typed constructor, not a key factory, so decision D8 ("no key
-   factory") still holds. Record the clarification in QUESTIONS.md.
+   factory") still holds. The clarification is recorded in QUESTIONS.md.
 
 2. Docs: a "Key constants" section in `queries.md` showing both `as const`
    and `QueryKey.make`, and the error message that a widened key produces, so
    people can find it by searching for the message.
 
-### WP4: Promise boundary for mutations (feature, size M, needs a decision)
+### WP4: A Promise boundary helper (feature, size S)
 
-**Problem.** Forms and `try { await trigger(x).unwrap() }` flows need a
-Promise. Today that needs the app runtime, which the provider accepts but
-gives no way to read back. The app wrote `useRunPromise()` and
-`settleMutation()` (an `Effect.match` to `{ data } | { error }`). Its hook was
-typed for one service set, so `QueryClient` Effects did not fit. And
-`cond ? update.mutateEffect(x) : create.mutateEffect(x)` did not type-check,
-because a union of two Effects does not fit a single generic call.
+**Decision (D11, 2026-11-15).** The library stays purely Effect: the core,
+the `QueryClient` API and the hooks take and return Effects, and nothing in
+the library uses Promises for its own logic. This keeps D4. What the library
+adds is **one small helper for the edge**: code outside the library that
+expects a Promise (form libraries, route loaders, third-party callbacks).
 
-PLAN.md goal 5 already planned a `useQueryClientRuntime()` "or a
-hook-provided runner" for this. It was never built.
+The only Promises inside the library are the ones React requires: Suspense
+works by throwing a Promise (`suspendOn` in `packages/react/src/internal.ts`,
+and `useQueries`). Those are a contract with React, not library logic, and
+they stay.
 
-**Proposal (amends D4 as D11).** The `QueryClient` API stays Effect-only. The
-React package gets two Promise boundaries that **never reject**:
+**Status.** Not in the library yet. Today there is only a documented
+pattern: export the app's `ManagedRuntime` and call
+`runtime.runPromiseExit(save.mutateEffect(x))` (`promises.md`, and the Redux
+guide). PLAN.md goal 5 planned a "hook-provided runner" for this, but it was
+never built. `useMutation` has `mutate` (callbacks) and `mutateEffect`
+(Effect), and no Promise variant.
 
-1. `useMutation(...).mutateExit(input): Promise<Exit<A, E>>`. It runs like
-   `mutate`, with the client's context, so it needs no runtime and is typed
-   per mutation. It updates the hook's state (`isPending`, `error`, …) and
-   runs the per-call callbacks. Each branch of a conditional is a separate
-   Promise, so the union problem goes away:
+**Problem.** In the trial, the app wrote its own `useRunPromise()` and
+`settleMutation()` (an `Effect.match` to `{ data } | { error }`):
 
-   ```ts
-   const exit = await(mode === "edit" ? update.mutateExit(x) : create.mutateExit(x));
-   if (Exit.isSuccess(exit)) navigate(`/posts/${exit.value.id}`);
-   ```
+- the provider accepts a runtime but gives no way to read it back;
+- the app's hook was typed for one set of services, so `QueryClient`
+  Effects did not fit;
+- `run(cond ? update.mutateEffect(x) : create.mutateEffect(x))` did not
+  type-check. A signature with separate `<A, E>` parameters cannot accept a
+  union of two Effects (reproduced on the current toolchain).
 
-   Interruption (the component unmounting, `reset`) resolves with an
-   interrupt-only `Exit` and never reaches `onError` (D7).
+**Proposal.** One hook in `@effect-atom-query/react`, `useRunEffect()`. It
+returns a runner bound to the provider's client:
 
-2. `useRunEffect()`, a runner bound to the client's context:
-   `{ runPromiseExit, runPromise, runFork }`. It is for one-off Effects in
-   event handlers (`client.fetchQuery`, `client.invalidateQueries`, an app
-   service). The services available are declared once per app, the way
-   TanStack's `Register` declares a default error type:
+```ts
+const run = useRunEffect();
+const save = useMutation(savePost);
 
-   ```ts
-   declare module "@effect-atom-query/react" {
-     interface Register {
-       readonly services: ApiClient | Navigation;
-     }
-   }
-   ```
+const onSubmit = async (values: Post) => {
+  const exit = await run.promiseExit(
+    mode === "edit" ? save.mutateEffect(values) : create.mutateEffect(values),
+  );
+  if (Exit.isSuccess(exit)) navigate(`/posts/${exit.value.id}`);
+  else setFormError(exit.cause);
+};
+```
 
-   Without the augmentation, only `QueryClient` is available. When the
-   provider was given a `client` rather than a `runtime`, the runner uses the
-   context the client was built with. This is the same path `mutate` takes
-   today (`ClientRuntime.runFork`), so it needs no new plumbing in the core.
+- **`promiseExit(effect): Promise<Exit<A, E>>`** never rejects. This is the
+  recommended form for forms and `.unwrap()`-style flows.
+- **`promise(effect): Promise<A>`** rejects with the typed error, for route
+  loaders and APIs that expect a rejection.
+- The runner is a plain object, stable for the client's lifetime, so it can
+  be passed to code outside React.
+- An `AbortSignal` option interrupts the Effect, as `ManagedRuntime` does.
 
-`runPromise` (rejecting) is included because loaders expect rejection; the
-docs recommend `runPromiseExit` / `mutateExit` for forms.
+**Services.** The client already captures the context of the layer it was
+built in (`QueryClient.make` reads `Effect.context()`, which `mutate` uses
+today through `ClientRuntime.runFork`). The runner runs Effects in that
+context, with `QueryClient` added. So it needs no new core plumbing, and it
+works whether the provider got a `runtime` or a `client`. The app declares
+its services once, the way TanStack's `Register` declares a default error
+type:
 
-**Decision needed.** Amending D4 is the owner's call. If D4 stays as it is,
-do only the docs (the current `runtime.runPromiseExit(mutateEffect(x))`
-pattern, done in the Redux guide) and drop this work package.
+```ts
+declare module "@effect-atom-query/react" {
+  interface Register {
+    readonly services: ApiClient | Navigation;
+  }
+}
+```
 
-**Tests.** `mutateExit` success, typed failure, defect and interruption;
-hook state during and after; per-call callbacks fire once. `useRunEffect`
-uses the provider's services, and the `Register` augmentation compiles in a
-type test.
+Without the declaration, only `QueryClient` is available. The declaration is
+an assertion: if it lists a service the layer does not provide, the Effect
+fails at run time with a missing-service defect, as it would on a
+`ManagedRuntime` typed too widely.
 
-**Docs.** Update `promises.md`, the "No Promises" section of
-`from-tanstack.md` and the mutations part of `from-redux.md`.
+**Typing (verified).** Each method infers the whole Effect, not `A` and `E`
+separately:
+
+```ts
+promiseExit: <X extends Effect.Effect<any, any, QueryClient | Services>>(
+  effect: X,
+  options?: { readonly signal?: AbortSignal },
+) => Promise<Exit.Exit<Effect.Success<X>, Effect.Error<X>>>;
+```
+
+A probe confirmed that a union of Effects infers the union of success and
+error types, a single Effect keeps its exact types, and an Effect that needs
+an undeclared service is rejected at compile time.
+
+**Not included, on purpose.**
+
+- `mutateExit` / `mutateAsync` on `useMutation`. The runner plus
+  `mutateEffect` covers it, and keeps Promises out of the hook API (D4).
+- A Promise API on `QueryClient`. The core stays Promise-free.
+- An outcome type like `{ data } | { error }`. `Exit` already is one.
+
+**Tests.** `promiseExit` resolves with success, typed failure, defect and
+interruption (an aborted `signal`), and never rejects. `promise` rejects
+with the typed error. Running `mutateEffect` through the runner updates the
+hook's `isPending` / `error`. The runner uses the client's services with
+both provider forms. Type tests for the union case, the `Register`
+declaration and a rejected undeclared service.
+
+**Docs.** Rewrite `promises.md` around `useRunEffect` (keeping the
+`ManagedRuntime` route for code with no React tree), and update the "No
+Promises" section of `from-tanstack.md` and the mutations part of
+`from-redux.md`. D11 is recorded in QUESTIONS.md.
 
 ### WP5: Test utilities (feature, size M)
 
@@ -231,14 +272,14 @@ mutation hook and result adapters. The specific gaps:
    its size budget do not change. It has no test-runner dependency:
    - `UseQueryResult` / `UseMutationResult` constructors that take a core
      result plus optional overrides and fill in the hook fields (`refetch`,
-     `mutate`, `mutateEffect`, `mutateExit`, `reset`) with no-ops:
+     `mutate`, `mutateEffect`, `reset`) with no-ops:
 
      ```ts
      useTodosQuery.mockReturnValue(queryHookResult(QueryResult.success(todos)));
      useSave.mockReturnValue(mutationHookResult(MutationResult.idle(), { mutate: vi.fn() }));
      ```
 
-   - `TestQueryClient.layer(options?)`: no retries, no focus or reconnect
+   - `testQueryClientLayer(options?)` (and `testDefaultOptions`): no retries, no focus or reconnect
      refetches, `gcTime: "Infinity"`, so tests do not time out or refetch
      unexpectedly. This is the configuration `testing.md` already
      recommends.
@@ -273,8 +314,9 @@ data:
 
 Effect Schema values keep the codec path, so `DateTime`, `Option` and branded
 types still round-trip. Check for an Effect Schema first, in case Effect
-schemas also expose `~standard`. An async `validate` result can be
-supported, because restoring is already an Effect.
+schemas also expose `~standard`. Restoring is synchronous (entries are
+decoded in `claimPersisted` when a query is first used), so only synchronous
+validators are supported; an async result drops the entry and warns once.
 
 `Persist<A>` becomes a union. Type tests check that the validator's output
 type has to match the query's `A`.
@@ -326,6 +368,20 @@ install. The plan:
   changes to `packages/*/src`.
 - **Support policy.** Write down in `RELEASING.md` which versions get fixes
   and how deprecations are announced.
+
+### Found during implementation
+
+- **Closing the client refetched every mounted query atom once (pre-existing,
+  fixed in 1.2.1).** Found while testing WP6. When the client's scope closes, its
+  cache removes every entry. A query atom read through a registry
+  (`registry.mount`, `useAtomValue`, code outside React) reacted to the
+  removal by rebuilding itself, which created a new entry in the closed cache
+  and fetched it, against a runtime that was shutting down. `QueryObserver`
+  (the `use*Query` hooks) already checked `cache.isDisposed`; the atom path
+  did not, and the existing regression test only covered the observer. The
+  atom now keeps its last result instead of rebuilding, and an atom first read
+  after shutdown returns a disabled result without creating an entry.
+  Regression test in `regressions.test.ts`.
 
 ## 4. Out of scope, and why
 

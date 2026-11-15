@@ -47,6 +47,28 @@ export type DataOf<K> = K extends Tagged<infer A, any> ? A : unknown;
 export type ErrorOf<K> = K extends Tagged<any, infer E> ? E : unknown;
 
 /**
+ * Builds a key from its elements, typed as a tuple without `as const`.
+ *
+ * Shared key constants written as plain arrays widen to `string[]`, which is
+ * not a key, so definitions using them fail with "No overload matches this
+ * call". `make` infers the exact tuple instead, and reports a widened array
+ * where it is built:
+ *
+ * ```ts
+ * const postKeys = {
+ *   all: QueryKey.make("posts"),                                  // readonly ["posts"]
+ *   detail: (id: number) => QueryKey.make(...postKeys.all, "detail", id),
+ * }
+ * ```
+ *
+ * It only types the key; it is not a key factory (decision D8).
+ *
+ * @since 1.3.0
+ * @category constructors
+ */
+export const make = <const K extends QueryKey>(...key: K): K => key;
+
+/**
  * Brands a key with data and error types.
  *
  * @since 0.1.0

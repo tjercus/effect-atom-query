@@ -31,6 +31,15 @@ export {
 /** @since 0.1.0 */
 export { useIsFetching } from "./useIsFetching.ts";
 
+/** @since 1.3.0 */
+export {
+  type EffectRunner,
+  type Register,
+  type RegisteredServices,
+  type RunEffectOptions,
+  useRunEffect,
+} from "./useRunEffect.ts";
+
 /** @since 0.1.0 */
 export { useIsRestoring } from "./useIsRestoring.ts";
 

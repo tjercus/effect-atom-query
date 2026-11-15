@@ -1,7 +1,7 @@
 /**
  * One mutation execution (one `mutate` call). Internal.
  */
-import type { Schema } from "effect";
+import type { PersistSchema } from "./persistCodec.ts";
 import {
   Cause,
   type Context,
@@ -74,8 +74,10 @@ export interface MutationOptions<I, A, E, R, C> {
    * Persist this mutation while it is paused offline (`QueryPersister`), so it
    * can be resumed after a reload. Requires a `key`, and a `run` registered
    * with `setMutationDefaults` for that key, since functions cannot be stored.
+   * `variables` is an Effect Schema or a Standard Schema validator
+   * (`Query.PersistSchema`).
    */
-  readonly persist?: { readonly variables: Schema.Codec<I, any> } | undefined;
+  readonly persist?: { readonly variables: PersistSchema<I> } | undefined;
 }
 
 /** @internal */

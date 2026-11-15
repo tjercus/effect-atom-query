@@ -20,32 +20,32 @@ differences that turned into bugs in a real port.
 
 ### RTK Query
 
-| RTK Query                                          | effect-atom-query                                                                |
-| -------------------------------------------------- | -------------------------------------------------------------------------------- |
-| `createApi({ baseQuery, endpoints })`              | a service (`ApiClient`) in a `Layer`, plus module-level definitions              |
-| `fetchBaseQuery({ baseUrl, prepareHeaders })`      | `HttpClient` from `effect/http` with `mapRequest` / `mapRequestEffect`           |
-| `builder.query`                                    | `Query.make` (with an argument) or `Query.single` (without)                      |
-| `builder.mutation`                                 | `Mutation.make`                                                                  |
-| `builder.infiniteQuery`                            | `InfiniteQuery.make` + `useInfiniteQuery`                                        |
-| `providesTags`                                     | the query's `key`                                                                |
-| `invalidatesTags`                                  | the mutation's `invalidates` (keys, matched by prefix)                           |
-| `api.util.invalidateTags([...])`                   | `client.invalidateQueries({ queryKey })`                                         |
-| `useGetPostQuery(id)` (generated)                  | `useQuery(postQuery(id))`, or your own `usePostQuery` wrapper                    |
-| `useGetPostQuery(id ?? skipToken)`, `skip: true`   | `useQuery(postQuery(id ?? Query.skipToken))`, or `enabled: false`                |
-| `selectFromResult`                                 | `select`                                                                         |
-| `transformResponse`                                | inside `run`: parse or `Effect.map`                                              |
-| `transformErrorResponse`                           | inside `run`: `Effect.mapError`                                                  |
-| `keepUnusedDataFor: 60` (seconds)                  | `gcTime` (default `"5 minutes"`)                                                 |
-| `refetchOnMountOrArgChange`                        | `staleTime` and `refetchOnMount`                                                 |
-| `pollingInterval`                                  | `refetchInterval`                                                                |
-| `refetchOnFocus` / `refetchOnReconnect`            | `refetchOnWindowFocus` / `refetchOnReconnect`, **on by default**                 |
-| `const [trigger, state] = useUpdatePostMutation()` | `const update = useMutation(updatePost)`                                         |
-| `await trigger(x).unwrap()`                        | `mutate(x, { onSuccess, onError })`, or `runPromiseExit(update.mutateEffect(x))` |
-| `onQueryStarted` + `updateQueryData` (optimistic)  | `Mutation.optimisticUpdate(query, update)`                                       |
-| `dispatch(api.util.prefetch(...))`                 | `usePrefetchQuery`, or `client.prefetchQuery` in an Effect                       |
-| `serializeQueryArgs` / `merge` / `forceRefetch`    | an infinite query, or nothing: structural sharing keeps unchanged data stable    |
-| `data?: T`, `error?: FetchBaseQueryError`          | `data: Option<A>`, `error: Option<E>` with your own typed `E`                    |
-| `isLoading`, `isFetching`, `isSuccess`, `isError`  | the same flags; `isSuccess` narrows `data` to `Some`                             |
+| RTK Query                                          | effect-atom-query                                                                            |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `createApi({ baseQuery, endpoints })`              | a service (`ApiClient`) in a `Layer`, plus module-level definitions                          |
+| `fetchBaseQuery({ baseUrl, prepareHeaders })`      | `HttpClient` from `effect/http` with `mapRequest` / `mapRequestEffect`                       |
+| `builder.query`                                    | `Query.make` (with an argument) or `Query.single` (without)                                  |
+| `builder.mutation`                                 | `Mutation.make`                                                                              |
+| `builder.infiniteQuery`                            | `InfiniteQuery.make` + `useInfiniteQuery`                                                    |
+| `providesTags`                                     | the query's `key`                                                                            |
+| `invalidatesTags`                                  | the mutation's `invalidates` (keys, matched by prefix)                                       |
+| `api.util.invalidateTags([...])`                   | `client.invalidateQueries({ queryKey })`                                                     |
+| `useGetPostQuery(id)` (generated)                  | `useQuery(postQuery(id))`, or your own `usePostQuery` wrapper                                |
+| `useGetPostQuery(id ?? skipToken)`, `skip: true`   | `useQuery(postQuery(id ?? Query.skipToken))`, or `enabled: false`                            |
+| `selectFromResult`                                 | `select`                                                                                     |
+| `transformResponse`                                | inside `run`: parse or `Effect.map`                                                          |
+| `transformErrorResponse`                           | inside `run`: `Effect.mapError`                                                              |
+| `keepUnusedDataFor: 60` (seconds)                  | `gcTime` (default `"5 minutes"`)                                                             |
+| `refetchOnMountOrArgChange`                        | `staleTime` and `refetchOnMount`                                                             |
+| `pollingInterval`                                  | `refetchInterval`                                                                            |
+| `refetchOnFocus` / `refetchOnReconnect`            | `refetchOnWindowFocus` / `refetchOnReconnect`, **on by default**                             |
+| `const [trigger, state] = useUpdatePostMutation()` | `const update = useMutation(updatePost)`                                                     |
+| `await trigger(x).unwrap()`                        | `mutate(x, { onSuccess, onError })`, or `useRunEffect().promiseExit(update.mutateEffect(x))` |
+| `onQueryStarted` + `updateQueryData` (optimistic)  | `Mutation.optimisticUpdate(query, update)`                                                   |
+| `dispatch(api.util.prefetch(...))`                 | `usePrefetchQuery`, or `client.prefetchQuery` in an Effect                                   |
+| `serializeQueryArgs` / `merge` / `forceRefetch`    | an infinite query, or nothing: structural sharing keeps unchanged data stable                |
+| `data?: T`, `error?: FetchBaseQueryError`          | `data: Option<A>`, `error: Option<E>` with your own typed `E`                                |
+| `isLoading`, `isFetching`, `isSuccess`, `isError`  | the same flags; `isSuccess` narrows `data` to `Some`                                         |
 
 ### Redux slices
 
@@ -234,9 +234,9 @@ export const { useGetPostsQuery, useGetPostQuery, useUpdatePostMutation } = post
 ```ts
 // effect-atom-query
 export const postKeys = {
-  all: ["posts"] as const,
-  list: () => [...postKeys.all, "list"] as const,
-  detail: (id: number) => [...postKeys.all, "detail", id] as const,
+  all: QueryKey.make("posts"),
+  list: () => QueryKey.make(...postKeys.all, "list"),
+  detail: (id: number) => QueryKey.make(...postKeys.all, "detail", id),
 };
 
 export const postsQuery = Query.single({
@@ -265,10 +265,10 @@ export const usePostQuery = (id: number | undefined) => useQuery(postQuery(id ??
 
 Some notes on the port:
 
-- **Keys need `as const`.** A key is a tuple whose first element is a string.
-  A key constant built with spreads and no `as const` widens to `string[]`,
-  and `Query.make` / `invalidates` then fail with a long "No overload matches
-  this call" error.
+- **Build key constants with `QueryKey.make`** (or `as const`). A key is a
+  tuple whose first element is a string. A plain array constant widens to
+  `string[]`, and `Query.make` / `invalidates` then fail with a long "No
+  overload matches this call" error. See [Key constants](./queries#key-constants).
 - **Cross-API invalidation is just a key.** RTK needs the same `tagTypes`
   registered on both APIs. Here a mutation in `planetApi.ts` lists
   `spaceshipKeys.all` in `invalidates`. Use the function form
@@ -341,24 +341,26 @@ update.mutate(post, {
 ```
 
 Where an API needs a Promise (a form library's awaited `onSubmit`, a
-`try { await trigger(x).unwrap() }` flow), run `mutateEffect` on the runtime
-you gave the provider. It updates the hook's `isPending` / `isError` like
-`mutate` does. `runPromiseExit` never rejects, which is the closest thing to
-handling `unwrap()` in a `try` / `catch`:
+`try { await trigger(x).unwrap() }` flow), run `mutateEffect` through
+`useRunEffect`. It updates the hook's `isPending` / `isError` like `mutate`
+does. `promiseExit` never rejects, which is the closest thing to handling
+`unwrap()` in a `try` / `catch`:
 
 ```ts
+const run = useRunEffect();
 const submit = async (next: Post) => {
-  const exit = await runtime.runPromiseExit(update.mutateEffect(next));
+  const exit = await run.promiseExit(
+    mode === "edit" ? update.mutateEffect(next) : create.mutateEffect(next),
+  );
   if (Exit.isSuccess(exit)) onDone(exit.value);
   else setFormError(Cause.pretty(exit.cause));
 };
 ```
 
-For a create-or-edit form, run each branch on its own
-(`mode === "edit" ? runtime.runPromiseExit(update.mutateEffect(x)) : runtime.runPromiseExit(create.mutateEffect(x))`):
-a union of two Effects does not always fit a single call. See
-[Promise boundaries](./promises) for route loaders and code outside
-components.
+To use your own services in Effects run this way (here `ApiClient`), declare
+them once; see [Declaring your services](./promises#declaring-your-services).
+For route loaders and code outside components, see
+[Promise boundaries](./promises#outside-react-the-runtime).
 
 ### Invalidation waits for the refetch
 
@@ -462,7 +464,8 @@ Two mechanisms replace `redux-persist` / `redux-localstorage-simple`:
 - **Client state** (a slice, a `use-local-storage-state` value): `Atom.kvs`
   from `effect/reactivity`, with an Effect `Schema` for the stored value.
 - **The query cache**: `QueryPersister.layer` with `persist: { schema }` on
-  the queries that opt in. See [Persistence](./persistence).
+  the queries that opt in. The schema can be the zod schema you already
+  validate with. See [Persistence](./persistence).
 
 `Atom.kvs` behaves differently from most React storage hooks: the default
 value is fixed when the atom is defined, a missing key is written with the
@@ -476,19 +479,22 @@ not match.
 
 ## Step 5: tests
 
-Most of RTK's test setup disappears.
+Most of RTK's test setup disappears. `@effect-atom-query/react/testing`
+replaces the store helpers.
 
-| RTK test setup                               | effect-atom-query                                                                     |
-| -------------------------------------------- | ------------------------------------------------------------------------------------- |
-| `setupApiStore(api)` + global `fetch` mocks  | a fake `ApiClient` layer in the test runtime                                          |
-| `store.dispatch(api.endpoints.x.initiate())` | `runtime.runPromise(Effect.flatMap(QueryClient.QueryClient, (c) => c.fetchQuery(q)))` |
-| `preloadedState`                             | `registry.set(atom, fixture)` before rendering                                        |
-| asserting dispatched actions                 | asserting `registry.get(atom)`                                                        |
-| `vi.spyOn(api, "useGetPostQuery")`           | mock your named hook (`usePostQuery`), returning `QueryResult.success(...)`           |
+| RTK test setup                               | effect-atom-query                                                                      |
+| -------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `setupApiStore(api)` + global `fetch` mocks  | `makeTestHarness({ layer: FakeApiClient })`                                            |
+| `renderWithProviders(ui, { store })`         | `render(ui, { wrapper: harness.Wrapper })`                                             |
+| `store.dispatch(api.endpoints.x.initiate())` | `harness.run(Effect.flatMap(QueryClient.QueryClient, (c) => c.fetchQuery(q)))`         |
+| `preloadedState`                             | `harness.registry.set(atom, fixture)` before rendering                                 |
+| asserting dispatched actions                 | asserting `harness.registry.get(atom)`                                                 |
+| a `fetch` mock that never resolves           | `controlled()`, completed by the test                                                  |
+| `vi.spyOn(api, "useGetPostQuery")`           | mock your named hook (`usePostQuery`) with `queryHookResult(QueryResult.success(...))` |
 
 A fake service replaces the network:
 
-```ts
+```tsx
 const FakeApiClient = Layer.succeed(
   ApiClient,
   ApiClient.of({
@@ -498,20 +504,24 @@ const FakeApiClient = Layer.succeed(
         : Effect.fail(new ApiError({ status: 404, message: "Not found" })),
   }),
 );
-const runtime = ManagedRuntime.make(
-  QueryClient.layer({ defaultOptions: { queries: { retry: false } } }).pipe(
-    Layer.provideMerge(FakeApiClient),
-  ),
-);
+
+let harness: TestHarness<ApiClient, never>;
+beforeEach(() => {
+  harness = makeTestHarness({ layer: FakeApiClient });
+});
+afterEach(() => harness.dispose());
+
+it("shows the post", async () => {
+  render(<PostTitle id={1} />, { wrapper: harness.Wrapper });
+  expect(await screen.findByText("Hello")).toBeTruthy();
+});
 ```
 
-To test a loading state, return an Effect that does not complete yet
-(`Effect.never`, or a `Deferred` you complete later in the test).
-
-If you mock hooks rather than render with a client, the
-[result constructors](./testing#mocking-hooks) build correctly shaped
-results. A per-endpoint hook (`usePostQuery`) is easier to mock than the
-generic `useQuery`, which is one more reason to keep named wrappers.
+The harness's client does not retry and does not refetch on focus, so
+failures show at once. See [Testing](./testing) for loading states with
+`controlled()` and for mocking named hooks. A per-endpoint hook
+(`usePostQuery`) is easier to mock than the generic `useQuery`, which is one
+more reason to keep named wrappers.
 
 ::: warning On 1.2.0? Mind the teardown order
 Before 1.2.1, a test that passed its own `registry` to `QueryClientProvider`
