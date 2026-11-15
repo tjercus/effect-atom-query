@@ -375,6 +375,16 @@ install. The plan:
 - **Support policy.** Write down in `RELEASING.md` which versions get fixes
   and how deprecations are announced.
 
+**Outcome (2026-11-15).** Done, as decision D12. The Release workflow,
+release guard, CODEOWNERS and the rewritten `RELEASING.md` shipped in #13; the
+npm and GitHub settings (trusted publishing, token publishing disallowed, the
+`npm` environment, branch protection on `main`) were configured before the
+1.3.0 release. 1.3.0 was the first release published this way, with
+provenance, after three attempts: each package's trusted publisher entry
+needed fixing first (see "Troubleshooting a release" in `RELEASING.md`). The
+review requirement is relaxed while there is one maintainer: pull requests
+are required, approvals are not.
+
 ### Found during implementation
 
 - **Closing the client refetched every mounted query atom once (pre-existing,

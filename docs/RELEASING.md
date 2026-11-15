@@ -68,8 +68,9 @@ Merge it to `main`, then run the **Release** workflow with `dist-tag: latest`.
    failed half-way can simply be re-run.
 5. Creates and pushes the git tags (`@effect-atom-query/query@1.3.0`, …).
 
-The job runs in the `npm` GitHub environment. Protect that environment
-(below) and every publish waits for an approval.
+The job runs in the `npm` GitHub environment, which requires an owner's
+approval: every publish waits until someone approves it on the run's page
+("Review deployments").
 
 `vp run release:check` packs every package and dry-runs the publish
 locally and in CI, without uploading anything.
@@ -107,23 +108,47 @@ example CodeRabbit) plus a self-review after it, recorded in the PR.
   and React versions it supports. Raising the minimum is a minor change,
   announced in the changelog.
 
-## One-time setup
+## Repository and npm settings
 
-These are settings outside the repository, done once by an owner.
+These live outside the repository. All of them were set up on 2026-11-15,
+before the 1.3.0 release; this is what is configured, and how to recreate it.
 
-1. **npm trusted publishing.** On npmjs.com, for each of the three packages:
-   Settings → Trusted publishing → GitHub Actions, with repository
-   `tjercus/effect-atom-query`, workflow `release.yml` and environment
-   `npm`.
-2. **Disallow token publishing.** Once a release has gone out through the
-   workflow, set each package's publishing access to "Require two-factor
-   authentication and disallow tokens", so only the workflow can publish.
-3. **GitHub environment.** Settings → Environments → `npm`: allow the `main`
-   branch only, and add required reviewers to approve each publish.
-4. **Branch protection** on `main`: require a pull request, the CI checks
-   (`ready`, `react-min`) and, once there is a second maintainer, a review
-   from code owners.
-5. **GitHub Pages.** Settings → Pages → Source: "GitHub Actions", so
+1. **npm trusted publishing**, for each of the three packages (each has its
+   own entry): Settings → Trusted Publisher → GitHub Actions, with
+   organization or user `tjercus`, repository `effect-atom-query`, workflow
+   filename `release.yml`, environment `npm`, and direct `npm publish`
+   allowed under "Allowed actions".
+2. **Token publishing disallowed**: each package's publishing access is
+   "Require two-factor authentication and disallow tokens", so only the
+   workflow can publish.
+3. **GitHub environment** `npm` (Settings → Environments): deployments from
+   `main` only, with an owner as required reviewer.
+4. **Branch protection** on `main`: a pull request is required (0 approvals
+   while there is one maintainer, who cannot approve their own pull
+   requests), the `ready` and `react-min` checks from GitHub Actions must
+   pass, admins are included, and force-pushes and deletion are blocked.
+   Merge commits are allowed. With a second maintainer, require one approval
+   and a review from code owners.
+5. **GitHub Pages**: Settings → Pages → Source "GitHub Actions", so
    `.github/workflows/docs.yml` deploys
    https://tjercus.github.io/effect-atom-query/ on every push to `main` that
    touches `apps/docs`.
+
+## Troubleshooting a release
+
+- **`npm error code ENEEDAUTH`** in "Publish with provenance": npm's trusted
+  publishing check failed, and npm reports it as "not logged in". The
+  package's trusted publisher entry does not match the run: check the four
+  fields and "Allowed actions" (above); they are compared exactly and
+  case-sensitively. Each package needs its own entry: for 1.3.0, query's
+  entry was fixed first, and react then failed with the same error. npm does
+  not check an entry when it is saved, entries cannot be edited (delete and
+  recreate them), and a new entry that has not published within 2 days
+  expires.
+- **A version npm reported as published is not visible yet**: the registry
+  can take a few minutes to replicate (about 2.5 minutes for
+  `query@1.3.0`). Wait before re-running, so the "already published" check
+  sees it; otherwise the re-run tries to publish it again and npm refuses.
+- **Re-running** ("Re-run failed jobs", or `gh run rerun <id> --failed`) is
+  safe: versions already on npm are skipped, and existing git tags are left
+  alone. Each attempt needs the environment approval again.
