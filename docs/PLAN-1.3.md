@@ -1,6 +1,8 @@
 # effect-atom-query 1.3 — plan
 
-Status: **proposed, 2026-11-15.** 1.2.1 (WP1, WP2, WP8, WP9, and a shutdown refetch fix) implemented on branch `fix/1.2.1`; WP9 needs one-time setup on npm and GitHub (see RELEASING.md). 1.3.0 in progress on `feat/1.3.0` (WP4, WP3, WP5, WP6 done).
+Status: **done, 2026-11-15.** Everything planned for 1.2.1 and 1.3.0 ships in
+1.3.0: 1.2.1 was not released separately, because the owner was the only
+consumer and wanted the 1.3.0 features at once (released with `skip-cadence`).
 Input: [effect-atom-query-migration-report.md](./effect-atom-query-migration-report.md),
 a trial migration of a production React app (Redux Toolkit, RTK Query and two
 localStorage libraries) to effect-atom-query 1.2.0.
@@ -45,6 +47,10 @@ Everything below is additive, so no major version is needed.
 - **1.3.0 (minor)**: WP3 to WP7.
 
 Leave at least a few days between the two releases (see WP9).
+
+**Outcome:** both shipped together as 1.3.0, the first release published from
+CI with provenance. With the owner as the only consumer, the staged rollout
+(`next` first, 7 days between stable releases) protected no one yet.
 
 ## 3. Work packages
 
@@ -372,7 +378,7 @@ install. The plan:
 ### Found during implementation
 
 - **Closing the client refetched every mounted query atom once (pre-existing,
-  fixed in 1.2.1).** Found while testing WP6. When the client's scope closes, its
+  fixed in 1.3.0).** Found while testing WP6. When the client's scope closes, its
   cache removes every entry. A query atom read through a registry
   (`registry.mount`, `useAtomValue`, code outside React) reacted to the
   removal by rebuilding itself, which created a new entry in the closed cache
