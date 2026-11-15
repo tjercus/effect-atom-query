@@ -1,7 +1,8 @@
 # effect-atom-query 1.3 — plan
 
-Status: **proposed, 2026-11-15.** 1.2.1 (WP1, WP2, WP8) implemented on
-branch `fix/1.2.1`; 1.3.0 not started.
+Status: **proposed, 2026-11-15.** 1.2.1 (WP1, WP2, WP8, WP9, and a shutdown
+refetch fix) implemented on branch `fix/1.2.1`; WP9 needs one-time setup on npm
+and GitHub (see RELEASING.md). 1.3.0 not started.
 Input: [effect-atom-query-migration-report.md](./effect-atom-query-migration-report.md),
 a trial migration of a production React app (Redux Toolkit, RTK Query and two
 localStorage libraries) to effect-atom-query 1.2.0.
@@ -40,8 +41,9 @@ Every issue in the report, and what this plan does with it.
 
 Everything below is additive, so no major version is needed.
 
-- **1.2.1 (patch)**: WP1, WP2 and the WP8 docs. These are fixes that users
-  of 1.2.0 hit today, and they do not need any API decisions.
+- **1.2.1 (patch)**: WP1, WP2, the WP8 docs, and WP9, so 1.2.1 is the first
+  release published from CI with provenance. These are fixes that users of
+  1.2.0 hit today, and they do not need any API decisions.
 - **1.3.0 (minor)**: WP3 to WP7. WP4 needs the owner to decide on amending
   D4 first.
 

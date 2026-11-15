@@ -17,7 +17,7 @@
     "changeset": "changeset",
     "version-packages": "changeset version && vp install",
     "release:check": "vp run -r build && pnpm -r --filter \"./packages/*\" publish --dry-run --no-git-checks",
-    "release": "vp run ready && changeset publish"
+    "release:guard": "vpx ./scripts/release-guard.ts"
   },
   "devDependencies": {
     "@changesets/cli": "catalog:",
