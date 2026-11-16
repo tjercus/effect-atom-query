@@ -34,7 +34,7 @@ export function FlightPanel({ flightNo, onLookup }: FlightPanelProps) {
             onChange={(e) => setDraft(e.target.value)}
             size={16}
           />{" "}
-          <button>Look up</button>
+          <button className="primary">Look up</button>
         </form>
       </header>
 

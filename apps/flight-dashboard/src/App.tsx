@@ -1,5 +1,5 @@
 import { QueryDevtools } from "@effect-atom-query/devtools";
-import { QueryClientProvider, useIsFetching } from "@effect-atom-query/react";
+import { QueryClientProvider } from "@effect-atom-query/react";
 import { useState } from "react";
 import type { Airport } from "./api/domain.ts";
 import { BackendSwitcher } from "./components/BackendSwitcher.tsx";
@@ -8,6 +8,7 @@ import { FlightPanel } from "./components/FlightPanel.tsx";
 import { FlightSearch } from "./components/FlightSearch.tsx";
 import { PanelBoundary } from "./components/PanelBoundary.tsx";
 import { RequestLog } from "./components/RequestLog.tsx";
+import { Stats } from "./components/Stats.tsx";
 import { type AppRuntime, type BackendChoice, makeRuntime } from "./runtime.ts";
 
 export interface Selection {
@@ -25,12 +26,9 @@ export function Dashboard({
 }) {
   const setAirport = (a: Airport) => onSelection((s) => ({ ...s, airport: a }));
   const setFlightNo = (no: string) => onSelection((s) => ({ ...s, flightNo: no }));
-  const fetching = useIsFetching();
   return (
     <>
-      <p className="muted global" data-testid="global">
-        {fetching > 0 ? `${fetching} queries fetching` : "idle"}
-      </p>
+      <Stats />
       <div className="grid">
         <PanelBoundary title="Departures">
           <DeparturesBoard
@@ -75,20 +73,30 @@ export function App() {
   };
 
   return (
-    <div className="app">
-      <header className="top">
-        <h1>Flight dashboard</h1>
-        <p className="muted">
-          An <code>effect-atom-query</code> example. The components below are the same whichever
-          backend layer you pick.
-        </p>
-      </header>
-      <BackendSwitcher choice={choice} onChange={swap} />
-      <QueryClientProvider runtime={runtime}>
-        <Dashboard selection={selection} onSelection={setSelection} />
-        <QueryDevtools />
-      </QueryClientProvider>
-      <RequestLog />
+    <div className="shell">
+      <aside className="sidebar">
+        <div className="brand">
+          <span className="brand-mark" aria-hidden>
+            ✈
+          </span>
+          Flightdeck
+        </div>
+        <BackendSwitcher choice={choice} onChange={swap} />
+      </aside>
+      <main className="main">
+        <header className="top">
+          <h1>Flight dashboard</h1>
+          <p className="muted">
+            An <code>effect-atom-query</code> example. The panels below are the same whichever
+            backend layer you pick.
+          </p>
+        </header>
+        <QueryClientProvider runtime={runtime}>
+          <Dashboard selection={selection} onSelection={setSelection} />
+          <QueryDevtools />
+        </QueryClientProvider>
+        <RequestLog />
+      </main>
     </div>
   );
 }
