@@ -1,0 +1,291 @@
+:root {
+  --bg: #f8fafc;
+  --panel: #ffffff;
+  --text: #0f172a;
+  --muted: #64748b;
+  --border: #e2e8f0;
+  --accent: #2563eb;
+  --warn-bg: #fef3c7;
+  --warn: #92400e;
+  --error-bg: #fee2e2;
+  --error: #991b1b;
+  --defect-bg: #f3e8ff;
+  --defect: #6b21a8;
+  --ok: #166534;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0b1120;
+    --panel: #111827;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --border: #1f2937;
+    --accent: #60a5fa;
+    --warn-bg: #422006;
+    --warn: #fcd34d;
+    --error-bg: #450a0a;
+    --error: #fca5a5;
+    --defect-bg: #3b0764;
+    --defect: #e9d5ff;
+    --ok: #86efac;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, sans-serif;
+  font-size: 14px;
+}
+
+.app {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 16px 16px 45vh;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+h1 {
+  margin: 0;
+  font-size: 22px;
+}
+
+h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.global {
+  margin: 0;
+}
+
+.switcher {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.switcher fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.switcher fieldset:disabled {
+  opacity: 0.5;
+}
+
+.switcher input[type="range"] {
+  display: block;
+  width: 180px;
+}
+
+.layer-code {
+  flex: 1 1 100%;
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  overflow-x: auto;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: 16px;
+}
+
+@media (max-width: 800px) {
+  .grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  min-width: 0;
+}
+
+.panel-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.panel-head h2 {
+  margin-right: auto;
+}
+
+.tabs button.active {
+  font-weight: 700;
+  border-color: var(--accent);
+}
+
+.dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 4px;
+  vertical-align: middle;
+  background: transparent;
+  transition: background 0.3s;
+}
+
+.dot.on {
+  background: var(--accent);
+  transition: none;
+}
+
+.banner {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  margin-bottom: 8px;
+}
+
+.banner.warn {
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+
+.banner.error {
+  background: var(--error-bg);
+  color: var(--error);
+}
+
+.banner.defect {
+  background: var(--defect-bg);
+  color: var(--defect);
+}
+
+.retry {
+  color: var(--warn);
+  margin-bottom: 8px;
+}
+
+table.board {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+table.board th,
+table.board td {
+  text-align: left;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+table.board tr.selected {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+button.link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+}
+
+.status.boarding {
+  color: var(--ok);
+  font-weight: 600;
+}
+
+.status.delayed {
+  color: var(--warn);
+}
+
+.status.cancelled {
+  color: var(--error);
+}
+
+.status.departed {
+  color: var(--muted);
+}
+
+.detail {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 12px;
+  margin: 0;
+}
+
+.detail dt {
+  color: var(--muted);
+}
+
+.detail dd {
+  margin: 0;
+}
+
+.log ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 260px;
+  overflow-y: auto;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+}
+
+.log li {
+  display: flex;
+  gap: 8px;
+  padding: 2px 0;
+}
+
+.badge {
+  display: inline-block;
+  min-width: 140px;
+}
+
+.outcome.ok .badge {
+  color: var(--ok);
+}
+
+.outcome.failed .badge {
+  color: var(--warn);
+}
+
+.outcome.defect .badge {
+  color: var(--defect);
+}
+
+.outcome.cancelled .badge {
+  color: var(--muted);
+  text-decoration: line-through;
+}

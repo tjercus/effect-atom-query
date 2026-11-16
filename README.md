@@ -223,6 +223,11 @@ mirror TanStack Query's React examples (pagination, infinite scroll, optimistic
 updates, Suspense, offline, …). They run against a fake backend service. Start
 them with `vp run dev`. See the [examples index](https://tjercus.github.io/effect-atom-query/examples).
 
+[`apps/flight-dashboard`](https://github.com/tjercus/effect-atom-query/tree/main/apps/flight-dashboard) shows
+what goes beyond TanStack: swap the backend layer (HTTP, in memory, wrapped in a chaos layer) at runtime
+and watch typed errors, `Schedule` retries and fiber cancellation. Its tests use the same layers. Start
+it with `vp run dev:flights`.
+
 Design notes: [plan](https://github.com/tjercus/effect-atom-query/blob/main/docs/PLAN.md), [TanStack feature matrix](https://github.com/tjercus/effect-atom-query/blob/main/docs/FEATURE-MATRIX.md),
 [decisions](https://github.com/tjercus/effect-atom-query/blob/main/docs/QUESTIONS.md).
 
