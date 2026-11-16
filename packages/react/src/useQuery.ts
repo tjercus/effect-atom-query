@@ -60,11 +60,11 @@ export type DefinedUseQueryResult<B, E> = Query.DefinedQueryResult<B, E> & {
 export function useQuery<A, E, R, B = A>(
   query: Query.DefinedQueryAtom<A, E, R>,
   options?: UseQueryOptions<NoInfer<A>, NoInfer<E>, B>,
-): DefinedUseQueryResult<B, E>;
+): DefinedUseQueryResult<NoInfer<B>, E>;
 export function useQuery<A, E, R, B = A>(
   query: Query.QueryAtom<A, E, R> | Query.SkippedQueryAtom<A, E>,
   options?: UseQueryOptions<NoInfer<A>, NoInfer<E>, B>,
-): UseQueryResult<B, E>;
+): UseQueryResult<NoInfer<B>, E>;
 export function useQuery<A, E, B = A>(
   query: QueryObserver.Observable<A, E>,
   options: UseQueryOptions<A, E, B> = {},
@@ -94,7 +94,7 @@ export type UseSuspenseQueryOptions<A, E, B = A> = Omit<
 export function useSuspenseQuery<A, E, R, B = A>(
   query: Query.QueryAtom<A, E, R>,
   options: UseSuspenseQueryOptions<NoInfer<A>, NoInfer<E>, B> = {},
-): DefinedUseQueryResult<B, E> {
+): DefinedUseQueryResult<NoInfer<B>, E> {
   const { observer, view, track } = useBaseQuery<A, E, B>(query, options, true);
   const refetch = React.useCallback(() => observer.refetch(), [observer]);
   return React.useMemo(

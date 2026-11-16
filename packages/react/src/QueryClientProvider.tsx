@@ -58,6 +58,9 @@ const keyOf = (client: QueryClient.Service): number => {
  * so query atoms work with `@effect/atom-react` hooks too
  * (`useAtomValue(todoQuery(1))`). Use this registry for your other atoms as well.
  *
+ * The provider also provides `@effect/atom-react`'s `RegistryContext`, so do
+ * not wrap the app in a separate `RegistryProvider`.
+ *
  * ```tsx
  * const runtime = ManagedRuntime.make(QueryClient.layer().pipe(Layer.provideMerge(AppLayer)))
  * <QueryClientProvider runtime={runtime}><App /></QueryClientProvider>
@@ -174,8 +177,14 @@ const useRegistryBinding = (
       // mounting in the same commit takes the registry over first.
       binding.unbind = setTimeout(() => {
         binding.unbind = undefined;
-        if (binding.owner === undefined && boundClient(registry) === client) {
-          registry.set(QueryClient.current, Option.none());
+        if (binding.owner !== undefined) return;
+        bindings.delete(registry);
+        try {
+          if (boundClient(registry) === client) registry.set(QueryClient.current, Option.none());
+        } catch {
+          // The app disposed the registry before this ran (in tests, `afterEach`
+          // usually disposes before testing-library unmounts). A disposed
+          // registry needs no unbind, and `AtomRegistry` has no `isDisposed`.
         }
       }, 0);
     };

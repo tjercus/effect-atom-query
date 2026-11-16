@@ -20,6 +20,11 @@ Every hook needs a `QueryClientProvider` above it.
 Atom hooks from `@effect/atom-react` (`useAtomValue`, `useAtom`, …) work on
 query and mutation atoms too. The `use*Query` hooks add per-component options.
 
+`QueryClientProvider` is also the atom registry provider: it provides
+`@effect/atom-react`'s `RegistryContext`, so atom hooks below it work on your
+own atoms as well. Do not add a `RegistryProvider` inside or around it: a
+nested one gives atom hooks a second registry, without the query client.
+
 ## One app-wide registry
 
 `QueryClientProvider` creates a fresh `AtomRegistry` by default. In an app that

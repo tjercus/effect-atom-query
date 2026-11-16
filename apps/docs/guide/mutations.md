@@ -24,6 +24,13 @@ add.mutate("buy milk"); // fire and forget
 add.mutateEffect("buy milk"); // an Effect: yield* it to await the result
 ```
 
+`mutate` and `mutateEffect` both update the hook's state: while either runs,
+`isPending` is `true`, and afterwards `data` or `error` holds its outcome. So
+`<Button busy={save.isPending}>` works whichever one started the mutation.
+The difference is where it runs: `mutate` uses the services of the client's
+runtime and returns nothing, while `mutateEffect` is an Effect that runs with
+the services of whoever runs it, and returns the mutation's result.
+
 `useMutation` keeps per-component state (`status`, `isPending`, `variables`,
 `data`, `error` as Options, `isPaused`, `failureCount`, `reset()`). The UI
 callbacks (`onSuccess`, `onError`, `onSettled`) fire only for this

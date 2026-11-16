@@ -153,12 +153,15 @@ const empty = {
 
 /**
  * The value of a disabled query that has nothing in the cache, for example one
- * created with `skipToken`.
+ * created with `skipToken`. The argument defaults to `AsyncResult.initial()`.
+ * To mock a query disabled with `enabled: false`, use {@link idle}.
  *
  * @since 0.1.0
  * @category constructors
  */
-export const disabled = <A, E>(initial: AsyncResult.AsyncResult<A, E>): QueryResult<A, E> => ({
+export const disabled = <A, E = never>(
+  initial: AsyncResult.AsyncResult<A, E> = AsyncResult.initial(),
+): QueryResult<A, E> => ({
   ...empty,
   result: initial,
   status: "pending",
@@ -196,6 +199,20 @@ const fromState = <A, E>(state: Partial<QueryState<A, E>>): QueryResult<A, E> =>
  */
 export const pending = <A, E = never>(): Pending<A, E> =>
   fromState<A, E>({ fetchStatus: "fetching" }) as Pending<A, E>;
+
+/**
+ * A query that has not started and is not fetching: what a query disabled with
+ * `enabled: false` returns before it has data. `isPending` is `true` but
+ * `isLoading` is `false`. See {@link pending}.
+ *
+ * @since 1.3.0
+ * @category constructors
+ */
+export const idle = <A, E = never>(): Pending<A, E> =>
+  project<A, E>(initialState, { isStale: true, isEnabled: false, fetchedAtMount: 0 }) as Pending<
+    A,
+    E
+  >;
 
 /**
  * A query whose last fetch succeeded with `data`. See {@link pending}.

@@ -32,6 +32,28 @@ An `undefined` value is part of the key: `["todos", { page: undefined }]` and
 `["todos", {}]` are two cache entries (TanStack Query treats them as one).
 Leave the property out, or use `Query.skipToken`, when there is no value.
 
+### Key constants
+
+A shared key constant written as a plain array widens to `string[]`, which
+is not a tuple starting with a string. `Query.make` or `invalidates` then
+fails with "No overload matches this call", far from where the key was
+written. Build key constants with `QueryKey.make`, which infers the exact
+tuple:
+
+```ts
+export const postKeys = {
+  all: QueryKey.make("posts"), // readonly ["posts"]
+  list: () => QueryKey.make(...postKeys.all, "list"),
+  detail: (id: number) => QueryKey.make(...postKeys.all, "detail", id),
+};
+
+Query.make({ key: (id: number) => postKeys.detail(id), run: (id) => api.post(id) });
+Mutation.make({ run: api.savePost, invalidates: [postKeys.all] });
+```
+
+`as const` on each array does the same. `QueryKey.make` also reports a
+widened array (`QueryKey.make(...someStrings)`) where the key is built.
+
 Keys of query atoms are `QueryKey.Tagged<A, E>`, so
 `client.getQueryData(userQuery(id).key)` is typed as `Option<User>`.
 
@@ -42,7 +64,7 @@ TanStack's defaults.
 
 | option                        | default                                                                                                                      |
 | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `staleTime`                   | `0`. Any `Duration.Input`, or `"static"`                                                                                     |
+| `staleTime`                   | `0`. Any `Duration.Input`, or `"static"`; see [Stale time](#stale-time)                                                      |
 | `gcTime`                      | `"5 minutes"`                                                                                                                |
 | `retry`                       | `3`, exponential backoff from 1 s capped at 30 s. A number, a boolean, or any `Schedule` (which can inspect the typed error) |
 | `refetchOnMount`              | `true` (when stale), or `"always"`                                                                                           |
@@ -57,6 +79,22 @@ TanStack's defaults.
 | `initialData`                 | none; makes the query a `DefinedQueryAtom`                                                                                   |
 | `reactivityKeys`              | none; invalidate on Effect `Reactivity` keys                                                                                 |
 | `persist`                     | none; `{ schema }` opts into persistence                                                                                     |
+
+### Stale time
+
+Fresh data is served from the cache. Stale data is served too, but is
+refetched in the background on mount, window focus or reconnect.
+
+| `staleTime`   | goes stale            | refetched by invalidation, triggers and `refetchQueries` |
+| ------------- | --------------------- | -------------------------------------------------------- |
+| `0` (default) | at once               | yes                                                      |
+| a duration    | after that time       | yes                                                      |
+| `"Infinity"`  | only when invalidated | yes                                                      |
+| `"static"`    | never                 | **no**: it fetches only when there is no data            |
+
+For "cached until a mutation invalidates it" (RTK Query's default), use
+`"Infinity"`. `"static"` is for data that can never change during the
+session, such as configuration: invalidating a static query does nothing.
 
 Set defaults for every query, or per key prefix:
 
@@ -77,6 +115,13 @@ const projects = useQuery(projectsQuery(user.isSuccess ? user.data.value.id : Qu
 ```
 
 `enabled: false` (in the definition or as a hook option) also disables a query.
+
+`Query.single` queries have no argument, so they cannot take
+`Query.skipToken`. Disable them with `enabled`:
+
+```ts
+const settings = useQuery(settingsQuery, { enabled: session.isSuccess });
+```
 
 ## Results
 
@@ -99,6 +144,42 @@ result.result; // the AsyncResult, for Atom / AsyncResult combinators
 
 `QueryResult.match(result, { onPending, onSuccess, onFailure })` folds a result,
 and `QueryResult.isDefect(result)` tells a defect from a typed failure.
+
+## Errors
+
+`error` holds the query's typed failure: the `E` of `run`. To change what
+consumers see (RTK Query's `transformErrorResponse`), map it in `run`. The
+query's error type follows:
+
+```ts
+const auditQuery = Query.make({
+  key: (id: string) => ["audit", id],
+  run: (id) => api.audit(id).pipe(Effect.mapError(toAuditError)), // Effect<Audit, AuditError, Api>
+});
+```
+
+Give error classes a real `message`. An error built with `Data.TaggedError`
+has a `message` of `""` unless you set one, so UI code that shows
+`error.message`, or prefers it over a fallback, shows an empty string:
+
+```ts
+class ApiError extends Data.TaggedError("ApiError")<{
+  readonly status: number;
+  readonly message: string;
+}> {}
+```
+
+## Structural sharing
+
+When a refetch returns data, every part of it that is deeply equal to the
+previous data keeps its previous reference. If nothing changed, `data` is the
+same object as before. Components, memoised selectors and effects that
+depend on the data do not see a change.
+
+Only plain objects and arrays are compared. Class instances, `Data` values,
+`Date`s and other non-plain values are taken from the new data. Set
+`structuralSharing: false` to always use the new data, or pass a function
+`(oldData, newData) => data` to merge yourself.
 
 ## Reading without React
 

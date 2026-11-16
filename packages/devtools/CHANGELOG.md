@@ -1,5 +1,20 @@
 # @effect-atom-query/devtools
 
+## 1.3.0
+
+### Patch Changes
+
+- Updated dependencies [fc77678]
+- Updated dependencies [fc77678]
+- Updated dependencies [aab5f8a]
+- Updated dependencies [9abcd08]
+- Updated dependencies [fc77678]
+- Updated dependencies [df371c0]
+- Updated dependencies [133c176]
+- Updated dependencies [6a57f70]
+  - @effect-atom-query/query@1.3.0
+  - @effect-atom-query/react@1.3.0
+
 ## 1.2.0
 
 First npm release of the 1.1.0 changes: 1.1.0 was tagged on GitHub but never published to npm. There are no code changes since 1.1.0; see the 1.1.0 entry below for what's new since 1.0.0.

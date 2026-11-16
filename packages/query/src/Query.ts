@@ -14,7 +14,7 @@
  *
  * @since 0.1.0
  */
-import { type Effect, Option, type Schema } from "effect";
+import { type Effect, Option } from "effect";
 import { AsyncResult, Atom } from "effect/reactivity";
 import type {
   InitialData,
@@ -22,7 +22,11 @@ import type {
   QueryEntry,
   QueryOptions as InternalQueryOptions,
 } from "./internal/queryEntry.ts";
-import { persistCodec } from "./internal/persistCodec.ts";
+import {
+  persistCodec,
+  type PersistSchema as InternalPersistSchema,
+  type StandardSchema as InternalStandardSchema,
+} from "./internal/persistCodec.ts";
 import * as QueryClient from "./QueryClient.ts";
 import type * as QueryKey from "./QueryKey.ts";
 import * as QueryResult from "./QueryResult.ts";
@@ -45,7 +49,7 @@ export type TypeId = "~@effect-atom-query/query/Query";
  *
  * | option              | default                                       |
  * | ------------------- | --------------------------------------------- |
- * | `staleTime`         | `0`; `"static"` never goes stale              |
+ * | `staleTime`         | `0`; `"Infinity"` until invalidated; `"static"` never, not even when invalidated |
  * | `gcTime`            | `"5 minutes"`                                 |
  * | `retry`             | `3`, exponential backoff from 1 s capped at 30 s. A number, `boolean` or any `Schedule` |
  * | `refetchOnMount`    | `true` (when stale); `"always"`               |
@@ -164,13 +168,37 @@ export interface Definition<Arg, A, E, R> extends Omit<QueryOptions<E>, "enabled
 }
 
 /**
+ * A [Standard Schema v1](https://standardschema.dev) validator producing `A`,
+ * such as a zod, Valibot or ArkType schema.
+ *
+ * @since 1.3.0
+ * @category models
+ */
+export type StandardSchema<A> = InternalStandardSchema<A>;
+
+/**
+ * What persisted data is stored and restored with:
+ *
+ * - an Effect `Schema`: data is encoded with its JSON codec and decoded when
+ *   restored, so `DateTime`, `Option` and branded types round-trip;
+ * - a Standard Schema validator (zod, Valibot, ArkType): data is stored as
+ *   is, so it must be JSON-compatible, and validated when restored. The
+ *   validator must be synchronous, and must accept its own output (no
+ *   transforms that change the type).
+ *
+ * @since 1.3.0
+ * @category models
+ */
+export type PersistSchema<A> = InternalPersistSchema<A>;
+
+/**
  * Persistence of a query's data. The key must be JSON-compatible.
  *
  * @since 0.1.0
  * @category models
  */
 export interface Persist<A> {
-  readonly schema: Schema.Codec<A, any>;
+  readonly schema: PersistSchema<A>;
 }
 
 /**
@@ -315,6 +343,13 @@ export const makeAtom = <A, E, R, W = never, Extra extends object = {}>(
   });
   const read = (get: Atom.AtomContext): QueryResult.QueryResult<A, E> => {
     const client = QueryClient.fromAtomContext(get);
+    // The client is shut down: creating an entry now would fetch on a closed
+    // runtime. Keep showing the last result, if any.
+    if (client.cache.isDisposed) {
+      return Option.getOrElse(get.self<QueryResult.QueryResult<A, E>>(), () =>
+        QueryResult.disabled<A, E>(AsyncResult.initial()),
+      );
+    }
     const entry = client.cache.build<A, E>(self);
     // Keeps `refetch` (and its previous value) alive while this atom is
     // mounted. Its value never changes, so it never rebuilds this atom.
@@ -322,10 +357,11 @@ export const makeAtom = <A, E, R, W = never, Extra extends object = {}>(
     const fetchedAtMount = entry.fetchCount;
     const observer = entry.addObserver();
     const unsubscribe = entry.subscribe(() => {
+      // The entry was removed from the cache: rebuild against a fresh one,
+      // unless the client is shutting down (the cache removes every entry).
       if (entry.isRemoved) {
-        // The entry was removed from the cache: rebuild against a fresh one,
-        // unless the client is shutting down (keep showing the last result).
-        if (!client.cache.isDisposed) get.refreshSelf();
+        if (client.cache.isDisposed) get.setSelf(entry.toResult({ fetchedAtMount }));
+        else get.refreshSelf();
       } else {
         get.setSelf(entry.toResult({ fetchedAtMount }));
       }

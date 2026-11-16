@@ -20,10 +20,10 @@
  *
  * @since 0.1.0
  */
-import { Effect, Option, Schema } from "effect";
+import { Effect, Option } from "effect";
 import { Atom } from "effect/reactivity";
 import type { BehaviorContext, PersistCodec, QueryEntry } from "./internal/queryEntry.ts";
-import { persistCodec } from "./internal/persistCodec.ts";
+import { infiniteCodec, persistCodec, type PersistSchema } from "./internal/persistCodec.ts";
 import * as Query from "./Query.ts";
 import type * as QueryKey from "./QueryKey.ts";
 import type * as QueryResult from "./QueryResult.ts";
@@ -92,9 +92,12 @@ export interface Definition<Arg, Page, Param, E, R>
   readonly run: (arg: Arg, pageParam: Param) => Effect.Effect<Page, E, R>;
   readonly initialPageParam: Param | ((arg: Arg) => Param);
   readonly enabled?: boolean | ((arg: Arg) => boolean) | undefined;
-  /** Opt into persistence with schemas for pages and page params. */
+  /**
+   * Opt into persistence with schemas for pages and page params: Effect
+   * Schemas or Standard Schema validators (see `Query.PersistSchema`).
+   */
   readonly persist?:
-    | { readonly page: Schema.Codec<Page, any>; readonly pageParam: Schema.Codec<Param, any> }
+    | { readonly page: PersistSchema<Page>; readonly pageParam: PersistSchema<Param> }
     | undefined;
 }
 
@@ -142,12 +145,9 @@ export const make = <Arg, Page, Param, E = never, R = never>(
   const codec =
     persist === undefined
       ? undefined
-      : persistCodec<InfiniteData<Page, Param>>(
-          Schema.Struct({
-            pages: Schema.Array(persist.page),
-            pageParams: Schema.Array(persist.pageParam),
-          }),
-        );
+      : (infiniteCodec(persistCodec(persist.page), persistCodec(persist.pageParam)) as PersistCodec<
+          InfiniteData<Page, Param>
+        >);
   const instance = Atom.family((arg: Arg) =>
     makeAtom<Page, Param, E, R>({
       key: key(arg) as QueryKey.Tagged<InfiniteData<Page, Param>, E>,

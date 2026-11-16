@@ -1,0 +1,92 @@
+name: Release
+
+# Publishes the packages to npm from CI, with provenance, through npm trusted
+# publishing (no npm token is stored in the repository). Run it by hand from
+# the Actions tab, on main, after the version commit is merged.
+# Process and one-time setup: docs/RELEASING.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      dist-tag:
+        description: "npm dist-tag: next for prereleases (1.3.0-next.0), latest for stable versions"
+        type: choice
+        options: [next, latest]
+        required: true
+      skip-cadence:
+        description: "Security fix: allow a latest release within 7 days of the previous one"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# One release at a time; never cancel one that is publishing.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    # Releases come from main only.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    # Protect this environment in Settings → Environments (required reviewers,
+    # main only) to put a manual approval in front of every publish.
+    environment: npm
+    permissions:
+      contents: write # push the release tags
+      id-token: write # npm trusted publishing (OIDC) and provenance
+    env:
+      DIST_TAG: ${{ inputs.dist-tag }}
+      SKIP_CADENCE: ${{ inputs.skip-cadence }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: voidzero-dev/setup-vp@v1.22.0
+        with:
+          node-version: "24"
+          cache: true
+
+      # format, lint, type check, tests, builds, bundle-size budget
+      - run: vp run ready
+
+      - name: Check the release policy
+        run: |
+          args=(--tag "$DIST_TAG")
+          if [ "$SKIP_CADENCE" = "true" ]; then args+=(--skip-cadence); fi
+          vpx ./scripts/release-guard.ts "${args[@]}"
+
+      # pnpm rewrites catalog: / workspace: ranges and applies publishConfig.
+      - name: Pack
+        run: pnpm -r --filter "./packages/*" pack --pack-destination "$RUNNER_TEMP/packs"
+
+      # npm runs from the tarball folder: inside the repo it refuses to run,
+      # because package.json's devEngines asks for pnpm (EBADDEVENGINES).
+      - name: Publish with provenance
+        working-directory: ${{ runner.temp }}/packs
+        run: |
+          # Trusted publishing needs npm 11.5.1 or later.
+          if ! node -e 'const [a,b,c]=process.argv[1].split(".").map(Number); process.exit(a>11||(a===11&&(b>5||(b===5&&c>=1)))?0:1)' "$(npm --version)"; then
+            npm install --global npm@^11.5.1
+          fi
+          registry=https://registry.npmjs.org/
+          # Dependencies first: devtools depends on react, react on query.
+          for name in query react devtools; do
+            tarball=$(ls effect-atom-query-$name-*.tgz)
+            version=$(tar -xOzf "$tarball" package/package.json | node -p 'JSON.parse(require("fs").readFileSync(0)).version')
+            # Re-running after a partial failure skips what is already out.
+            if npm view "@effect-atom-query/$name@$version" version --registry "$registry" >/dev/null 2>&1; then
+              echo "@effect-atom-query/$name@$version is already published, skipping"
+              continue
+            fi
+            npm publish "./$tarball" --provenance --access public --tag "$DIST_TAG" --registry "$registry"
+          done
+
+      - name: Tag the release
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          pnpm changeset git-tag
+          git push origin --tags

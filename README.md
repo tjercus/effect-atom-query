@@ -26,6 +26,7 @@ written as idiomatic [Effect](https://effect.website) and built on Effect Atoms.
 - [Quick start](#quick-start)
 - [Features](#features)
 - [Coming from TanStack Query](#coming-from-tanstack-query)
+- [Coming from Redux / RTK Query](#coming-from-redux--rtk-query)
 - [Packages](#packages)
 - [Documentation](#documentation)
 - [Development](#development)
@@ -177,6 +178,22 @@ Not yet supported: SSR (`dehydrate` / `hydrate`, `HydrationBoundary`).
 | `persistQueryClient`                           | `QueryPersister.layer` + per-query `persist: { schema }`                |
 
 More in the [migration guide](https://tjercus.github.io/effect-atom-query/guide/from-tanstack).
+
+## Coming from Redux / RTK Query
+
+| Redux Toolkit / RTK Query                  | effect-atom-query                                                  |
+| ------------------------------------------ | ------------------------------------------------------------------ |
+| `createApi` + `fetchBaseQuery`             | an API service in a `Layer` (e.g. on `HttpClient`)                 |
+| `builder.query` / `builder.mutation`       | `Query.make` / `Mutation.make`, defined at module level            |
+| `providesTags` / `invalidatesTags`         | query keys / `invalidates`, matched by key prefix                  |
+| `useGetPostQuery(id ?? skipToken)`         | `useQuery(postQuery(id ?? Query.skipToken))`                       |
+| `await trigger(x).unwrap()`                | `mutate(x, { onSuccess, onError })`, or `mutateEffect` + a runtime |
+| `createSlice` + `useSelector` / `dispatch` | `Atom.make` + `useAtomValue` / `useAtomSet`                        |
+| `redux-persist`                            | `Atom.kvs` for client state, `QueryPersister` for the query cache  |
+
+Defaults follow TanStack Query, not RTK Query: data goes stale at once, and
+refetching on focus and reconnect is on. More in the
+[Redux / RTK Query guide](https://tjercus.github.io/effect-atom-query/guide/from-redux).
 
 ## Packages
 

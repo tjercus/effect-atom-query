@@ -12,7 +12,13 @@ export default defineConfig({
     nav: [
       { text: "Guide", link: "/guide/getting-started" },
       { text: "Examples", link: "/examples" },
-      { text: "From TanStack Query", link: "/guide/from-tanstack" },
+      {
+        text: "Migrating",
+        items: [
+          { text: "From TanStack Query", link: "/guide/from-tanstack" },
+          { text: "From Redux / RTK Query", link: "/guide/from-redux" },
+        ],
+      },
     ],
     sidebar: [
       {
@@ -20,6 +26,7 @@ export default defineConfig({
         items: [
           { text: "Getting started", link: "/guide/getting-started" },
           { text: "Coming from TanStack Query", link: "/guide/from-tanstack" },
+          { text: "Coming from Redux / RTK Query", link: "/guide/from-redux" },
         ],
       },
       {

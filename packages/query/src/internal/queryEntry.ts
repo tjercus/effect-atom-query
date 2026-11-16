@@ -53,6 +53,12 @@ export type ReactivityKeys =
 
 /** @internal */
 export interface QueryOptions<E> {
+  /**
+   * How long data stays fresh. Default `0`. `"Infinity"` stays fresh until
+   * invalidated. `"static"` never goes stale **and is skipped by invalidation,
+   * `refetchQueries` and every refetch trigger**: it fetches only when there is
+   * no data. For "cached until a mutation invalidates it", use `"Infinity"`.
+   */
   readonly staleTime?: StaleTime | undefined;
   readonly gcTime?: Duration.Input | undefined;
   readonly retry?: RetryOption<E> | undefined;
