@@ -37,6 +37,11 @@ callbacks (`onSuccess`, `onError`, `onSettled`) fire only for this
 component's latest execution while it is mounted. Definition callbacks always
 run.
 
+An interrupted execution (the client closing, or a `run` that interrupts
+itself) is not an error: it goes back to `idle`, is not thrown to the error
+boundary, and fires no UI callbacks. An Effect waiting on it through
+`client.mutate` or `mutateEffect` is interrupted too.
+
 `onError` receives the `Cause`, the input and the typed failure as an `Option`
 (`None` for defects), so UI code does not have to dig it out of the cause:
 

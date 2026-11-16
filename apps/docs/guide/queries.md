@@ -28,6 +28,10 @@ A key is a readonly tuple starting with a string: `["user", id]`,
 `invalidateQueries({ queryKey: ["todos"] })` matches every key starting with
 `"todos"`.
 
+An `undefined` value is part of the key: `["todos", { page: undefined }]` and
+`["todos", {}]` are two cache entries (TanStack Query treats them as one).
+Leave the property out, or use `Query.skipToken`, when there is no value.
+
 ### Key constants
 
 A shared key constant written as a plain array widens to `string[]`, which

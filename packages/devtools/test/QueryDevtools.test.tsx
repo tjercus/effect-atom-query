@@ -91,12 +91,13 @@ describe("review regressions", () => {
     const client = makeClient();
     await Effect.runPromise(
       Effect.all([
-        client.setQueryData(["dup", { filter: undefined }], "first"),
-        client.setQueryData(["dup", {}], "second"),
+        // a Date prints as its ISO string, yet is a different key
+        client.setQueryData(["dup", new Date(0)], "first"),
+        client.setQueryData(["dup", "1970-01-01T00:00:00.000Z"], "second"),
       ]),
     );
     render(<QueryDevtoolsPanel client={client} />);
-    const rows = await screen.findAllByText('["dup",{}]');
+    const rows = await screen.findAllByText('["dup","1970-01-01T00:00:00.000Z"]');
     expect(rows).toHaveLength(2);
     fireEvent.click(rows[1]!);
     const shown = within(screen.getByLabelText("query details")).getByLabelText(

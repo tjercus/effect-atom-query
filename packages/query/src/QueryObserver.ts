@@ -13,7 +13,7 @@
  *
  * @since 0.1.0
  */
-import { type Fiber, Option } from "effect";
+import { Duration, Effect, type Fiber, Option } from "effect";
 import { AsyncResult } from "effect/reactivity";
 import type {
   ObserveOptions,
@@ -86,6 +86,10 @@ export class QueryObserver<A, E, B = A> {
   private detachEntry: (() => void) | undefined;
   private handle: ObserverHandle | undefined;
   private fetchedAtMount = 0;
+  /** Notifies when data goes stale by this observer's own `staleTime`. */
+  private staleFiber: Fiber.Fiber<void> | undefined;
+  /** The `dataUpdatedAt` and `staleTime` (millis) the timer was scheduled for. */
+  private staleTimerFor: readonly [number, number] | undefined;
 
   /** Last non-placeholder raw data shown, for `keepPreviousData`. */
   private previousData: Option.Option<A> = Option.none();
@@ -128,6 +132,7 @@ export class QueryObserver<A, E, B = A> {
     this.fetchedAtMount = entry.fetchCount;
     const unsubscribe = entry.subscribe(() => {
       if (Option.isSome(entry.state.data)) this.previousData = entry.state.data;
+      this.scheduleStaleTimer();
       if (entry.isRemoved) {
         // Removed from the cache while observed: start over on a fresh entry,
         // unless the client is shutting down.
@@ -142,9 +147,60 @@ export class QueryObserver<A, E, B = A> {
       unsubscribe();
       handle.release();
     };
+    this.scheduleStaleTimer();
+  }
+
+  /**
+   * The entry notifies when data goes stale by the definition's `staleTime`.
+   * An observer with its own `staleTime` needs its own timer, or `isStale`
+   * would flip without a notification.
+   */
+  private scheduleStaleTimer(): void {
+    const entry = this.entry;
+    const staleTime =
+      entry === undefined || this.options.staleTime === undefined || entry.isRemoved
+        ? undefined
+        : entry.staleTimeFor(observeOptions(this.options));
+    if (
+      entry === undefined ||
+      staleTime === undefined ||
+      staleTime === "static" ||
+      !Duration.isFinite(staleTime) ||
+      Option.isNone(entry.state.data) ||
+      entry.state.isInvalidated
+    ) {
+      this.cancelStaleTimer();
+      return;
+    }
+    const millis = Duration.toMillis(staleTime);
+    const updatedAt = entry.state.dataUpdatedAt;
+    const current = this.staleTimerFor;
+    if (current !== undefined && current[0] === updatedAt && current[1] === millis) return;
+    this.cancelStaleTimer();
+    const runtime = this.client.runtime;
+    const remaining = updatedAt + millis - runtime.now();
+    if (remaining <= 0) return;
+    this.staleTimerFor = [updatedAt, millis];
+    this.staleFiber = runtime.runFork(
+      Effect.sleep(remaining).pipe(
+        Effect.andThen(
+          Effect.sync(() => {
+            this.staleFiber = undefined;
+            this.notify();
+          }),
+        ),
+      ),
+    );
+  }
+
+  private cancelStaleTimer(): void {
+    this.staleFiber?.interruptUnsafe();
+    this.staleFiber = undefined;
+    this.staleTimerFor = undefined;
   }
 
   private detach(): void {
+    this.cancelStaleTimer();
     this.detachEntry?.();
     this.detachEntry = undefined;
     this.handle = undefined;
@@ -171,6 +227,7 @@ export class QueryObserver<A, E, B = A> {
       // Same atom, or a new atom for the same key: update in place.
       if (previousQuery !== query && Query.isQueryAtom(query)) this.client.cache.build<A, E>(query);
       this.handle?.update(observeOptions(options));
+      this.scheduleStaleTimer();
       if (
         !wasEnabled &&
         this.isEnabled() &&

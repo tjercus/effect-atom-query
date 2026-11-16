@@ -2,7 +2,7 @@
  * Regression tests for defects found in the pre-release review (2026-11-14).
  */
 import { describe, expect, it } from "@effect/vitest";
-import { Effect, Exit, Layer, Option, Schema, Scope } from "effect";
+import { Cause, Effect, Exit, Layer, Option, Schema, Scope } from "effect";
 import { KeyValueStore } from "effect/persistence";
 import { AtomRegistry } from "effect/reactivity";
 import { TestClock } from "effect/testing";
@@ -11,9 +11,11 @@ import {
   InfiniteQuery,
   Mutation,
   MutationObserver,
+  MutationResult,
   OnlineManager,
   Query,
   QueryClient,
+  QueryKey,
   QueryObserver,
   QueryPersister,
 } from "../src/index.ts";
@@ -389,6 +391,386 @@ describe("mutations", () => {
       expect(
         (client.mutationCache as unknown as { scopes: Map<string, unknown> }).scopes.size,
       ).toBe(0);
+    }),
+  );
+});
+
+/** Regression tests for the review of 2026-11-16 (docs/REVIEW-2026-11-16.md). */
+describe("review 2026-11-16", () => {
+  it.effect("client.clear in a mutation's own callback does not kill the mutation", () =>
+    Effect.gen(function* () {
+      const { client } = yield* setup();
+      const log: Array<string> = [];
+      const logout = Mutation.make({
+        run: () => Effect.succeed("bye").pipe(Effect.delay("1 second")),
+        onSuccess: () =>
+          Effect.gen(function* () {
+            const current = yield* QueryClient.QueryClient;
+            yield* current.clear;
+            log.push("after clear");
+          }),
+        onSettled: () => Effect.sync(() => log.push("definition onSettled")),
+      });
+      const observer = MutationObserver.make(client, logout);
+      observer.subscribe(() => {});
+      observer.mutate(undefined, {
+        onSuccess: () => log.push("ui onSuccess"),
+        onSettled: () => log.push("ui onSettled"),
+      });
+      yield* settle;
+      yield* TestClock.adjust("1 second");
+      yield* settle;
+      expect(log).toEqual(["after clear", "definition onSettled", "ui onSuccess", "ui onSettled"]);
+      expect(observer.getCurrentResult().status).toBe("success");
+      expect(client.mutationCache.all()).toHaveLength(0);
+
+      const viaClient = yield* Effect.forkChild(client.mutate(logout, undefined));
+      yield* settle;
+      yield* TestClock.adjust("1 second");
+      yield* settle;
+      expect(viaClient.pollUnsafe()).toEqual(Exit.succeed("bye"));
+    }),
+  );
+
+  it.effect("closing the client interrupts running mutations", () =>
+    Effect.gen(function* () {
+      const focus = FocusManager.make({ setup: () => () => {}, isFocused: () => true });
+      const online = OnlineManager.make({ setup: () => () => {} });
+      const scope = yield* Scope.make();
+      const client = yield* QueryClient.make().pipe(
+        Effect.provideService(FocusManager.FocusManager, focus),
+        Effect.provideService(OnlineManager.OnlineManager, online),
+        Scope.provide(scope),
+      );
+      let finished = false;
+      const slow = Mutation.make({
+        run: () =>
+          Effect.sleep("1 second").pipe(Effect.andThen(Effect.sync(() => (finished = true)))),
+      });
+      const observer = MutationObserver.make(client, slow);
+      observer.subscribe(() => {});
+      observer.mutate(undefined);
+      yield* settle;
+      yield* Scope.close(scope, Exit.void);
+      yield* TestClock.adjust("1 second");
+      yield* settle;
+      expect(finished).toBe(false);
+      expect(observer.getCurrentResult().status).toBe("idle");
+    }),
+  );
+
+  it.effect("fetchQuery follows a fetch that invalidateQueries superseded", () =>
+    Effect.gen(function* () {
+      const { client } = yield* setup();
+      let value = 0;
+      const q = Query.single({
+        key: ["superseded-fetch"],
+        run: Effect.sync(() => ++value).pipe(Effect.delay("1 second")),
+      });
+      yield* client.setQueryData(q, 0);
+      QueryObserver.make(client, q, { refetchOnMount: false }).subscribe(() => {});
+      yield* TestClock.adjust("1 second"); // the written data is stale now
+      const fetching = yield* Effect.forkChild(client.fetchQuery(q));
+      yield* settle;
+      yield* Effect.forkChild(client.invalidateQueries({ queryKey: ["superseded-fetch"] }));
+      yield* settle;
+      yield* TestClock.adjust("1 second");
+      yield* settle;
+      // the first run was interrupted before it produced a value
+      expect(fetching.pollUnsafe()).toEqual(Exit.succeed(1));
+    }),
+  );
+
+  it.effect("fetchQuery follows a superseding fetch that settles synchronously", () =>
+    Effect.gen(function* () {
+      const { client } = yield* setup();
+      let slow = true;
+      const q = Query.single({
+        key: ["superseded-sync"],
+        run: Effect.suspend(() =>
+          slow ? Effect.succeed("slow").pipe(Effect.delay("1 second")) : Effect.succeed("fast"),
+        ),
+      });
+      yield* client.setQueryData(q, "seed");
+      yield* TestClock.adjust("1 second");
+      const fetching = yield* Effect.forkChild(client.fetchQuery(q));
+      yield* settle;
+      slow = false;
+      yield* client.refetchQueries({ queryKey: ["superseded-sync"] });
+      yield* settle;
+      expect(fetching.pollUnsafe()).toEqual(Exit.succeed("fast"));
+    }),
+  );
+
+  it.effect("cancelQueries still interrupts a waiting fetchQuery", () =>
+    Effect.gen(function* () {
+      const { client } = yield* setup();
+      const q = Query.single({
+        key: ["cancelled-fetch"],
+        run: Effect.succeed(1).pipe(Effect.delay("1 second")),
+      });
+      const fetching = yield* Effect.forkChild(client.fetchQuery(q));
+      yield* settle;
+      yield* client.cancelQueries({ queryKey: ["cancelled-fetch"] });
+      yield* settle;
+      const exit = fetching.pollUnsafe();
+      expect(
+        exit !== undefined && Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause),
+      ).toBe(true);
+    }),
+  );
+
+  it.effect("an interrupted mutation goes back to idle, not to error (D7)", () =>
+    Effect.gen(function* () {
+      const { client, registry } = yield* setup();
+      const interrupted = Mutation.make({ run: () => Effect.interrupt });
+      const calls: Array<string> = [];
+      const observer = MutationObserver.make(client, interrupted, {
+        onError: () => calls.push("hook onError"),
+        onSettled: () => calls.push("hook onSettled"),
+      });
+      observer.subscribe(() => {});
+      observer.mutate(undefined, { onError: () => calls.push("onError") });
+      yield* settle;
+      const result = observer.getCurrentResult();
+      expect(result.status).toBe("idle");
+      expect(MutationResult.isDefect(result)).toBe(false);
+      expect(calls).toEqual([]);
+
+      registry.mount(interrupted);
+      registry.set(interrupted, undefined);
+      yield* settle;
+      expect(registry.get(interrupted).status).toBe("idle");
+
+      const exit = yield* Effect.exit(client.mutate(interrupted, undefined));
+      expect(Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)).toBe(true);
+      // Settled (although idle), so the unobserved execution is collected;
+      // the observer's and the mounted atom's stay.
+      expect(client.mutationCache.findAll({ mutation: interrupted })).toHaveLength(3);
+      yield* TestClock.adjust("5 minutes");
+      yield* settle;
+      expect(client.mutationCache.findAll({ mutation: interrupted })).toHaveLength(2);
+    }),
+  );
+
+  it.effect("closing the client does not re-create entries read through the atom", () =>
+    Effect.gen(function* () {
+      const focus = FocusManager.make({ setup: () => () => {}, isFocused: () => true });
+      const online = OnlineManager.make({ setup: () => () => {} });
+      const scope = yield* Scope.make();
+      const runs = counter();
+      const client = yield* QueryClient.make().pipe(
+        Effect.provideService(FocusManager.FocusManager, focus),
+        Effect.provideService(OnlineManager.OnlineManager, online),
+        Scope.provide(scope),
+      );
+      const registry = AtomRegistry.make({ initialValues: [QueryClient.initialValue(client)] });
+      const q = Query.single({ key: ["shutdown-atom"], run: runs.tick });
+      registry.mount(q);
+      yield* settle;
+      yield* Scope.close(scope, Exit.void);
+      yield* settle;
+      expect(client.cache.all()).toHaveLength(0);
+      expect(runs.count).toBe(1);
+      expect(registry.get(q).data).toEqual(Option.some(1)); // keeps the last result
+      registry.dispose();
+    }),
+  );
+
+  it.effect("resetQueries reloads an observed static query", () =>
+    Effect.gen(function* () {
+      const { client } = yield* setup();
+      const runs = counter();
+      const q = Query.single({ key: ["static-reset"], run: runs.tick, staleTime: "static" });
+      const observer = QueryObserver.make(client, q);
+      observer.subscribe(() => {});
+      yield* settle;
+      yield* client.resetQueries({ queryKey: ["static-reset"] });
+      yield* settle;
+      expect(observer.getCurrentResult().data).toEqual(Option.some(2));
+      // static data is still never refetched by an invalidation
+      yield* client.invalidateQueries({ queryKey: ["static-reset"] });
+      yield* settle;
+      expect(runs.count).toBe(2);
+    }),
+  );
+
+  it.effect("restored data wins over initialData", () =>
+    Effect.gen(function* () {
+      const { client } = yield* setup();
+      const persisted = {
+        buster: "",
+        timestamp: 0,
+        mutations: [],
+        queries: [
+          {
+            key: QueryKey.toJsonKey(["restored-initial"]),
+            queryKey: ["restored-initial"],
+            data: 42,
+            dataUpdatedAt: 5,
+          },
+        ],
+      };
+      const q = Query.single({
+        key: ["restored-initial"],
+        run: Effect.succeed(1),
+        initialData: () => 0,
+        persist: { schema: Schema.Number },
+        enabled: false,
+      });
+      // restored before the entry exists
+      yield* QueryPersister.hydrate(client, persisted);
+      expect(client.cache.build(q).state.data).toEqual(Option.some(42));
+      expect(client.runtime.preloaded.size).toBe(0);
+
+      // restored after the entry exists (a background restore)
+      yield* client.removeQueries({ queryKey: ["restored-initial"] });
+      expect(client.cache.build(q).state.data).toEqual(Option.some(0));
+      yield* QueryPersister.hydrate(client, persisted);
+      expect(client.cache.build(q).state.data).toEqual(Option.some(42));
+
+      // data that was fetched or written is never replaced
+      yield* client.removeQueries({ queryKey: ["restored-initial"] });
+      yield* client.setQueryData(q, 7);
+      yield* QueryPersister.hydrate(client, persisted);
+      expect(client.cache.build(q).state.data).toEqual(Option.some(7));
+    }),
+  );
+
+  it.effect("refreshing a query atom refetches in that registry only", () =>
+    Effect.gen(function* () {
+      const a = yield* setup();
+      const b = yield* setup();
+      const runs = counter();
+      const q = Query.single({ key: ["two-registries"], run: runs.tick, staleTime: "1 hour" });
+      a.registry.mount(q);
+      b.registry.mount(q);
+      yield* settle;
+      expect(runs.count).toBe(2);
+      a.registry.refresh(q);
+      yield* settle;
+      expect(a.registry.get(q).data).toEqual(Option.some(3));
+      expect(b.registry.get(q).data).toEqual(Option.some(2));
+      b.registry.refresh(q);
+      b.registry.refresh(q);
+      yield* settle;
+      expect(a.registry.get(q).data).toEqual(Option.some(3));
+      expect(b.registry.get(q).dataUpdateCount).toBeGreaterThan(1);
+      expect(a.registry.get(q).dataUpdateCount).toBe(2);
+    }),
+  );
+
+  it.effect("an observer's own staleTime notifies when it passes", () =>
+    Effect.gen(function* () {
+      const { client } = yield* setup();
+      const q = Query.single({ key: ["own-stale"], run: Effect.succeed(1), staleTime: "1 hour" });
+      const observer = QueryObserver.make(client, q, { staleTime: "5 seconds" });
+      let notifications = 0;
+      const unsubscribe = observer.subscribe(() => notifications++);
+      yield* settle;
+      expect(observer.getCurrentResult().isStale).toBe(false);
+      const before = notifications;
+      yield* TestClock.adjust("5 seconds");
+      yield* settle;
+      expect(notifications).toBe(before + 1);
+      expect(observer.getCurrentResult().isStale).toBe(true);
+
+      // new data restarts the timer; changed options reschedule it
+      yield* client.setQueryData(q, 2);
+      observer.setOptions(q, { staleTime: "1 minute" });
+      const afterWrite = notifications;
+      yield* TestClock.adjust("5 seconds");
+      yield* settle;
+      expect(notifications).toBe(afterWrite);
+      yield* TestClock.adjust("55 seconds");
+      yield* settle;
+      expect(notifications).toBe(afterWrite + 1);
+
+      // no timer outlives the subscription
+      yield* client.setQueryData(q, 3);
+      unsubscribe();
+      const afterUnsubscribe = notifications;
+      yield* TestClock.adjust("1 hour");
+      yield* settle;
+      expect(notifications).toBe(afterUnsubscribe);
+    }),
+  );
+
+  it.effect("an unobserved entry is collected after resetQueries drops its fetch", () =>
+    Effect.gen(function* () {
+      const { client } = yield* setup();
+      const q = Query.single({
+        key: ["reset-gc"],
+        run: Effect.succeed(1).pipe(Effect.delay("10 minutes")),
+        gcTime: "1 minute",
+      });
+      yield* Effect.forkChild(client.prefetchQuery(q));
+      yield* settle;
+      yield* TestClock.adjust("2 minutes"); // the gc timer fires and skips: still fetching
+      yield* settle;
+      expect(client.cache.all()).toHaveLength(1);
+      yield* client.resetQueries({ queryKey: ["reset-gc"] });
+      yield* settle;
+      yield* TestClock.adjust("1 minute");
+      yield* settle;
+      expect(client.cache.all()).toHaveLength(0);
+    }),
+  );
+
+  it.effect("polling continues after resetQueries drops an interval fetch", () =>
+    Effect.gen(function* () {
+      const { client } = yield* setup();
+      const runs = counter();
+      const q = Query.single({
+        key: ["reset-poll"],
+        run: runs.tick.pipe(Effect.delay("1 second")),
+        staleTime: "static",
+        enabled: true,
+      });
+      QueryObserver.make(client, q, { refetchInterval: "10 seconds" }).subscribe(() => {});
+      yield* settle;
+      yield* TestClock.adjust("1 second");
+      yield* settle;
+      expect(runs.count).toBe(1);
+      yield* TestClock.adjust("10 seconds"); // the interval fetch starts
+      yield* settle;
+      client.cache.build(q).reset(); // drops it; nothing else refetches a static query
+      yield* settle;
+      yield* TestClock.adjust("11 seconds");
+      yield* settle;
+      expect(runs.count).toBe(2);
+    }),
+  );
+
+  it.effect("keys that differ only in undefined values get different storage keys", () =>
+    Effect.gen(function* () {
+      const { client } = yield* setup();
+      expect(QueryKey.toJsonKey(["k", { a: undefined }])).not.toBe(QueryKey.toJsonKey(["k", {}]));
+      expect(QueryKey.toJsonKey(["k", undefined])).not.toBe(QueryKey.toJsonKey(["k", null]));
+      expect(QueryKey.toJsonKey(["k", { b: 1, a: 2 }])).toBe(
+        QueryKey.toJsonKey(["k", { a: 2, b: 1 }]),
+      );
+
+      const make = (filter: { readonly a?: undefined }, value: string) =>
+        Query.single({
+          key: ["undefined-key", filter],
+          run: Effect.succeed(value),
+          persist: { schema: Schema.String },
+        });
+      const withUndefined = make({ a: undefined }, "with");
+      const without = make({}, "without");
+      yield* client.fetchQuery(withUndefined);
+      yield* client.fetchQuery(without);
+      const snapshot = yield* QueryPersister.dehydrate(client);
+      expect(new Set(snapshot.queries.map((query) => query.data))).toEqual(
+        new Set(["with", "without"]),
+      );
+
+      // and each entry claims its own data back
+      yield* client.clear;
+      yield* QueryPersister.hydrate(client, snapshot);
+      expect(client.cache.build(withUndefined).state.data).toEqual(Option.some("with"));
+      expect(client.cache.build(without).state.data).toEqual(Option.some("without"));
     }),
   );
 });

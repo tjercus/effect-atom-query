@@ -34,6 +34,8 @@ const runtime = ManagedRuntime.make(
   query's own schema** the first time the query is used. `DateTime`, `Option`,
   branded and class types come back as real values. Data that no longer
   decodes (the schema changed) is dropped and refetched.
+- Restored data replaces a query's `initialData`: it came from the server.
+  Data that was fetched or written since is never replaced.
 - `buster` invalidates every snapshot (bump it on deploys that change data
   shapes). `maxAge` (24 hours) discards old snapshots.
 

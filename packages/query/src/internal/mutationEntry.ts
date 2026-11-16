@@ -139,6 +139,8 @@ export class MutationEntry<I, A, E, C> {
   private fiber: Fiber.Fiber<A, E> | undefined;
   private gcFiber: Fiber.Fiber<void> | undefined;
   private removed = false;
+  /** The execution has finished: succeeded, failed, or was interrupted. */
+  private done = false;
   /** Restored from storage and waiting for `resumePausedMutations`. */
   private awaitingResume = false;
 
@@ -175,8 +177,12 @@ export class MutationEntry<I, A, E, C> {
     };
   }
 
+  /**
+   * The execution has finished. An interrupted one is settled too, although
+   * its status is back to `idle` (cancellations are never shown as errors).
+   */
   get isSettled(): boolean {
-    return this.state.status === "success" || this.state.status === "error";
+    return this.done;
   }
 
   private setState(f: (s: MutationState<I, A, E, C>) => MutationState<I, A, E, C>): void {
@@ -337,7 +343,9 @@ export class MutationEntry<I, A, E, C> {
 
   private onExit(exit: Exit.Exit<A, E>): void {
     this.fiber = undefined;
-    if (this.removed) return;
+    this.done = true;
+    // An execution removed from the cache while running (`client.clear`)
+    // still settles, so its observers do not stay pending.
     if (Exit.isSuccess(exit)) {
       this.setState((s) => ({
         ...s,
@@ -347,6 +355,10 @@ export class MutationEntry<I, A, E, C> {
         failureReason: Option.none(),
         isPaused: false,
       }));
+    } else if (Cause.hasInterruptsOnly(exit.cause)) {
+      // Interrupted: back to idle. Cancellations never reach `error`, error
+      // boundaries or `onError`, as for queries.
+      this.setState(() => idleState);
     } else {
       this.setState((s) => ({
         ...s,
@@ -383,11 +395,17 @@ export class MutationEntry<I, A, E, C> {
     return this.removed;
   }
 
-  dispose(): void {
+  /**
+   * Called by the cache when the entry is removed. A running execution keeps
+   * running and settles as usual (it may be the one that asked for the
+   * removal, e.g. `client.clear` in its `onSuccess`), unless `interrupt` is
+   * set, as when the client shuts down.
+   */
+  dispose(options?: { readonly interrupt?: boolean | undefined }): void {
     if (this.removed) return;
     this.removed = true;
     this.cancelGc();
-    this.fiber?.interruptUnsafe();
+    if (options?.interrupt) this.fiber?.interruptUnsafe();
     for (const listener of Array.from(this.listeners)) listener();
   }
 }

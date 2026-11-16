@@ -115,6 +115,8 @@ export class MutationObserver<I, A, E, R, C> {
       if (!entry.isSettled) return;
       stop();
       if (this.entry !== entry || this.listeners.size === 0) return;
+      // Interrupted (back to idle): cancellations run no callbacks.
+      if (entry.state.status !== "success" && entry.state.status !== "error") return;
       const exit: Exit.Exit<A, E> =
         entry.state.status === "success"
           ? Exit.succeed(Option.getOrThrow(entry.state.data))

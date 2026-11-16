@@ -361,9 +361,13 @@ export class QueryEntry<A, E> {
   private revertState: QueryState<A, E> | undefined;
   private revertOnInterrupt = false;
   private fetchFiber: Fiber.Fiber<A, E> | undefined;
+  /** For each superseded fetch, the fetch that replaced it. */
+  private readonly successors = new WeakMap<Fiber.Fiber<A, E>, Fiber.Fiber<A, E>>();
   private gcFiber: Fiber.Fiber<void> | undefined;
   private staleFiber: Fiber.Fiber<void> | undefined;
   private removed = false;
+  /** `state.data` is still the definition's `initialData` (no fetch, write or restore yet). */
+  private showsInitialData = false;
 
   readonly key: QueryKey.QueryKey;
   descriptor: QueryDescriptor<A, E, any>;
@@ -396,11 +400,13 @@ export class QueryEntry<A, E> {
 
   /**
    * Adopt restored data for this key, if the query is persisted and has no
-   * data yet. Undecodable data (e.g. after a schema change) is dropped.
+   * data yet, or only its `initialData` (restored data came from the server,
+   * so it wins). Undecodable data (e.g. after a schema change) is dropped.
    */
   claimPersisted(): void {
     const codec = this.descriptor.persist;
-    if (codec === undefined || Option.isSome(this.state.data)) return;
+    if (codec === undefined) return;
+    if (Option.isSome(this.state.data) && !this.showsInitialData) return;
     const jsonKey = QueryKey.toJsonKey(this.key);
     const preloaded = this.runtime.preloaded.get(jsonKey);
     if (preloaded === undefined) return;
@@ -411,6 +417,7 @@ export class QueryEntry<A, E> {
     } catch {
       return;
     }
+    this.showsInitialData = false;
     this.setState((s) => ({
       ...s,
       status: "success",
@@ -439,6 +446,7 @@ export class QueryEntry<A, E> {
   }
 
   private initialStateOf(descriptor: QueryDescriptor<A, E, any>): QueryState<A, E> {
+    this.showsInitialData = descriptor.initialData !== undefined;
     if (descriptor.initialData === undefined) return initialState;
     return {
       ...initialState,
@@ -474,6 +482,7 @@ export class QueryEntry<A, E> {
 
   /** Write data directly (`setQueryData`). Keeps a running fetch running. */
   setData(data: A, updatedAt: number = this.runtime.now()): void {
+    this.showsInitialData = false;
     this.cancelStaleTimer();
     this.setState((s) => ({
       ...s,
@@ -498,6 +507,9 @@ export class QueryEntry<A, E> {
     this.revertState = undefined;
     this.cancelStaleTimer();
     this.setState(() => this.initialStateOf(this.descriptor));
+    // The dropped fetch's exit is ignored, so do here what it would have done.
+    for (const record of this.records) this.scheduleInterval(record);
+    if (this.records.size === 0) this.scheduleGc();
   }
 
   /**
@@ -727,6 +739,11 @@ export class QueryEntry<A, E> {
     return Effect.raceFirst(Effect.asVoid(Fiber.await(fiber)), paused);
   }
 
+  /** The fetch that superseded `fiber` (a fetch of this entry), if any. */
+  successorOf(fiber: Fiber.Fiber<A, E>): Fiber.Fiber<A, E> | undefined {
+    return this.successors.get(fiber);
+  }
+
   /** Interrupt the running fetch, if any. Resolves once it has stopped. */
   cancel(options?: CancelOptions): Fiber.Fiber<A, E> | undefined {
     const fiber = this.fetchFiber;
@@ -762,14 +779,14 @@ export class QueryEntry<A, E> {
    * the fiber that settles with this fetch's outcome.
    */
   fetch(options?: FetchOptions<E>): Fiber.Fiber<A, E> {
+    let superseded: Fiber.Fiber<A, E> | undefined;
     if (this.fetchFiber !== undefined) {
       if (!options?.cancelRefetch || Option.isNone(this.state.data)) return this.fetchFiber;
       // Superseded: the new fetch takes over. Bump the id before interrupting,
       // since the old fiber's exit handler runs synchronously and must be ignored.
-      const superseded = this.fetchFiber;
+      superseded = this.fetchFiber;
       this.fetchFiber = undefined;
       this.fetchId++;
-      superseded.interruptUnsafe();
     }
 
     const id = ++this.fetchId;
@@ -816,6 +833,12 @@ export class QueryEntry<A, E> {
       withRetry.pipe(Effect.onExit((exit) => Effect.sync(() => this.onFetchExit(id, exit)))),
       options?.context,
     );
+    if (superseded !== undefined) {
+      // Record the successor before interrupting, so whoever waits for the
+      // superseded fetch (`fetchQuery`) can follow it.
+      this.successors.set(superseded, fiber);
+      superseded.interruptUnsafe();
+    }
     // A synchronous `run` may already have settled inside runFork.
     if (id === this.fetchId && this.state.fetchStatus !== "idle") this.fetchFiber = fiber;
     return fiber;
@@ -827,6 +850,7 @@ export class QueryEntry<A, E> {
     const now = this.runtime.now();
 
     if (Exit.isSuccess(exit)) {
+      this.showsInitialData = false;
       this.cancelStaleTimer();
       this.setState((s) => ({
         ...s,
