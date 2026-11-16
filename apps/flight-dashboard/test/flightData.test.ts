@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { departuresAt } from "../src/api/flightData.ts";
+import { departuresAt, searchAt } from "../src/api/flightData.ts";
 import { median } from "../src/components/Stats.tsx";
 
 describe("departuresAt", () => {
@@ -19,6 +19,14 @@ describe("departuresAt", () => {
 
   it("is deterministic for a given time", () => {
     expect(departuresAt("LHR", 123_456)).toStrictEqual(departuresAt("LHR", 123_456));
+  });
+});
+
+describe("searchAt", () => {
+  it("sorts results by departure time, across airports", () => {
+    const times = searchAt("LH", 0).map((f) => f.scheduled);
+    expect(times.length).toBeGreaterThan(1);
+    expect(times).toStrictEqual(times.toSorted());
   });
 });
 

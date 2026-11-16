@@ -98,7 +98,9 @@ export const flightAt = (flightNo: string, now: number): FlightDetail | undefine
 export const searchAt = (term: string, now: number): ReadonlyArray<Flight> => {
   const t = term.trim().toUpperCase();
   if (t === "") return [];
-  return allFlightsAt(now).filter(
-    (f) => f.flightNo.includes(t) || f.to.includes(t) || f.airline.toUpperCase().includes(t),
-  );
+  return allFlightsAt(now)
+    .filter(
+      (f) => f.flightNo.includes(t) || f.to.includes(t) || f.airline.toUpperCase().includes(t),
+    )
+    .sort((a, b) => a.scheduled.localeCompare(b.scheduled));
 };

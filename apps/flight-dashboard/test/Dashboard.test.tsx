@@ -121,6 +121,29 @@ describe("FlightSearch", () => {
     expect(screen.getByText("Searching “KL”…")).toBeTruthy();
   });
 
+  it("keeps the search box usable when a search crashes", async () => {
+    let settings: ChaosSettings = calmChaos;
+    const api = layerChaos({ settings: () => settings, random: () => 0.1 }).pipe(
+      Layer.provide(memory),
+    );
+    renderWith(api);
+    await screen.findAllByRole("row");
+
+    settings = { ...calmChaos, defectRate: 1 };
+    const input = screen.getByLabelText("Search flights");
+    fireEvent.change(input, { target: { value: "KL" } });
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Chaos: the flight API crashed");
+    // Only the results crashed: the search box is still there.
+    expect(screen.getByLabelText("Search flights")).toBe(input);
+
+    // A new term starts with a fresh boundary.
+    settings = calmChaos;
+    fireEvent.change(input, { target: { value: "KLM" } });
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+    expect(await screen.findByText("Cancel")).toBeTruthy();
+  });
+
   it("cancels the running search with the Cancel button", async () => {
     const log = renderWith(layerInMemory({ latency: "1 hour" }));
     fireEvent.change(screen.getByLabelText("Search flights"), { target: { value: "DL" } });
