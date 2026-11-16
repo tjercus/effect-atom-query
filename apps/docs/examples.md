@@ -22,3 +22,16 @@ TanStack Query React example; the name links to its source:
 | [Offline & persistence](https://github.com/tjercus/effect-atom-query/blob/main/apps/playground/src/examples/Offline.tsx)              | `offline`                       | `QueryPersister`, paused and resumed mutations          |
 
 Devtools are mounted on every page.
+
+## Flight dashboard
+
+The [flight dashboard](https://github.com/tjercus/effect-atom-query/tree/main/apps/flight-dashboard)
+is one app that shows what goes beyond TanStack Query. Start it with `vp run dev:flights`.
+
+| what to look at                                                                                                        | shows                                                                                                                          |
+| ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| [backend layers](https://github.com/tjercus/effect-atom-query/blob/main/apps/flight-dashboard/src/api/layers.ts)       | the `FlightApi` service as HTTP, in-memory and chaos layers, swapped at runtime without touching a component                   |
+| [typed errors](https://github.com/tjercus/effect-atom-query/blob/main/apps/flight-dashboard/src/components/status.tsx) | an exhaustive `switch` over the error union; defects go to a per-panel error boundary                                          |
+| [retry schedule](https://github.com/tjercus/effect-atom-query/blob/main/apps/flight-dashboard/src/queries.ts)          | `retry` as a `Schedule`: backoff with jitter, `retryAfterMs`, no retry for permanent errors, polling that stops on them        |
+| [search](https://github.com/tjercus/effect-atom-query/blob/main/apps/flight-dashboard/src/components/FlightSearch.tsx) | `cancelQueries` interrupts the superseded search's fiber, which aborts its `fetch`                                             |
+| [tests](https://github.com/tjercus/effect-atom-query/tree/main/apps/flight-dashboard/test)                             | the same layers in tests: the schedule with `TestClock`, the layers with forced outcomes, components through `makeTestHarness` |

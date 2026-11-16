@@ -12,6 +12,7 @@
   "scripts": {
     "ready": "vp check && vp run -r test && vp run -r build && vp run size",
     "dev": "vp run playground#dev",
+    "dev:flights": "vp run flight-dashboard#dev",
     "prepare": "vp config",
     "size": "vpx ./scripts/size.ts",
     "changeset": "changeset",
