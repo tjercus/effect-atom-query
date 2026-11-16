@@ -39,7 +39,11 @@ export function FlightSearch({ onSelect }: { readonly onSelect: (flightNo: strin
             setTerm(next);
           }}
         />
-        <button onClick={() => cancel({ queryKey: ["search"] })} disabled={!results.isFetching}>
+        {/* A paused search (offline) is still queued and resumes on reconnect, so it can be cancelled too. */}
+        <button
+          onClick={() => cancel({ queryKey: ["search"] })}
+          disabled={!results.isFetching && !results.isPaused}
+        >
           Cancel
         </button>
       </header>
@@ -52,7 +56,13 @@ export function FlightSearch({ onSelect }: { readonly onSelect: (flightNo: strin
           as long as other requests.
         </p>
       ) : results.isPending ? (
-        <p className="muted">{results.isFetching ? `Searching “${term}”…` : "Cancelled."}</p>
+        <p className="muted">
+          {results.isFetching
+            ? `Searching “${term}”…`
+            : results.isPaused
+              ? `Waiting for the network to search “${term}”…`
+              : "Cancelled."}
+        </p>
       ) : results.data._tag === "Some" ? (
         results.data.value.length === 0 ? (
           <p className="muted">No flights match “{term}”.</p>

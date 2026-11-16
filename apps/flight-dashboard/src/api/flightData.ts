@@ -36,9 +36,11 @@ const makeFlight = (airport: Airport, index: number, now: number): Flight => {
   const number = 100 + ((hash(`${airport}${index}`) % 900) | 0);
   const flightNo = `${airline.code}${number}`;
   const h = hash(flightNo);
-  // Departures spread over the next two simulated hours, cycling.
+  // Each flight cycles through a 140-minute window, from two hours out to 20
+  // minutes after departure, so its status moves on as the clock advances.
   const clock = simulatedMinutes(now);
-  const scheduledAt = clock - 20 + ((index * 11 + (h % 7)) % 140);
+  const offset = index * 11 + (h % 7);
+  const scheduledAt = clock + 119 - ((clock + offset) % 140);
   const delayMinutes = h % 5 === 0 ? 15 + (h % 40) : 0;
   const minutesToGo = scheduledAt + delayMinutes - clock;
   const status: Flight["status"] =

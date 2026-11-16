@@ -43,6 +43,10 @@ const decode =
     if (response.status >= 500) {
       return Effect.fail(new UpstreamUnavailable({ status: response.status }));
     }
+    if (response.status < 200 || response.status >= 300) {
+      // Not transient, and the body is not what the schema describes.
+      return Effect.fail(new BadResponse({ reason: `Unexpected status ${response.status}` }));
+    }
     return response.json.pipe(
       Effect.flatMap(Schema.decodeUnknownEffect(schema)),
       Effect.mapError((error) => new BadResponse({ reason: error.message })),
