@@ -1,5 +1,24 @@
 # @effect-atom-query/query
 
+## 1.3.1
+
+### Patch Changes
+
+- e80ede1: Fix six edge cases:
+
+  - `resetQueries` reloads an observed query with `staleTime: "static"` instead of leaving it pending.
+  - Restored (persisted) data replaces a query's `initialData`, whether it is restored before or after the query is first used.
+  - Refreshing a query atom (`registry.refresh`, `useAtomRefresh`) refetches with the client of that registry when the atom is mounted in several registries.
+  - A `staleTime` passed to `useQuery` (or a `QueryObserver`) notifies when it passes, so `isStale` re-renders on time.
+  - An unobserved cache entry is garbage collected after `resetQueries` drops its running fetch, and polling continues after a reset.
+  - `QueryKey.toJsonKey` keeps `undefined` values, so `["todos", { page: undefined }]` and `["todos", {}]`, which are separate cache entries, no longer share one storage key. Persisted data stored for keys containing `undefined` is not restored once and is fetched again.
+
+- 809b97e: Fix three lifecycle defects:
+
+  - `client.clear` no longer interrupts running mutations, so it is safe to call from a mutation's own callback (a logout mutation, say): the mutation finishes, its callbacks run, and `useMutation` sees it settle. Closing the client still interrupts running mutations.
+  - `fetchQuery`, `prefetchQuery` and `ensureQueryData` follow the fetch that superseded the one they were waiting for (an `invalidateQueries` elsewhere), instead of failing with an interrupt. `cancelQueries` and `removeQueries` still interrupt the caller.
+  - An interrupted mutation goes back to `idle`. It is no longer reported as an error or defect, thrown to the error boundary, or passed to the `useMutation` callbacks.
+
 ## 1.3.0
 
 ### Minor Changes
