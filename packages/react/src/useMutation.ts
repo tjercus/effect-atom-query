@@ -82,12 +82,15 @@ export const useMutation = <I, A, E, R, C>(
 
   const result = observer.getCurrentResult();
   if (result.status === "error") {
-    if (MutationResult.isDefect(result)) throw Cause.squash(result.cause);
+    if (MutationResult.isDefect(result)) {
+      throw Cause.squash(result.cause);
+    }
     const { throwOnError } = options;
     if (Option.isSome(result.error)) {
       const error = result.error.value;
-      if (typeof throwOnError === "function" ? throwOnError(error) : throwOnError === true)
+      if (typeof throwOnError === "function" ? throwOnError(error) : throwOnError === true) {
         throw error;
+      }
     }
   }
 

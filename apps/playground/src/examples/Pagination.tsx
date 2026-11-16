@@ -40,7 +40,9 @@ function Pagination() {
       </button>{" "}
       <button
         onClick={() => {
-          if (!result.isPlaceholderData && hasMore) setPage((p) => p + 1);
+          if (!result.isPlaceholderData && hasMore) {
+            setPage((p) => p + 1);
+          }
         }}
         disabled={result.isPlaceholderData || !hasMore}
       >

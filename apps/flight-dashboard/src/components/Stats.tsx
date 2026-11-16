@@ -6,7 +6,9 @@ const kinds: ReadonlyArray<RequestOutcome["_tag"]> = ["Ok", "Failed", "Defect", 
 
 /** The median of sorted numbers: the middle one, or the mean of the middle two. */
 export const median = (sorted: ReadonlyArray<number>): number | undefined => {
-  if (sorted.length === 0) return undefined;
+  if (sorted.length === 0) {
+    return undefined;
+  }
   const mid = Math.floor(sorted.length / 2);
   return sorted.length % 2 === 1 ? sorted[mid] : Math.round((sorted[mid - 1]! + sorted[mid]!) / 2);
 };

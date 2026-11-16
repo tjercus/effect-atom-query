@@ -17,7 +17,9 @@ const isAirport = (s: string): s is Airport => (airports as ReadonlyArray<string
 
 const handler: Connect.NextHandleFunction = (req, res, next) => {
   const url = new URL(req.url ?? "/", "http://localhost");
-  if (req.method !== "GET" || !url.pathname.startsWith("/api/")) return next();
+  if (req.method !== "GET" || !url.pathname.startsWith("/api/")) {
+    return next();
+  }
 
   const send = (status: number, body: unknown, delayMs: number) => {
     const timer = setTimeout(() => {

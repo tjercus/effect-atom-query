@@ -21,7 +21,9 @@ const aircraft = ["A320neo", "B737-800", "A350-900", "B787-9", "E195-E2"];
 /** A small, stable hash so every flight gets the same attributes each time. */
 const hash = (s: string): number => {
   let h = 2166136261;
-  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
+  for (let i = 0; i < s.length; i++) {
+    h = Math.imul(h ^ s.charCodeAt(i), 16777619);
+  }
   return h >>> 0;
 };
 
@@ -81,7 +83,9 @@ export const allFlightsAt = (now: number): ReadonlyArray<Flight> =>
 /** `undefined` when no flight has that number. */
 export const flightAt = (flightNo: string, now: number): FlightDetail | undefined => {
   const flight = allFlightsAt(now).find((f) => f.flightNo === flightNo.toUpperCase());
-  if (flight === undefined) return undefined;
+  if (flight === undefined) {
+    return undefined;
+  }
   const h = hash(flight.flightNo);
   const airborne = flight.status === "Departed";
   // Climb to cruise over a few simulated minutes, with a little turbulence.
@@ -97,7 +101,9 @@ export const flightAt = (flightNo: string, now: number): FlightDetail | undefine
 
 export const searchAt = (term: string, now: number): ReadonlyArray<Flight> => {
   const t = term.trim().toUpperCase();
-  if (t === "") return [];
+  if (t === "") {
+    return [];
+  }
   return allFlightsAt(now)
     .filter(
       (f) => f.flightNo.includes(t) || f.to.includes(t) || f.airline.toUpperCase().includes(t),

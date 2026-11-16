@@ -18,7 +18,9 @@ const setup = () => {
   return c;
 };
 afterEach(async () => {
-  for (const dispose of disposers.splice(0)) await dispose();
+  for (const dispose of disposers.splice(0)) {
+    await dispose();
+  }
 });
 
 /** A query returning the same value on every fetch, so only fetch flags change. */

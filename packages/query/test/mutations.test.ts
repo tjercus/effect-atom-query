@@ -24,7 +24,9 @@ const makeServer = () => {
     }),
     add: (title: string) =>
       Effect.suspend(() => {
-        if (title === "bad") return Effect.fail(new Rejected({ title }));
+        if (title === "bad") {
+          return Effect.fail(new Rejected({ title }));
+        }
         todos = [...todos, title];
         return Effect.succeed(title);
       }).pipe(Effect.delay("100 millis")),
@@ -352,7 +354,9 @@ describe("mutations", () => {
       registry.mount(add);
       const seen: Array<ReadonlyArray<string>> = [];
       registry.subscribe(view, (r) => {
-        if (Option.isSome(r.data)) seen.push(r.data.value);
+        if (Option.isSome(r.data)) {
+          seen.push(r.data.value);
+        }
       });
       registry.set(add, "b");
       yield* settle;

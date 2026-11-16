@@ -19,7 +19,9 @@ export const makeStore = <A>(initial: A): Store<A> => {
     get: () => value,
     set: (f) => {
       value = f(value);
-      for (const listener of listeners) listener();
+      for (const listener of listeners) {
+        listener();
+      }
     },
     subscribe: (listener) => {
       listeners.add(listener);

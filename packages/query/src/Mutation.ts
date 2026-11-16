@@ -162,7 +162,9 @@ export const make = <I = void, A = void, E = never, R = never, C = never>(
     Atom.writable<MutationResult.MutationResult<A, E, I, C>, I | Atom.Reset>(
       (get) => {
         const entry = get(latest);
-        if (Option.isNone(entry)) return MutationResult.idle<A, E, I, C>();
+        if (Option.isNone(entry)) {
+          return MutationResult.idle<A, E, I, C>();
+        }
         const execution = entry.value;
         const release = execution.addObserver();
         const unsubscribe = execution.subscribe(() =>
@@ -225,7 +227,9 @@ export const optimistic = <A, E, I>(
       // that started earlier but landed later may not contain the change.)
       .filter((execution) => execution.state.ranAt === 0 || execution.state.ranAt > dataRequestedAt)
       .sort((a, b) => a.state.submittedAt - b.state.submittedAt || a.id - b.id);
-    if (pending.length === 0 || Option.isNone(base.data)) return base;
+    if (pending.length === 0 || Option.isNone(base.data)) {
+      return base;
+    }
     return QueryResult.map(base, (data) =>
       pending.reduce(
         (acc, execution) =>
@@ -307,7 +311,9 @@ export const optimisticUpdate = <A, I>(
       Effect.gen(function* () {
         const client = yield* QueryClient.QueryClient;
         const atom = target(input);
-        if (Option.isNone(yield* client.getQueryData(atom))) return Option.none();
+        if (Option.isNone(yield* client.getQueryData(atom))) {
+          return Option.none();
+        }
         yield* client.cancelQueries({ queryKey: atom.key, exact: true });
         // Read again: cancelling restores the state from before the fetch.
         const previous = yield* client.getQueryData(atom);
@@ -319,7 +325,9 @@ export const optimisticUpdate = <A, I>(
     onError: (_cause, input, context) =>
       Effect.gen(function* () {
         const previous = Option.flatten(context);
-        if (Option.isNone(previous)) return;
+        if (Option.isNone(previous)) {
+          return;
+        }
         const client = yield* QueryClient.QueryClient;
         yield* client.setQueryData(target(input), () => previous);
       }),
@@ -327,7 +335,9 @@ export const optimisticUpdate = <A, I>(
       Effect.gen(function* () {
         // `onMutate` found no data, so it wrote nothing (a resumed execution,
         // with no context at all, may have written before the reload).
-        if (Option.isSome(context) && Option.isNone(context.value)) return;
+        if (Option.isSome(context) && Option.isNone(context.value)) {
+          return;
+        }
         const client = yield* QueryClient.QueryClient;
         yield* client.invalidateQueries({ queryKey: target(input).key, exact: true });
       }),

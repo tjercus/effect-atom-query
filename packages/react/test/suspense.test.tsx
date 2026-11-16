@@ -19,7 +19,9 @@ import { counter, makeClient, RetryBoundary, wrapper } from "./utils.tsx";
 const disposers: Array<() => Promise<void>> = [];
 afterEach(async () => {
   vi.restoreAllMocks();
-  for (const dispose of disposers.splice(0)) await dispose();
+  for (const dispose of disposers.splice(0)) {
+    await dispose();
+  }
 });
 const setup = () => {
   const c = makeClient();

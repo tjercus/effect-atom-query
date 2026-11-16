@@ -98,7 +98,9 @@ function TodoList() {
   const todos = useQuery(todosQuery);
   const add = useMutation(addTodo);
 
-  if (todos.isPending) return <p>Loading…</p>;
+  if (todos.isPending) {
+    return <p>Loading…</p>;
+  }
   if (todos.isError) {
     return (
       <p>

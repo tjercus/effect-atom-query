@@ -138,8 +138,12 @@ const snapshot = (client: QueryClient.Service, options: Resolved): PersistedClie
   const seen = new Set<string>();
   for (const entry of client.cache.all()) {
     const codec = entry.descriptor.persist;
-    if (codec === undefined || Option.isNone(entry.state.data)) continue;
-    if (!options.shouldPersistQuery({ key: entry.key, result: entry.toResult() })) continue;
+    if (codec === undefined || Option.isNone(entry.state.data)) {
+      continue;
+    }
+    if (!options.shouldPersistQuery({ key: entry.key, result: entry.toResult() })) {
+      continue;
+    }
     try {
       const key = QueryKey.toJsonKey(entry.key);
       queries.push({
@@ -160,7 +164,9 @@ const snapshot = (client: QueryClient.Service, options: Resolved): PersistedClie
       client.runtime.preloaded.delete(key);
       continue;
     }
-    if (seen.has(key)) continue;
+    if (seen.has(key)) {
+      continue;
+    }
     queries.push({
       key,
       queryKey: preloaded.queryKey as Schema.Json,
@@ -173,8 +179,12 @@ const snapshot = (client: QueryClient.Service, options: Resolved): PersistedClie
   for (const entry of client.mutationCache.all()) {
     const persist = entry.options.persist;
     const state = entry.state;
-    if (persist === undefined || entry.key === undefined) continue;
-    if (state.status !== "pending" || !state.isPaused || Option.isNone(state.variables)) continue;
+    if (persist === undefined || entry.key === undefined) {
+      continue;
+    }
+    if (state.status !== "pending" || !state.isPaused || Option.isNone(state.variables)) {
+      continue;
+    }
     try {
       mutations.push({
         mutationKey: JSON.parse(QueryKey.toJsonKey(entry.key)) as Schema.Json,
@@ -212,7 +222,9 @@ export const hydrate = (
     for (const mutation of persisted.mutations) {
       const key = mutation.mutationKey as ReadonlyArray<unknown>;
       const defaults = client.mutationCache.defaultsFor(key);
-      if (defaults.run === undefined || defaults.persist === undefined) continue;
+      if (defaults.run === undefined || defaults.persist === undefined) {
+        continue;
+      }
       let variables: unknown;
       try {
         variables = persistCodec(defaults.persist.variables).decode(mutation.variables);
@@ -230,7 +242,9 @@ const readSnapshot = (
 ): Effect.Effect<Option.Option<PersistedClient>> =>
   Effect.gen(function* () {
     const raw = yield* store.get(options.storageKey);
-    if (raw === undefined) return Option.none();
+    if (raw === undefined) {
+      return Option.none();
+    }
     const decoded = decodeSnapshot(raw);
     const valid = Option.filter(
       decoded,
@@ -238,7 +252,9 @@ const readSnapshot = (
         snapshot.buster === options.buster &&
         client.runtime.now() - snapshot.timestamp <= options.maxAge,
     );
-    if (Option.isNone(valid)) yield* store.remove(options.storageKey);
+    if (Option.isNone(valid)) {
+      yield* store.remove(options.storageKey);
+    }
     return valid;
   }).pipe(Effect.catch(() => Effect.succeed(Option.none<PersistedClient>())));
 
@@ -256,7 +272,9 @@ export const restore = (
     const store = yield* KeyValueStore.KeyValueStore;
     const resolved = resolve(options);
     const persisted = yield* readSnapshot(client, store, resolved);
-    if (Option.isSome(persisted)) yield* hydrate(client, persisted.value);
+    if (Option.isSome(persisted)) {
+      yield* hydrate(client, persisted.value);
+    }
   });
 
 /**
@@ -308,8 +326,9 @@ export const layer = (
       >();
       const resolved = resolve(options);
       for (const mutation of resolved.mutations) {
-        if (mutation.key !== undefined)
+        if (mutation.key !== undefined) {
           yield* client.setMutationDefaults(mutation.key, mutation.options);
+        }
       }
 
       const afterRestore = resolved.resumePausedMutations
@@ -333,7 +352,9 @@ export const layer = (
       );
       let pending: Fiber.Fiber<void> | undefined;
       const schedule = () => {
-        if (pending !== undefined || restoring.isRestoring()) return;
+        if (pending !== undefined || restoring.isRestoring()) {
+          return;
+        }
         pending = client.runtime.runFork(
           Effect.sleep(resolved.throttle).pipe(
             Effect.andThen(Effect.sync(() => (pending = undefined))),

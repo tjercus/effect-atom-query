@@ -188,8 +188,11 @@ const onSubmit = async (values: Post) => {
   const exit = await run.promiseExit(
     mode === "edit" ? save.mutateEffect(values) : create.mutateEffect(values),
   );
-  if (Exit.isSuccess(exit)) navigate(`/posts/${exit.value.id}`);
-  else setFormError(exit.cause);
+  if (Exit.isSuccess(exit)) {
+    navigate(`/posts/${exit.value.id}`);
+  } else {
+    setFormError(exit.cause);
+  }
 };
 ```
 

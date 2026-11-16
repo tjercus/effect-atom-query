@@ -25,9 +25,13 @@ export type NotifyOnChangeProps = "all" | ReadonlyArray<string>;
 
 /** Option-aware equality for one result property. */
 const samePropValue = (a: unknown, b: unknown): boolean => {
-  if (Object.is(a, b)) return true;
+  if (Object.is(a, b)) {
+    return true;
+  }
   if (Option.isOption(a) && Option.isOption(b)) {
-    if (Option.isNone(a) || Option.isNone(b)) return Option.isNone(a) && Option.isNone(b);
+    if (Option.isNone(a) || Option.isNone(b)) {
+      return Option.isNone(a) && Option.isNone(b);
+    }
     // Values with an `Equal` instance (e.g. `DateTime`) compare by value;
     // plain data relies on structural sharing for referential stability.
     return (
@@ -39,14 +43,18 @@ const samePropValue = (a: unknown, b: unknown): boolean => {
 
 const shallowEqual = (a: object, b: object): boolean => {
   const ka = Object.keys(a);
-  if (ka.length !== Object.keys(b).length) return false;
+  if (ka.length !== Object.keys(b).length) {
+    return false;
+  }
   return ka.every((k) => Object.is((a as any)[k], (b as any)[k]));
 };
 
 /** The props of `next` that differ from `prev`, restricted to `keys`. */
 const changedProps = (prev: object, next: object, keys: Iterable<PropertyKey>): boolean => {
   for (const key of keys) {
-    if (!samePropValue((prev as any)[key], (next as any)[key])) return true;
+    if (!samePropValue((prev as any)[key], (next as any)[key])) {
+      return true;
+    }
   }
   return false;
 };
@@ -77,7 +85,9 @@ export const suspendUntilRestored = (restoring: {
   if (promise === undefined) {
     promise = new Promise<void>((resolve) => {
       const unsubscribe = restoring.subscribe(() => {
-        if (restoring.isRestoring()) return;
+        if (restoring.isRestoring()) {
+          return;
+        }
         unsubscribe();
         restored.delete(restoring);
         resolve();
@@ -97,9 +107,15 @@ export const shouldThrow = <B, E>(
   },
   boundary: QueryErrorResetBoundaryValue,
 ): result is QueryResult.Failure<B, E> => {
-  if (result.status !== "error" || result.isFetching || boundary.isReset()) return false;
-  if (QueryResult.isDefect(result)) return true;
-  if (options.suspense && Option.isNone(result.data)) return true;
+  if (result.status !== "error" || result.isFetching || boundary.isReset()) {
+    return false;
+  }
+  if (QueryResult.isDefect(result)) {
+    return true;
+  }
+  if (options.suspense && Option.isNone(result.data)) {
+    return true;
+  }
   const error = Option.getOrThrow(result.error);
   const { throwOnError } = options;
   return typeof throwOnError === "function" ? throwOnError(error) : throwOnError === true;
@@ -116,12 +132,20 @@ const wouldThrowCached = <A, E, B>(
     readonly cached?: QueryResult.QueryResult<unknown, E> | undefined;
   },
 ): boolean => {
-  if (mode.suspense) return true;
+  if (mode.suspense) {
+    return true;
+  }
   const { throwOnError } = options;
-  if (typeof throwOnError !== "function") return throwOnError === true;
+  if (typeof throwOnError !== "function") {
+    return throwOnError === true;
+  }
   const cached = mode.cached;
-  if (cached === undefined || cached.status !== "error") return false;
-  if (QueryResult.isDefect(cached)) return true;
+  if (cached === undefined || cached.status !== "error") {
+    return false;
+  }
+  if (QueryResult.isDefect(cached)) {
+    return true;
+  }
   return throwOnError(Option.getOrThrow(cached.error));
 };
 
@@ -143,7 +167,9 @@ export const adjustOptions = <A, E, B>(
 ): QueryObserver.Options<A, B> => {
   let adjusted: QueryObserver.Options<A, B> = options;
   // Suspense queries always run: a disabled one could never produce data.
-  if (mode.suspense) adjusted = { ...adjusted, enabled: true };
+  if (mode.suspense) {
+    adjusted = { ...adjusted, enabled: true };
+  }
   // Only an error that was (or would be) thrown to a boundary blocks the mount
   // retry (TanStack's ensurePreventErrorBoundaryRetry).
   if (!boundary.isReset() && wouldThrowCached(options, mode)) {
@@ -222,7 +248,9 @@ export const useBaseQuery = <A, E, B, V extends object = QueryResult.QueryResult
       (onStoreChange) => {
         const check = (mode?: "force" | "subscribe") => {
           const t = state.current!;
-          if (mode === undefined && t.observedVersion === observer.version) return;
+          if (mode === undefined && t.observedVersion === observer.version) {
+            return;
+          }
           const previous = t.view;
           const next = t.derive(observer.getCurrentResult(), observer);
           const props = t.notifyOnChangeProps;
@@ -269,7 +297,9 @@ export const useBaseQuery = <A, E, B, V extends object = QueryResult.QueryResult
   }
   if (suspense && Option.isNone(result.data) && (result.isPending || result.isFetching)) {
     const fiber = observer.fetchOptimistic(query, observerOptions);
-    if (fiber !== undefined) throw suspendOn(fiber);
+    if (fiber !== undefined) {
+      throw suspendOn(fiber);
+    }
   }
   if (shouldThrow(result, { suspense, throwOnError: options.throwOnError }, boundary)) {
     throwResult(result);
@@ -282,7 +312,9 @@ export const useBaseQuery = <A, E, B, V extends object = QueryResult.QueryResult
 
   // Throwing to a boundary / suspending depends on these, read or not.
   if (suspense || options.throwOnError) {
-    for (const key of throwProps) tracking.tracked.add(key);
+    for (const key of throwProps) {
+      tracking.tracked.add(key);
+    }
   }
   const derived = derive(result, observer);
   const view =

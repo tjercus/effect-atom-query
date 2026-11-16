@@ -16,7 +16,9 @@ const todosQuery = Query.single({ key: ["todos"], run: TodoRepo.use((repo) => re
 
 function Todos() {
   const todos = useQuery(todosQuery)
-  if (!todos.isSuccess) return <p>Loading…</p>
+  if (!todos.isSuccess) {
+    return <p>Loading…</p>
+  }
   return <ul>{todos.data.value.map((t) => <li key={t.id}>{t.title}</li>)}</ul>
 }
 

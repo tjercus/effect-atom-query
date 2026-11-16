@@ -211,7 +211,9 @@ export const nextPageParam = <Page, Param>(
   data: InfiniteData<Page, Param>,
 ): Option.Option<Param> => {
   const last = data.pages.length - 1;
-  if (last < 0) return Option.none();
+  if (last < 0) {
+    return Option.none();
+  }
   return config.getNextPageParam(
     data.pages[last]!,
     data.pages,
@@ -230,7 +232,9 @@ export const previousPageParam = <Page, Param>(
   config: Config<Page, Param>,
   data: InfiniteData<Page, Param>,
 ): Option.Option<Param> => {
-  if (config.getPreviousPageParam === undefined || data.pages.length === 0) return Option.none();
+  if (config.getPreviousPageParam === undefined || data.pages.length === 0) {
+    return Option.none();
+  }
   return config.getPreviousPageParam(
     data.pages[0]!,
     data.pages,
@@ -281,7 +285,9 @@ export const behavior =
           direction === "forward"
             ? nextPageParam(config, current)
             : previousPageParam(config, current);
-        if (Option.isNone(param)) return current;
+        if (Option.isNone(param)) {
+          return current;
+        }
         const page = yield* fetchPage(param.value);
         return direction === "forward"
           ? append(current, page, param.value, config.maxPages)

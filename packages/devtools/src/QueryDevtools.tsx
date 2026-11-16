@@ -331,7 +331,9 @@ class PanelBoundary extends React.Component<
     return { error };
   }
   override render() {
-    if (this.state.error === undefined) return this.props.children;
+    if (this.state.error === undefined) {
+      return this.props.children;
+    }
     return (
       <div style={{ ...styles.panel, ...this.props.style, padding: 8 }} role="alert">
         <strong>effect-atom-query devtools crashed</strong>
@@ -370,11 +372,14 @@ const Panel = ({
     const needle = filter.trim().toLowerCase();
     const list = queries.filter((q) => needle === "" || q.hash.toLowerCase().includes(needle));
     return list.slice().sort((a, b) => {
-      if (sort === "key") return a.hash.localeCompare(b.hash);
-      if (sort === "updated")
+      if (sort === "key") {
+        return a.hash.localeCompare(b.hash);
+      }
+      if (sort === "updated") {
         return (
           Option.getOrElse(b.dataUpdatedAt, () => 0) - Option.getOrElse(a.dataUpdatedAt, () => 0)
         );
+      }
       return labelOrder[queryLabel(a)] - labelOrder[queryLabel(b)] || a.hash.localeCompare(b.hash);
     });
   }, [queries, filter, sort]);
@@ -402,7 +407,9 @@ const Panel = ({
       stale: 0,
       inactive: 0,
     };
-    for (const q of queries) c[queryLabel(q)]++;
+    for (const q of queries) {
+      c[queryLabel(q)]++;
+    }
     return c;
   }, [queries]);
 

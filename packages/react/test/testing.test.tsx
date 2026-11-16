@@ -40,13 +40,19 @@ const harness = <R, E>(options?: Parameters<typeof makeTestHarness<R, E>>[0]) =>
   return h;
 };
 afterEach(async () => {
-  for (const h of harnesses.splice(0)) await h.dispose();
+  for (const h of harnesses.splice(0)) {
+    await h.dispose();
+  }
 });
 
 function Todos() {
   const todos = useQuery(todosQuery);
-  if (todos.isPending) return <p>Loading…</p>;
-  if (todos.isError) return <p>Failed</p>;
+  if (todos.isPending) {
+    return <p>Loading…</p>;
+  }
+  if (todos.isError) {
+    return <p>Failed</p>;
+  }
   return <p>{todos.data.value.join(", ")}</p>;
 }
 

@@ -17,8 +17,12 @@ const characterQuery = Query.make({
 
 function Character({ id }: { readonly id: number }) {
   const character = useQuery(characterQuery(id));
-  if (character.isPending) return <p>Loading... (800 ms without prefetching)</p>;
-  if (character.isError) return <p>Error: {errorMessage(character)}</p>;
+  if (character.isPending) {
+    return <p>Loading... (800 ms without prefetching)</p>;
+  }
+  if (character.isError) {
+    return <p>Error: {errorMessage(character)}</p>;
+  }
   const { name, species, homeworld } = character.data.value;
   return (
     <div>

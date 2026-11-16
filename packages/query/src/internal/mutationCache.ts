@@ -60,7 +60,9 @@ export class MutationCache {
       },
       // Forget idle scopes, so per-input scope ids do not accumulate.
       releaseScope: (id) => {
-        if (this.scopes.get(id)?.running === 0) this.scopes.delete(id);
+        if (this.scopes.get(id)?.running === 0) {
+          this.scopes.delete(id);
+        }
       },
       onChange: () => this.notifyChange(),
       remove: (entry) => this.remove(entry),
@@ -75,26 +77,37 @@ export class MutationCache {
   }
 
   notifyChange(): void {
-    if (this.notifyScheduled || this.listeners.size === 0) return;
+    if (this.notifyScheduled || this.listeners.size === 0) {
+      return;
+    }
     this.notifyScheduled = true;
     queueMicrotask(() => {
       this.notifyScheduled = false;
-      for (const listener of Array.from(this.listeners)) listener();
+      for (const listener of Array.from(this.listeners)) {
+        listener();
+      }
     });
   }
 
   setDefaults(key: MutationKey, options: MutationOptions<any, any, any, any, any>): void {
     const index = this.defaults.findIndex(([k]) => keyEquals(k, key));
-    if (index >= 0) this.defaults[index] = [key, options];
-    else this.defaults.push([key, options]);
+    if (index >= 0) {
+      this.defaults[index] = [key, options];
+    } else {
+      this.defaults.push([key, options]);
+    }
   }
 
   /** Defaults of every `setMutationDefaults` key that prefix-matches `key`, merged in order. */
   defaultsFor(key: MutationKey | undefined): MutationOptions<any, any, any, any, any> {
-    if (key === undefined) return {};
+    if (key === undefined) {
+      return {};
+    }
     let merged: MutationOptions<any, any, any, any, any> = {};
     for (const [k, options] of this.defaults) {
-      if (keyMatches(key, k)) merged = { ...merged, ...options };
+      if (keyMatches(key, k)) {
+        merged = { ...merged, ...options };
+      }
     }
     return merged;
   }
@@ -145,12 +158,16 @@ export class MutationCache {
   }
 
   clear(): void {
-    for (const entry of this.all()) this.remove(entry);
+    for (const entry of this.all()) {
+      this.remove(entry);
+    }
   }
 
   /** The client is shutting down: forget everything and interrupt what is running. */
   dispose(): void {
-    for (const entry of this.all()) this.remove(entry, { interrupt: true });
+    for (const entry of this.all()) {
+      this.remove(entry, { interrupt: true });
+    }
   }
 }
 
@@ -168,13 +185,22 @@ export const matchMutation = (
   entry: MutationEntry<any, any, any, any>,
 ): boolean => {
   const { mutationKey, exact, status, mutation, predicate } = filters;
-  if (mutation !== undefined && entry.source !== mutation) return false;
-  if (mutationKey !== undefined) {
-    if (entry.key === undefined) return false;
-    if (exact ? !keyEquals(entry.key, mutationKey) : !keyMatches(entry.key, mutationKey))
-      return false;
+  if (mutation !== undefined && entry.source !== mutation) {
+    return false;
   }
-  if (status !== undefined && entry.state.status !== status) return false;
-  if (predicate !== undefined && !predicate(entry)) return false;
+  if (mutationKey !== undefined) {
+    if (entry.key === undefined) {
+      return false;
+    }
+    if (exact ? !keyEquals(entry.key, mutationKey) : !keyMatches(entry.key, mutationKey)) {
+      return false;
+    }
+  }
+  if (status !== undefined && entry.state.status !== status) {
+    return false;
+  }
+  if (predicate !== undefined && !predicate(entry)) {
+    return false;
+  }
   return true;
 };

@@ -387,7 +387,9 @@ describe("mutations", () => {
         scope: (id: string) => `doc-${id}`,
         run: (title: string) => Effect.as(Effect.void, title),
       });
-      for (const id of ["a", "b", "c"]) yield* client.mutate(save, id);
+      for (const id of ["a", "b", "c"]) {
+        yield* client.mutate(save, id);
+      }
       expect(
         (client.mutationCache as unknown as { scopes: Map<string, unknown> }).scopes.size,
       ).toBe(0);

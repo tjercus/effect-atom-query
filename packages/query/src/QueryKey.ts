@@ -103,11 +103,17 @@ const isPlainContainer = (u: unknown): u is Record<PropertyKey, unknown> =>
     (Object.getPrototypeOf(u) === Object.prototype || Object.getPrototypeOf(u) === null));
 
 const partialMatch = (a: unknown, b: unknown): boolean => {
-  if (a === b) return true;
+  if (a === b) {
+    return true;
+  }
   if (isPlainContainer(a) && isPlainContainer(b)) {
-    if (Array.isArray(a) !== Array.isArray(b)) return false;
+    if (Array.isArray(a) !== Array.isArray(b)) {
+      return false;
+    }
     for (const k of Object.keys(b)) {
-      if (!partialMatch(a[k], b[k])) return false;
+      if (!partialMatch(a[k], b[k])) {
+        return false;
+      }
     }
     return true;
   }
@@ -131,14 +137,22 @@ export const toJsonKey = (key: QueryKey | ReadonlyArray<unknown>): string =>
 
 const canonical = (u: unknown): unknown => {
   // JSON has no bigint; tag it so it neither throws nor collides with strings.
-  if (typeof u === "bigint") return { "~bigint": u.toString() };
+  if (typeof u === "bigint") {
+    return { "~bigint": u.toString() };
+  }
   // JSON drops `undefined` properties and turns array holes into `null`,
   // which would merge keys the cache keeps apart.
-  if (u === undefined) return { "~undefined": true };
-  if (Array.isArray(u)) return u.map(canonical);
+  if (u === undefined) {
+    return { "~undefined": true };
+  }
+  if (Array.isArray(u)) {
+    return u.map(canonical);
+  }
   if (isPlainContainer(u)) {
     const out: Record<string, unknown> = {};
-    for (const k of Object.keys(u).sort()) out[k] = canonical(u[k]);
+    for (const k of Object.keys(u).sort()) {
+      out[k] = canonical(u[k]);
+    }
     return out;
   }
   return u;

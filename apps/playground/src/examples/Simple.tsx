@@ -9,8 +9,12 @@ const repoQuery = Query.single({
 
 function Simple() {
   const repo = useQuery(repoQuery);
-  if (repo.isPending) return <p>Loading...</p>;
-  if (repo.isError) return <p>An error has occurred</p>;
+  if (repo.isPending) {
+    return <p>Loading...</p>;
+  }
+  if (repo.isError) {
+    return <p>An error has occurred</p>;
+  }
   const { name, stars, forks, watchers } = repo.data.value;
   return (
     <div>

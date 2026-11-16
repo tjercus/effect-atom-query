@@ -14,6 +14,7 @@ export default defineConfig({
       "vite-plus/prefer-vite-plus-imports": "error",
       // One true brace style: https://eslint.style/rules/brace-style
       "@stylistic/brace-style": ["error", "1tbs"],
+      curly: ["error", "all"],
     },
     options: { typeAware: true, typeCheck: true },
   },

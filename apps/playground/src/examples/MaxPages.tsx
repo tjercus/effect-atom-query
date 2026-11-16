@@ -13,8 +13,12 @@ const feedQuery = InfiniteQuery.make({
 
 function MaxPages() {
   const feed = useInfiniteQuery(feedQuery());
-  if (feed.isPending) return <p>Loading...</p>;
-  if (feed.isError) return <p>Error: {errorMessage(feed)}</p>;
+  if (feed.isPending) {
+    return <p>Loading...</p>;
+  }
+  if (feed.isError) {
+    return <p>Error: {errorMessage(feed)}</p>;
+  }
   const { pages, pageParams } = feed.data.value;
   return (
     <div>

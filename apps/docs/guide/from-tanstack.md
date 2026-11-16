@@ -83,7 +83,9 @@ awaited submit handler, `useRunEffect` turns an Effect into one at that edge:
 const run = useRunEffect();
 const onSubmit = async (todo: Todo) => {
   const exit = await run.promiseExit(save.mutateEffect(todo)); // never rejects
-  if (Exit.isSuccess(exit)) navigate("/todos");
+  if (Exit.isSuccess(exit)) {
+    navigate("/todos");
+  }
 };
 ```
 
@@ -96,7 +98,9 @@ See [Promise boundaries](./promises), also for route loaders.
 
 ```ts
 const titles = Option.getOrElse(result.data, () => []);
-if (Option.isSome(result.error)) showError(result.error.value);
+if (Option.isSome(result.error)) {
+  showError(result.error.value);
+}
 ```
 
 `error` holds only the query's typed failures. Defects (bugs, `Effect.die`)

@@ -313,7 +313,9 @@ export const make: (options?: Options) => Effect.Effect<Service, never, Scope.Sc
     let restoringCount = 0;
     const restoringListeners = new Set<() => void>();
     const notifyRestoring = () => {
-      for (const listener of Array.from(restoringListeners)) listener();
+      for (const listener of Array.from(restoringListeners)) {
+        listener();
+      }
     };
     const restoring: ClientRuntime["restoring"] = {
       isRestoring: () => restoringCount > 0,
@@ -325,13 +327,21 @@ export const make: (options?: Options) => Effect.Effect<Service, never, Scope.Sc
       },
       start: () => {
         restoringCount++;
-        if (restoringCount === 1) notifyRestoring();
+        if (restoringCount === 1) {
+          notifyRestoring();
+        }
       },
       finish: () => {
-        if (restoringCount === 0) return;
+        if (restoringCount === 0) {
+          return;
+        }
         restoringCount--;
-        if (restoringCount > 0) return;
-        for (const entry of cache.all()) entry.onRestored();
+        if (restoringCount > 0) {
+          return;
+        }
+        for (const entry of cache.all()) {
+          entry.onRestored();
+        }
         notifyRestoring();
       },
     };
@@ -341,8 +351,11 @@ export const make: (options?: Options) => Effect.Effect<Service, never, Scope.Sc
     const runtime: ClientRuntime = {
       defaultsFor: (key) => {
         let merged: QueryOptions<unknown> = clientDefaults;
-        for (const [k, o] of queryDefaults)
-          if (QueryKey.matches(key, k)) merged = { ...merged, ...o };
+        for (const [k, o] of queryDefaults) {
+          if (QueryKey.matches(key, k)) {
+            merged = { ...merged, ...o };
+          }
+        }
         return merged;
       },
       now: () => clock.currentTimeMillisUnsafe(),
@@ -389,7 +402,9 @@ export const make: (options?: Options) => Effect.Effect<Service, never, Scope.Sc
       Effect.flatMap(Fiber.await(fiber), (exit): Effect.Effect<A, E> => {
         if (Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)) {
           const successor = entry.successorOf(fiber);
-          if (successor !== undefined) return awaitFetch(entry, successor);
+          if (successor !== undefined) {
+            return awaitFetch(entry, successor);
+          }
         }
         return exit;
       });
@@ -400,7 +415,9 @@ export const make: (options?: Options) => Effect.Effect<Service, never, Scope.Sc
     const ensureQueryData: Service["ensureQueryData"] = (query, options) =>
       Effect.suspend(() => {
         const entry = cache.build(query);
-        if (Option.isNone(entry.state.data)) return fetchEntry(query, options);
+        if (Option.isNone(entry.state.data)) {
+          return fetchEntry(query, options);
+        }
         const data = entry.state.data.value;
         const staleTime =
           options?.staleTime === undefined
@@ -445,9 +462,13 @@ export const make: (options?: Options) => Effect.Effect<Service, never, Scope.Sc
     const invalidateQueries: Service["invalidateQueries"] = (filters, options) =>
       Effect.suspend(() => {
         const entries = cache.findAll(filters);
-        for (const entry of entries) entry.invalidate();
+        for (const entry of entries) {
+          entry.invalidate();
+        }
         const refetchType = options?.refetchType ?? "active";
-        if (refetchType === "none") return Effect.void;
+        if (refetchType === "none") {
+          return Effect.void;
+        }
         const toRefetch = entries.filter((entry) =>
           refetchType === "all"
             ? true
@@ -461,7 +482,9 @@ export const make: (options?: Options) => Effect.Effect<Service, never, Scope.Sc
     const resetQueries: Service["resetQueries"] = (filters, options) =>
       Effect.suspend(() => {
         const entries = cache.findAll(filters);
-        for (const entry of entries) entry.reset();
+        for (const entry of entries) {
+          entry.reset();
+        }
         return refetchEntries(
           entries.filter((entry) => entry.isActive),
           options?.cancelRefetch ?? true,
@@ -504,7 +527,9 @@ export const make: (options?: Options) => Effect.Effect<Service, never, Scope.Sc
         typeof updater === "function"
           ? (updater as (previous: Option.Option<A>) => Option.Option<A>)(entry.state.data)
           : Option.some(updater);
-      if (Option.isSome(next)) entry.setData(next.value, options?.updatedAt);
+      if (Option.isSome(next)) {
+        entry.setData(next.value, options?.updatedAt);
+      }
       return entry.state.data;
     };
 
@@ -534,7 +559,9 @@ export const make: (options?: Options) => Effect.Effect<Service, never, Scope.Sc
 
     const removeQueries: Service["removeQueries"] = (filters) =>
       Effect.sync(() => {
-        for (const entry of cache.findAll(filters)) cache.remove(entry);
+        for (const entry of cache.findAll(filters)) {
+          cache.remove(entry);
+        }
         dropPreloaded(filters);
       });
 
@@ -543,7 +570,9 @@ export const make: (options?: Options) => Effect.Effect<Service, never, Scope.Sc
      * removing matching queries removes it too, so it is not written back.
      */
     const dropPreloaded = (filters?: QueryFilters) => {
-      if (filters?.predicate !== undefined || filters?.type === "active") return;
+      if (filters?.predicate !== undefined || filters?.type === "active") {
+        return;
+      }
       for (const [jsonKey, preloaded] of runtime.preloaded) {
         const key = preloaded.queryKey as QueryKey.QueryKey;
         const matches =
@@ -552,7 +581,9 @@ export const make: (options?: Options) => Effect.Effect<Service, never, Scope.Sc
             (filters.exact
               ? QueryKey.equals(key, filters.queryKey)
               : QueryKey.matches(key, filters.queryKey)));
-        if (matches) runtime.preloaded.delete(jsonKey);
+        if (matches) {
+          runtime.preloaded.delete(jsonKey);
+        }
       }
     };
 
@@ -561,9 +592,13 @@ export const make: (options?: Options) => Effect.Effect<Service, never, Scope.Sc
     const setQueryDefaults: Service["setQueryDefaults"] = (key, defaults) =>
       Effect.sync(() => {
         const index = queryDefaults.findIndex(([k]) => QueryKey.equals(k, key));
-        if (index >= 0) queryDefaults.splice(index, 1);
+        if (index >= 0) {
+          queryDefaults.splice(index, 1);
+        }
         queryDefaults.push([key, defaults]);
-        for (const entry of cache.findAll({ queryKey: key })) entry.refreshOptions();
+        for (const entry of cache.findAll({ queryKey: key })) {
+          entry.refreshOptions();
+        }
       });
 
     const getQueryDefaults: Service["getQueryDefaults"] = (key) =>
@@ -599,7 +634,9 @@ export const make: (options?: Options) => Effect.Effect<Service, never, Scope.Sc
 
     const resumePausedMutations: Service["resumePausedMutations"] = Effect.suspend(() => {
       const fibers = mutationCache.all().flatMap((entry) => {
-        if (!entry.isAwaitingResume) return [];
+        if (!entry.isAwaitingResume) {
+          return [];
+        }
         const fiber = entry.resume();
         return fiber === undefined ? [] : [fiber];
       });
@@ -644,10 +681,18 @@ export const make: (options?: Options) => Effect.Effect<Service, never, Scope.Sc
 
     // Like TanStack's `QueryClient.mount()`: listen while the client lives.
     const unsubscribeFocus = focus.subscribe((focused) => {
-      if (focused) for (const entry of cache.all()) entry.onWindowFocus();
+      if (focused) {
+        for (const entry of cache.all()) {
+          entry.onWindowFocus();
+        }
+      }
     });
     const unsubscribeOnline = online.subscribe((isOnline) => {
-      if (isOnline) for (const entry of cache.all()) entry.onReconnect();
+      if (isOnline) {
+        for (const entry of cache.all()) {
+          entry.onReconnect();
+        }
+      }
     });
     yield* Effect.addFinalizer(() =>
       Effect.sync(() => {
@@ -721,7 +766,9 @@ export const initialValue = (
  */
 export const fromAtomContext = (get: { get<A>(atom: Atom.Atom<A>): A }): Service => {
   const client = get.get(current);
-  if (Option.isNone(client)) throw new MissingQueryClientError();
+  if (Option.isNone(client)) {
+    throw new MissingQueryClientError();
+  }
   return client.value;
 };
 

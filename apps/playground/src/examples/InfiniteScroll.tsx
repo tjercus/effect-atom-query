@@ -21,9 +21,13 @@ const useInView = (onVisible: () => void, deps: ReadonlyArray<unknown>) => {
   callback.current = onVisible;
   useEffect(() => {
     const el = ref.current;
-    if (el === null) return;
+    if (el === null) {
+      return;
+    }
     const observer = new IntersectionObserver((entries) => {
-      if (entries.some((e) => e.isIntersecting)) callback.current();
+      if (entries.some((e) => e.isIntersecting)) {
+        callback.current();
+      }
     });
     observer.observe(el);
     return () => observer.disconnect();
@@ -36,11 +40,17 @@ function InfiniteScroll() {
   const feed = useInfiniteQuery(feedQuery());
   const pages = feed.isSuccess ? feed.data.value.pages.length : 0;
   const sentinel = useInView(() => {
-    if (feed.hasNextPage && !feed.isFetching) feed.fetchNextPage();
+    if (feed.hasNextPage && !feed.isFetching) {
+      feed.fetchNextPage();
+    }
   }, [pages, feed.isFetching]);
 
-  if (feed.isPending) return <p>Loading...</p>;
-  if (feed.isError) return <p>Error: {errorMessage(feed)}</p>;
+  if (feed.isPending) {
+    return <p>Loading...</p>;
+  }
+  if (feed.isError) {
+    return <p>Error: {errorMessage(feed)}</p>;
+  }
   return (
     <div>
       <button

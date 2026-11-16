@@ -39,7 +39,9 @@ function OptimisticUi() {
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          if (text.trim() !== "") add.mutate(text.trim());
+          if (text.trim() !== "") {
+            add.mutate(text.trim());
+          }
         }}
       >
         <input aria-label="todo" value={text} onChange={(e) => setText(e.target.value)} />{" "}

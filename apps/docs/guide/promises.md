@@ -25,8 +25,11 @@ function EditPost({ post }: { readonly post: Post }) {
     defaultValues: post,
     onSubmit: async ({ value }) => {
       const exit = await run.promiseExit(save.mutateEffect(value));
-      if (Exit.isSuccess(exit)) navigate(`/posts/${exit.value.id}`);
-      else setFormError(Cause.pretty(exit.cause));
+      if (Exit.isSuccess(exit)) {
+        navigate(`/posts/${exit.value.id}`);
+      } else {
+        setFormError(Cause.pretty(exit.cause));
+      }
     },
   });
   return <SubmitButton busy={save.isPending} />;

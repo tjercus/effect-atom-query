@@ -25,7 +25,9 @@ const setup = () => {
 };
 afterEach(async () => {
   vi.restoreAllMocks();
-  for (const dispose of disposers.splice(0)) await dispose();
+  for (const dispose of disposers.splice(0)) {
+    await dispose();
+  }
 });
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));

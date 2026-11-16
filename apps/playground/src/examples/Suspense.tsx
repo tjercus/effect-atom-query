@@ -51,7 +51,9 @@ class ErrorBoundary extends Component<
     return { error };
   }
   override render() {
-    if (this.state.error === undefined) return this.props.children;
+    if (this.state.error === undefined) {
+      return this.props.children;
+    }
     return (
       <div style={{ color: "#dc2626" }}>
         <p>

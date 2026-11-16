@@ -32,7 +32,9 @@ export const setup = (options?: QueryClient.Options) =>
       scheduleTask: (f) => {
         let cancelled = false;
         queueMicrotask(() => {
-          if (!cancelled) f();
+          if (!cancelled) {
+            f();
+          }
         });
         return () => {
           cancelled = true;

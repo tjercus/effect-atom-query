@@ -145,7 +145,9 @@ export const ApiClientLive = Layer.effect(
       request: (method, path, { body, parse }) =>
         Effect.gen(function* () {
           let request = HttpClientRequest.make(method)(path);
-          if (body !== undefined) request = HttpClientRequest.bodyJsonUnsafe(request, body);
+          if (body !== undefined) {
+            request = HttpClientRequest.bodyJsonUnsafe(request, body);
+          }
           const response = yield* http
             .execute(request)
             .pipe(
@@ -157,7 +159,9 @@ export const ApiClientLive = Layer.effect(
               message: `Request failed with status ${response.status}`,
             });
           }
-          if (response.status === 204) return parse(null);
+          if (response.status === 204) {
+            return parse(null);
+          }
           const json = yield* response.json.pipe(
             Effect.mapError(
               () =>
@@ -298,8 +302,10 @@ TypeScript narrows `data`:
 ```tsx
 function PostTitle({ id }: { id: number }) {
   const post = usePostQuery(id);
-  if (post.isPending) return <p>Loading…</p>;
-  if (post.isError)
+  if (post.isPending) {
+    return <p>Loading…</p>;
+  }
+  if (post.isError) {
     return (
       <p>
         {Option.match(post.error, {
@@ -308,6 +314,7 @@ function PostTitle({ id }: { id: number }) {
         })}
       </p>
     );
+  }
   return <h1>{post.data.value.title}</h1>;
 }
 ```
@@ -352,8 +359,11 @@ const submit = async (next: Post) => {
   const exit = await run.promiseExit(
     mode === "edit" ? update.mutateEffect(next) : create.mutateEffect(next),
   );
-  if (Exit.isSuccess(exit)) onDone(exit.value);
-  else setFormError(Cause.pretty(exit.cause));
+  if (Exit.isSuccess(exit)) {
+    onDone(exit.value);
+  } else {
+    setFormError(Cause.pretty(exit.cause));
+  }
 };
 ```
 

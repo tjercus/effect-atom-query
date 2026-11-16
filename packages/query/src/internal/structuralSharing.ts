@@ -5,9 +5,13 @@
  * @internal
  */
 export const replaceEqualDeep = <T>(a: unknown, b: T): T => {
-  if (a === b) return a as T;
+  if (a === b) {
+    return a as T;
+  }
   const array = isPlainArray(a) && isPlainArray(b);
-  if (!array && !(isPlainObject(a) && isPlainObject(b))) return b;
+  if (!array && !(isPlainObject(a) && isPlainObject(b))) {
+    return b;
+  }
 
   const prev = a as Record<PropertyKey, unknown>;
   const next = b as Record<PropertyKey, unknown>;
@@ -27,7 +31,9 @@ export const replaceEqualDeep = <T>(a: unknown, b: T): T => {
       equalItems++;
     } else {
       copy[key] = replaceEqualDeep(prev[key], next[key]);
-      if (copy[key] === prev[key] && prev[key] !== undefined) equalItems++;
+      if (copy[key] === prev[key] && prev[key] !== undefined) {
+        equalItems++;
+      }
     }
   }
   return (aItems.length === bItems.length && equalItems === aItems.length ? a : copy) as T;
@@ -37,7 +43,9 @@ const isPlainArray = (u: unknown): u is Array<unknown> =>
   Array.isArray(u) && u.length === Object.keys(u).length;
 
 const isPlainObject = (u: unknown): u is Record<PropertyKey, unknown> => {
-  if (Object.prototype.toString.call(u) !== "[object Object]") return false;
+  if (Object.prototype.toString.call(u) !== "[object Object]") {
+    return false;
+  }
   const proto = Object.getPrototypeOf(u);
   return proto === null || proto === Object.prototype;
 };

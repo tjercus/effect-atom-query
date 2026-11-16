@@ -170,10 +170,14 @@ export class MutationEntry<I, A, E, C> {
     this.cancelGc();
     let released = false;
     return () => {
-      if (released) return;
+      if (released) {
+        return;
+      }
       released = true;
       this.observers--;
-      if (this.observers === 0 && this.isSettled) this.scheduleGc();
+      if (this.observers === 0 && this.isSettled) {
+        this.scheduleGc();
+      }
     };
   }
 
@@ -187,7 +191,9 @@ export class MutationEntry<I, A, E, C> {
 
   private setState(f: (s: MutationState<I, A, E, C>) => MutationState<I, A, E, C>): void {
     this.state = f(this.state);
-    for (const listener of Array.from(this.listeners)) listener();
+    for (const listener of Array.from(this.listeners)) {
+      listener();
+    }
     this.runtime.onChange();
   }
 
@@ -209,9 +215,13 @@ export class MutationEntry<I, A, E, C> {
 
   /** Run a restored execution with its stored variables. */
   resume(): Fiber.Fiber<A, E> | undefined {
-    if (!this.awaitingResume || Option.isNone(this.state.variables)) return this.fiber;
+    if (!this.awaitingResume || Option.isNone(this.state.variables)) {
+      return this.fiber;
+    }
     this.awaitingResume = false;
-    if (this.fiber !== undefined) return this.fiber;
+    if (this.fiber !== undefined) {
+      return this.fiber;
+    }
     // Restored: `onMutate` already ran before the reload (its effects, e.g. an
     // optimistic write, were persisted), so it is skipped, as in TanStack.
     this.fiber = this.runtime.client.runFork(
@@ -222,7 +232,9 @@ export class MutationEntry<I, A, E, C> {
 
   /** Start executing. Returns the fiber settling with the mutation's outcome. */
   execute(input: I, context?: Context.Context<any>): Fiber.Fiber<A, E> {
-    if (this.fiber !== undefined) return this.fiber;
+    if (this.fiber !== undefined) {
+      return this.fiber;
+    }
     this.fiber = this.runtime.client.runFork(this.program(input), context);
     return this.fiber;
   }
@@ -247,29 +259,40 @@ export class MutationEntry<I, A, E, C> {
 
       const context: Option.Option<C> =
         options.onMutate && !restored ? Option.some(yield* options.onMutate(input)) : Option.none();
-      if (Option.isSome(context)) this.setState((s) => ({ ...s, context }));
+      if (Option.isSome(context)) {
+        this.setState((s) => ({ ...s, context }));
+      }
 
       const exit = yield* Effect.exit(this.runScoped(input, run));
 
       if (Exit.isSuccess(exit)) {
         const data = exit.value;
         this.setState((s) => ({ ...s, ranAt: this.runtime.client.now() }));
-        if (options.onSuccess) yield* options.onSuccess(data, input, context);
+        if (options.onSuccess) {
+          yield* options.onSuccess(data, input, context);
+        }
         const keys =
           typeof options.invalidates === "function"
             ? options.invalidates(data, input)
             : options.invalidates;
-        if (keys !== undefined && keys.length > 0) yield* this.runtime.invalidate(keys);
+        if (keys !== undefined && keys.length > 0) {
+          yield* this.runtime.invalidate(keys);
+        }
         const reactivityKeys =
           typeof options.reactivityKeys === "function"
             ? options.reactivityKeys(data, input)
             : options.reactivityKeys;
-        if (reactivityKeys !== undefined)
+        if (reactivityKeys !== undefined) {
           this.runtime.client.reactivity?.invalidateUnsafe(reactivityKeys);
+        }
       } else if (!Cause.hasInterruptsOnly(exit.cause)) {
-        if (options.onError) yield* options.onError(exit.cause, input, context);
+        if (options.onError) {
+          yield* options.onError(exit.cause, input, context);
+        }
       }
-      if (options.onSettled) yield* options.onSettled(exit, input, context);
+      if (options.onSettled) {
+        yield* options.onSettled(exit, input, context);
+      }
       return yield* exit;
     }).pipe(Effect.onExit((exit) => Effect.sync(() => this.onExit(exit))));
   }
@@ -301,16 +324,22 @@ export class MutationEntry<I, A, E, C> {
 
     const scopeOption = this.options.scope;
     const scopeId = typeof scopeOption === "function" ? scopeOption(input) : scopeOption;
-    if (scopeId === undefined) return withRetry;
+    if (scopeId === undefined) {
+      return withRetry;
+    }
     const scope = this.runtime.scope(scopeId);
     return Effect.suspend(() => {
       // Queued behind another mutation of the same scope: show as paused.
-      if (scope.running > 0) this.setState((s) => ({ ...s, isPaused: true }));
+      if (scope.running > 0) {
+        this.setState((s) => ({ ...s, isPaused: true }));
+      }
       scope.running++;
       return scope.semaphore.withPermit(
         Effect.andThen(
           Effect.sync(() => {
-            if (this.state.isPaused) this.setState((s) => ({ ...s, isPaused: false }));
+            if (this.state.isPaused) {
+              this.setState((s) => ({ ...s, isPaused: false }));
+            }
           }),
           withRetry,
         ),
@@ -328,11 +357,15 @@ export class MutationEntry<I, A, E, C> {
   private pauseWhileOffline(): Effect.Effect<void> {
     const online = this.runtime.client.online;
     return Effect.suspend(() => {
-      if (online.isOnline()) return Effect.void;
+      if (online.isOnline()) {
+        return Effect.void;
+      }
       this.setState((s) => ({ ...s, isPaused: true }));
       return Effect.callback<void>((resume) => {
         const unsubscribe = online.subscribe((isOnline) => {
-          if (!isOnline) return;
+          if (!isOnline) {
+            return;
+          }
           unsubscribe();
           resume(Effect.void);
         });
@@ -367,19 +400,25 @@ export class MutationEntry<I, A, E, C> {
         isPaused: false,
       }));
     }
-    if (this.observers === 0) this.scheduleGc();
+    if (this.observers === 0) {
+      this.scheduleGc();
+    }
   }
 
   private scheduleGc(): void {
     this.cancelGc();
     const gcTime = Duration.fromInputUnsafe(this.options.gcTime ?? "5 minutes");
-    if (this.removed || !Duration.isFinite(gcTime)) return;
+    if (this.removed || !Duration.isFinite(gcTime)) {
+      return;
+    }
     this.gcFiber = this.runtime.client.runFork(
       Effect.sleep(gcTime).pipe(
         Effect.andThen(
           Effect.sync(() => {
             this.gcFiber = undefined;
-            if (this.observers === 0 && this.isSettled) this.runtime.remove(this);
+            if (this.observers === 0 && this.isSettled) {
+              this.runtime.remove(this);
+            }
           }),
         ),
       ),
@@ -402,10 +441,16 @@ export class MutationEntry<I, A, E, C> {
    * set, as when the client shuts down.
    */
   dispose(options?: { readonly interrupt?: boolean | undefined }): void {
-    if (this.removed) return;
+    if (this.removed) {
+      return;
+    }
     this.removed = true;
     this.cancelGc();
-    if (options?.interrupt) this.fiber?.interruptUnsafe();
-    for (const listener of Array.from(this.listeners)) listener();
+    if (options?.interrupt) {
+      this.fiber?.interruptUnsafe();
+    }
+    for (const listener of Array.from(this.listeners)) {
+      listener();
+    }
   }
 }

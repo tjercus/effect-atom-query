@@ -12,7 +12,9 @@ const makeClient = () => {
   return runtime.runSync(QueryClient.QueryClient);
 };
 afterEach(async () => {
-  for (const runtime of runtimes.splice(0)) await runtime.dispose();
+  for (const runtime of runtimes.splice(0)) {
+    await runtime.dispose();
+  }
 });
 
 describe("QueryDevtools", () => {

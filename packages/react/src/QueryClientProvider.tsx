@@ -157,7 +157,9 @@ const useRegistryBinding = (
   }
   const token = React.useRef<object>({}).current;
   React.useLayoutEffect(() => {
-    if (registry === undefined) return;
+    if (registry === undefined) {
+      return;
+    }
     const binding = bindingOf(registry);
     clearTimeout(binding.unbind);
     binding.unbind = undefined;
@@ -168,19 +170,27 @@ const useRegistryBinding = (
       );
     }
     binding.owner = token;
-    if (boundClient(registry) !== client) registry.set(QueryClient.current, Option.some(client));
+    if (boundClient(registry) !== client) {
+      registry.set(QueryClient.current, Option.some(client));
+    }
     return () => {
       // Another provider took the registry over: its binding stays.
-      if (binding.owner !== token) return;
+      if (binding.owner !== token) {
+        return;
+      }
       binding.owner = undefined;
       // Deferred, so a StrictMode replay, a client change or a provider
       // mounting in the same commit takes the registry over first.
       binding.unbind = setTimeout(() => {
         binding.unbind = undefined;
-        if (binding.owner !== undefined) return;
+        if (binding.owner !== undefined) {
+          return;
+        }
         bindings.delete(registry);
         try {
-          if (boundClient(registry) === client) registry.set(QueryClient.current, Option.none());
+          if (boundClient(registry) === client) {
+            registry.set(QueryClient.current, Option.none());
+          }
         } catch {
           // The app disposed the registry before this ran (in tests, `afterEach`
           // usually disposes before testing-library unmounts). A disposed
@@ -210,6 +220,8 @@ export class MissingQueryClientProviderError extends Error {
  */
 export const useQueryClient = (): QueryClient.Service => {
   const client = React.useContext(QueryClientContext);
-  if (client === null) throw new MissingQueryClientProviderError();
+  if (client === null) {
+    throw new MissingQueryClientProviderError();
+  }
   return client;
 };

@@ -153,7 +153,9 @@ const useBaseQueries = <Q extends QueriesInput, C>(
     Option.isNone(result.data) && (result.isPending || result.isFetching);
   if (suspense && raw.some(needsData)) {
     const fibers = observer.fetchOptimistic(inputs);
-    if (fibers.length > 0) throw Promise.all(fibers.map(suspendOn));
+    if (fibers.length > 0) {
+      throw Promise.all(fibers.map(suspendOn));
+    }
   }
   raw.forEach((result, i) => {
     if (shouldThrow(result, { suspense, throwOnError: inputs[i]!.throwOnError }, boundary)) {
