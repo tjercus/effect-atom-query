@@ -8,6 +8,8 @@ import { Component, type ReactNode } from "react";
 
 interface BoundaryProps {
   readonly title: string;
+  /** Render the fallback inside an existing panel, without a panel of its own. */
+  readonly inline?: boolean | undefined;
   readonly onReset: () => void;
   readonly children?: ReactNode;
 }
@@ -31,9 +33,8 @@ class ErrorBoundary extends Component<BoundaryProps, BoundaryState> {
   override render() {
     if (this.state.error === undefined) return this.props.children;
     const message = this.state.error instanceof Error ? this.state.error.message : "Unknown defect";
-    return (
-      <section className="panel">
-        <h2>{this.props.title}</h2>
+    const fallback = (
+      <>
         <div className="banner defect" role="alert">
           <strong>Defect · not a typed error</strong>
           <span>
@@ -42,6 +43,13 @@ class ErrorBoundary extends Component<BoundaryProps, BoundaryState> {
           </span>
         </div>
         <button onClick={this.retry}>Try again</button>
+      </>
+    );
+    if (this.props.inline === true) return fallback;
+    return (
+      <section className="panel">
+        <h2>{this.props.title}</h2>
+        {fallback}
       </section>
     );
   }
@@ -49,15 +57,17 @@ class ErrorBoundary extends Component<BoundaryProps, BoundaryState> {
 
 export function PanelBoundary({
   title,
+  inline,
   children,
 }: {
   readonly title: string;
+  readonly inline?: boolean | undefined;
   readonly children?: ReactNode;
 }) {
   return (
     <QueryErrorResetBoundary>
       {({ reset }) => (
-        <ErrorBoundary title={title} onReset={reset}>
+        <ErrorBoundary title={title} inline={inline} onReset={reset}>
           {children}
         </ErrorBoundary>
       )}

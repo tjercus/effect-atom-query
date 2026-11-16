@@ -44,7 +44,10 @@ export function BackendSwitcher({ choice, onChange }: BackendSwitcherProps) {
       <fieldset disabled={!choice.chaos}>
         <legend>Chaos</legend>
         <label>
-          Failures {Math.round(chaos.failureRate * 100)}%
+          Typed failures {Math.round(chaos.failureRate * 100)}%
+          <small className="hint">
+            <code>RateLimited</code> or <code>503</code>. Retried, then shown as a banner.
+          </small>
           <input
             type="range"
             min={0}
@@ -55,7 +58,11 @@ export function BackendSwitcher({ choice, onChange }: BackendSwitcherProps) {
           />
         </label>
         <label>
-          Defects {Math.round(chaos.defectRate * 100)}%
+          Defects (crashes) {Math.round(chaos.defectRate * 100)}%
+          <small className="hint">
+            The only setting that crashes a panel. Not retried: thrown to the panel's error
+            boundary, with a "Try again" button.
+          </small>
           <input
             type="range"
             min={0}
@@ -67,6 +74,7 @@ export function BackendSwitcher({ choice, onChange }: BackendSwitcherProps) {
         </label>
         <label>
           Extra latency {chaos.extraLatencyMs} ms
+          <small className="hint">Added to every request, before its outcome.</small>
           <input
             type="range"
             min={0}

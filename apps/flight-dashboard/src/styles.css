@@ -615,3 +615,26 @@ button.link:hover {
   color: var(--muted);
   text-decoration: line-through;
 }
+
+.switcher .hint {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.search-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.search-status p {
+  margin: 0;
+}
+
+.search-status button {
+  margin-left: auto;
+}
