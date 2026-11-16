@@ -13,7 +13,7 @@
  *
  * @since 0.1.0
  */
-import { Context, Effect, Fiber, Layer, Option, type Scope } from "effect";
+import { Cause, Context, Effect, Exit, Fiber, Layer, Option, type Scope } from "effect";
 import { Atom, AtomRegistry, Reactivity } from "effect/reactivity";
 import * as FocusManager from "./FocusManager.ts";
 import { type MutationFilters, MutationCache } from "./internal/mutationCache.ts";
@@ -123,7 +123,12 @@ type AnyQuery<A, E, R> = Query.QueryAtom<A, E, R>;
 export interface Service {
   // -- fetching ---------------------------------------------------------------
 
-  /** Fetch and cache a query; resolves with cached data when it is not stale. */
+  /**
+   * Fetch and cache a query; resolves with cached data when it is not stale.
+   * A fetch that is superseded meanwhile (e.g. by `invalidateQueries`) is
+   * followed to the fetch that replaced it. `cancelQueries` and
+   * `removeQueries` interrupt the caller.
+   */
   readonly fetchQuery: <A, E, R>(
     query: AnyQuery<A, E, R>,
     options?: FetchQueryOptions<E>,
@@ -209,7 +214,10 @@ export interface Service {
   readonly cancelQueries: (filters?: QueryFilters, options?: CancelOptions) => Effect.Effect<void>;
   /** Remove matching queries from the cache, interrupting their fetches. */
   readonly removeQueries: (filters?: QueryFilters) => Effect.Effect<void>;
-  /** Remove every query and mutation. */
+  /**
+   * Remove every query and mutation. Fetches are interrupted; a mutation that
+   * is still running finishes (so `clear` is safe in a mutation's callback).
+   */
   readonly clear: Effect.Effect<void>;
 
   // -- defaults ---------------------------------------------------------------
@@ -364,7 +372,26 @@ export const make: (options?: Options) => Effect.Effect<Service, never, Scope.Sc
         if (Option.isSome(entry.state.data) && !entry.isStale(staleTime)) {
           return Effect.succeed(entry.state.data.value);
         }
-        return Fiber.join(entry.fetch({ context: callerContext, retry: options?.retry ?? false }));
+        return awaitFetch(
+          entry,
+          entry.fetch({ context: callerContext, retry: options?.retry ?? false }),
+        );
+      });
+
+    /**
+     * The outcome of `fiber`, or of the fetch that superseded it: a caller of
+     * `fetchQuery` must not be interrupted because someone else refetched.
+     */
+    const awaitFetch = <A, E>(
+      entry: QueryEntry<A, E>,
+      fiber: Fiber.Fiber<A, E>,
+    ): Effect.Effect<A, E> =>
+      Effect.flatMap(Fiber.await(fiber), (exit): Effect.Effect<A, E> => {
+        if (Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)) {
+          const successor = entry.successorOf(fiber);
+          if (successor !== undefined) return awaitFetch(entry, successor);
+        }
+        return exit;
       });
 
     const prefetchQuery: Service["prefetchQuery"] = (query, options) =>
@@ -620,7 +647,7 @@ export const make: (options?: Options) => Effect.Effect<Service, never, Scope.Sc
         unsubscribeOnline();
         // Observers must not re-create entries (and refetch) while shutting down.
         cache.dispose();
-        mutationCache.clear();
+        mutationCache.dispose();
       }),
     );
 

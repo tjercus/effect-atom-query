@@ -126,9 +126,13 @@ export class MutationCache {
     return entry;
   }
 
-  remove(entry: MutationEntry<any, any, any, any>): void {
+  /** Forget an execution. One that is still running finishes by itself. */
+  remove(
+    entry: MutationEntry<any, any, any, any>,
+    options?: { readonly interrupt?: boolean | undefined },
+  ): void {
     this.entries.delete(entry);
-    entry.dispose();
+    entry.dispose(options);
     this.notifyChange();
   }
 
@@ -142,6 +146,11 @@ export class MutationCache {
 
   clear(): void {
     for (const entry of this.all()) this.remove(entry);
+  }
+
+  /** The client is shutting down: forget everything and interrupt what is running. */
+  dispose(): void {
+    for (const entry of this.all()) this.remove(entry, { interrupt: true });
   }
 }
 

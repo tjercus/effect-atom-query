@@ -355,6 +355,8 @@ export class QueryEntry<A, E> {
   private revertState: QueryState<A, E> | undefined;
   private revertOnInterrupt = false;
   private fetchFiber: Fiber.Fiber<A, E> | undefined;
+  /** For each superseded fetch, the fetch that replaced it. */
+  private readonly successors = new WeakMap<Fiber.Fiber<A, E>, Fiber.Fiber<A, E>>();
   private gcFiber: Fiber.Fiber<void> | undefined;
   private staleFiber: Fiber.Fiber<void> | undefined;
   private removed = false;
@@ -721,6 +723,11 @@ export class QueryEntry<A, E> {
     return Effect.raceFirst(Effect.asVoid(Fiber.await(fiber)), paused);
   }
 
+  /** The fetch that superseded `fiber` (a fetch of this entry), if any. */
+  successorOf(fiber: Fiber.Fiber<A, E>): Fiber.Fiber<A, E> | undefined {
+    return this.successors.get(fiber);
+  }
+
   /** Interrupt the running fetch, if any. Resolves once it has stopped. */
   cancel(options?: CancelOptions): Fiber.Fiber<A, E> | undefined {
     const fiber = this.fetchFiber;
@@ -756,14 +763,14 @@ export class QueryEntry<A, E> {
    * the fiber that settles with this fetch's outcome.
    */
   fetch(options?: FetchOptions<E>): Fiber.Fiber<A, E> {
+    let superseded: Fiber.Fiber<A, E> | undefined;
     if (this.fetchFiber !== undefined) {
       if (!options?.cancelRefetch || Option.isNone(this.state.data)) return this.fetchFiber;
       // Superseded: the new fetch takes over. Bump the id before interrupting,
       // since the old fiber's exit handler runs synchronously and must be ignored.
-      const superseded = this.fetchFiber;
+      superseded = this.fetchFiber;
       this.fetchFiber = undefined;
       this.fetchId++;
-      superseded.interruptUnsafe();
     }
 
     const id = ++this.fetchId;
@@ -810,6 +817,12 @@ export class QueryEntry<A, E> {
       withRetry.pipe(Effect.onExit((exit) => Effect.sync(() => this.onFetchExit(id, exit)))),
       options?.context,
     );
+    if (superseded !== undefined) {
+      // Record the successor before interrupting, so whoever waits for the
+      // superseded fetch (`fetchQuery`) can follow it.
+      this.successors.set(superseded, fiber);
+      superseded.interruptUnsafe();
+    }
     // A synchronous `run` may already have settled inside runFork.
     if (id === this.fetchId && this.state.fetchStatus !== "idle") this.fetchFiber = fiber;
     return fiber;

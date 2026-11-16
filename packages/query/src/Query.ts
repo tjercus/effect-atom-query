@@ -312,9 +312,10 @@ export const makeAtom = <A, E, R, W = never, Extra extends object = {}>(
     const fetchedAtMount = entry.fetchCount;
     const observer = entry.addObserver();
     const unsubscribe = entry.subscribe(() => {
-      // The entry was removed from the cache: rebuild against a fresh one.
       if (entry.isRemoved) {
-        get.refreshSelf();
+        // The entry was removed from the cache: rebuild against a fresh one,
+        // unless the client is shutting down (keep showing the last result).
+        if (!client.cache.isDisposed) get.refreshSelf();
       } else {
         get.setSelf(entry.toResult({ fetchedAtMount }));
       }

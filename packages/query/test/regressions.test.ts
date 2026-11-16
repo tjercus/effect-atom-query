@@ -2,7 +2,7 @@
  * Regression tests for defects found in the pre-release review (2026-11-14).
  */
 import { describe, expect, it } from "@effect/vitest";
-import { Effect, Exit, Layer, Option, Schema, Scope } from "effect";
+import { Cause, Effect, Exit, Layer, Option, Schema, Scope } from "effect";
 import { KeyValueStore } from "effect/persistence";
 import { AtomRegistry } from "effect/reactivity";
 import { TestClock } from "effect/testing";
@@ -10,6 +10,7 @@ import {
   FocusManager,
   Mutation,
   MutationObserver,
+  MutationResult,
   OnlineManager,
   Query,
   QueryClient,
@@ -335,6 +336,189 @@ describe("mutations", () => {
       expect(
         (client.mutationCache as unknown as { scopes: Map<string, unknown> }).scopes.size,
       ).toBe(0);
+    }),
+  );
+});
+
+/** Regression tests for the review of 2026-11-16 (docs/REVIEW-2026-11-16.md). */
+describe("review 2026-11-16", () => {
+  it.effect("client.clear in a mutation's own callback does not kill the mutation", () =>
+    Effect.gen(function* () {
+      const { client } = yield* setup();
+      const log: Array<string> = [];
+      const logout = Mutation.make({
+        run: () => Effect.succeed("bye").pipe(Effect.delay("1 second")),
+        onSuccess: () =>
+          Effect.gen(function* () {
+            const current = yield* QueryClient.QueryClient;
+            yield* current.clear;
+            log.push("after clear");
+          }),
+        onSettled: () => Effect.sync(() => log.push("definition onSettled")),
+      });
+      const observer = MutationObserver.make(client, logout);
+      observer.subscribe(() => {});
+      observer.mutate(undefined, {
+        onSuccess: () => log.push("ui onSuccess"),
+        onSettled: () => log.push("ui onSettled"),
+      });
+      yield* settle;
+      yield* TestClock.adjust("1 second");
+      yield* settle;
+      expect(log).toEqual(["after clear", "definition onSettled", "ui onSuccess", "ui onSettled"]);
+      expect(observer.getCurrentResult().status).toBe("success");
+      expect(client.mutationCache.all()).toHaveLength(0);
+
+      const viaClient = yield* Effect.forkChild(client.mutate(logout, undefined));
+      yield* settle;
+      yield* TestClock.adjust("1 second");
+      yield* settle;
+      expect(viaClient.pollUnsafe()).toEqual(Exit.succeed("bye"));
+    }),
+  );
+
+  it.effect("closing the client interrupts running mutations", () =>
+    Effect.gen(function* () {
+      const focus = FocusManager.make({ setup: () => () => {}, isFocused: () => true });
+      const online = OnlineManager.make({ setup: () => () => {} });
+      const scope = yield* Scope.make();
+      const client = yield* QueryClient.make().pipe(
+        Effect.provideService(FocusManager.FocusManager, focus),
+        Effect.provideService(OnlineManager.OnlineManager, online),
+        Scope.provide(scope),
+      );
+      let finished = false;
+      const slow = Mutation.make({
+        run: () =>
+          Effect.sleep("1 second").pipe(Effect.andThen(Effect.sync(() => (finished = true)))),
+      });
+      const observer = MutationObserver.make(client, slow);
+      observer.subscribe(() => {});
+      observer.mutate(undefined);
+      yield* settle;
+      yield* Scope.close(scope, Exit.void);
+      yield* TestClock.adjust("1 second");
+      yield* settle;
+      expect(finished).toBe(false);
+      expect(observer.getCurrentResult().status).toBe("idle");
+    }),
+  );
+
+  it.effect("fetchQuery follows a fetch that invalidateQueries superseded", () =>
+    Effect.gen(function* () {
+      const { client } = yield* setup();
+      let value = 0;
+      const q = Query.single({
+        key: ["superseded-fetch"],
+        run: Effect.sync(() => ++value).pipe(Effect.delay("1 second")),
+      });
+      yield* client.setQueryData(q, 0);
+      QueryObserver.make(client, q, { refetchOnMount: false }).subscribe(() => {});
+      yield* TestClock.adjust("1 second"); // the written data is stale now
+      const fetching = yield* Effect.forkChild(client.fetchQuery(q));
+      yield* settle;
+      yield* Effect.forkChild(client.invalidateQueries({ queryKey: ["superseded-fetch"] }));
+      yield* settle;
+      yield* TestClock.adjust("1 second");
+      yield* settle;
+      // the first run was interrupted before it produced a value
+      expect(fetching.pollUnsafe()).toEqual(Exit.succeed(1));
+    }),
+  );
+
+  it.effect("fetchQuery follows a superseding fetch that settles synchronously", () =>
+    Effect.gen(function* () {
+      const { client } = yield* setup();
+      let slow = true;
+      const q = Query.single({
+        key: ["superseded-sync"],
+        run: Effect.suspend(() =>
+          slow ? Effect.succeed("slow").pipe(Effect.delay("1 second")) : Effect.succeed("fast"),
+        ),
+      });
+      yield* client.setQueryData(q, "seed");
+      yield* TestClock.adjust("1 second");
+      const fetching = yield* Effect.forkChild(client.fetchQuery(q));
+      yield* settle;
+      slow = false;
+      yield* client.refetchQueries({ queryKey: ["superseded-sync"] });
+      yield* settle;
+      expect(fetching.pollUnsafe()).toEqual(Exit.succeed("fast"));
+    }),
+  );
+
+  it.effect("cancelQueries still interrupts a waiting fetchQuery", () =>
+    Effect.gen(function* () {
+      const { client } = yield* setup();
+      const q = Query.single({
+        key: ["cancelled-fetch"],
+        run: Effect.succeed(1).pipe(Effect.delay("1 second")),
+      });
+      const fetching = yield* Effect.forkChild(client.fetchQuery(q));
+      yield* settle;
+      yield* client.cancelQueries({ queryKey: ["cancelled-fetch"] });
+      yield* settle;
+      const exit = fetching.pollUnsafe();
+      expect(
+        exit !== undefined && Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause),
+      ).toBe(true);
+    }),
+  );
+
+  it.effect("an interrupted mutation goes back to idle, not to error (D7)", () =>
+    Effect.gen(function* () {
+      const { client, registry } = yield* setup();
+      const interrupted = Mutation.make({ run: () => Effect.interrupt });
+      const calls: Array<string> = [];
+      const observer = MutationObserver.make(client, interrupted, {
+        onError: () => calls.push("hook onError"),
+        onSettled: () => calls.push("hook onSettled"),
+      });
+      observer.subscribe(() => {});
+      observer.mutate(undefined, { onError: () => calls.push("onError") });
+      yield* settle;
+      const result = observer.getCurrentResult();
+      expect(result.status).toBe("idle");
+      expect(MutationResult.isDefect(result)).toBe(false);
+      expect(calls).toEqual([]);
+
+      registry.mount(interrupted);
+      registry.set(interrupted, undefined);
+      yield* settle;
+      expect(registry.get(interrupted).status).toBe("idle");
+
+      const exit = yield* Effect.exit(client.mutate(interrupted, undefined));
+      expect(Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)).toBe(true);
+      // Settled (although idle), so the unobserved execution is collected;
+      // the observer's and the mounted atom's stay.
+      expect(client.mutationCache.findAll({ mutation: interrupted })).toHaveLength(3);
+      yield* TestClock.adjust("5 minutes");
+      yield* settle;
+      expect(client.mutationCache.findAll({ mutation: interrupted })).toHaveLength(2);
+    }),
+  );
+
+  it.effect("closing the client does not re-create entries read through the atom", () =>
+    Effect.gen(function* () {
+      const focus = FocusManager.make({ setup: () => () => {}, isFocused: () => true });
+      const online = OnlineManager.make({ setup: () => () => {} });
+      const scope = yield* Scope.make();
+      const runs = counter();
+      const client = yield* QueryClient.make().pipe(
+        Effect.provideService(FocusManager.FocusManager, focus),
+        Effect.provideService(OnlineManager.OnlineManager, online),
+        Scope.provide(scope),
+      );
+      const registry = AtomRegistry.make({ initialValues: [QueryClient.initialValue(client)] });
+      const q = Query.single({ key: ["shutdown-atom"], run: runs.tick });
+      registry.mount(q);
+      yield* settle;
+      yield* Scope.close(scope, Exit.void);
+      yield* settle;
+      expect(client.cache.all()).toHaveLength(0);
+      expect(runs.count).toBe(1);
+      expect(registry.get(q).data).toEqual(Option.some(1)); // keeps the last result
+      registry.dispose();
     }),
   );
 });
