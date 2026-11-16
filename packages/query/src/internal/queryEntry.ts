@@ -360,6 +360,8 @@ export class QueryEntry<A, E> {
   private gcFiber: Fiber.Fiber<void> | undefined;
   private staleFiber: Fiber.Fiber<void> | undefined;
   private removed = false;
+  /** `state.data` is still the definition's `initialData` (no fetch, write or restore yet). */
+  private showsInitialData = false;
 
   readonly key: QueryKey.QueryKey;
   descriptor: QueryDescriptor<A, E, any>;
@@ -392,11 +394,13 @@ export class QueryEntry<A, E> {
 
   /**
    * Adopt restored data for this key, if the query is persisted and has no
-   * data yet. Undecodable data (e.g. after a schema change) is dropped.
+   * data yet, or only its `initialData` (restored data came from the server,
+   * so it wins). Undecodable data (e.g. after a schema change) is dropped.
    */
   claimPersisted(): void {
     const codec = this.descriptor.persist;
-    if (codec === undefined || Option.isSome(this.state.data)) return;
+    if (codec === undefined) return;
+    if (Option.isSome(this.state.data) && !this.showsInitialData) return;
     const jsonKey = QueryKey.toJsonKey(this.key);
     const preloaded = this.runtime.preloaded.get(jsonKey);
     if (preloaded === undefined) return;
@@ -407,6 +411,7 @@ export class QueryEntry<A, E> {
     } catch {
       return;
     }
+    this.showsInitialData = false;
     this.setState((s) => ({
       ...s,
       status: "success",
@@ -435,6 +440,7 @@ export class QueryEntry<A, E> {
   }
 
   private initialStateOf(descriptor: QueryDescriptor<A, E, any>): QueryState<A, E> {
+    this.showsInitialData = descriptor.initialData !== undefined;
     if (descriptor.initialData === undefined) return initialState;
     return {
       ...initialState,
@@ -470,6 +476,7 @@ export class QueryEntry<A, E> {
 
   /** Write data directly (`setQueryData`). Keeps a running fetch running. */
   setData(data: A, updatedAt: number = this.runtime.now()): void {
+    this.showsInitialData = false;
     this.cancelStaleTimer();
     this.setState((s) => ({
       ...s,
@@ -494,6 +501,9 @@ export class QueryEntry<A, E> {
     this.revertState = undefined;
     this.cancelStaleTimer();
     this.setState(() => this.initialStateOf(this.descriptor));
+    // The dropped fetch's exit is ignored, so do here what it would have done.
+    for (const record of this.records) this.scheduleInterval(record);
+    if (this.records.size === 0) this.scheduleGc();
   }
 
   /**
@@ -834,6 +844,7 @@ export class QueryEntry<A, E> {
     const now = this.runtime.now();
 
     if (Exit.isSuccess(exit)) {
+      this.showsInitialData = false;
       this.cancelStaleTimer();
       this.setState((s) => ({
         ...s,

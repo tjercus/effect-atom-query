@@ -28,6 +28,10 @@ A key is a readonly tuple starting with a string: `["user", id]`,
 `invalidateQueries({ queryKey: ["todos"] })` matches every key starting with
 `"todos"`.
 
+An `undefined` value is part of the key: `["todos", { page: undefined }]` and
+`["todos", {}]` are two cache entries (TanStack Query treats them as one).
+Leave the property out, or use `Query.skipToken`, when there is no value.
+
 Keys of query atoms are `QueryKey.Tagged<A, E>`, so
 `client.getQueryData(userQuery(id).key)` is typed as `Option<User>`.
 

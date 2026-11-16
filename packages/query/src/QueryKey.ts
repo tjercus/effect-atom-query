@@ -97,6 +97,10 @@ const partialMatch = (a: unknown, b: unknown): boolean => {
  * storage key of persisted queries. Keys of persisted queries must be
  * JSON-compatible.
  *
+ * `undefined` is kept (as a tagged value): `["todos", { page: undefined }]`
+ * and `["todos", {}]` are different cache entries, so they get different
+ * strings too.
+ *
  * @since 0.1.0
  * @category conversions
  */
@@ -106,6 +110,9 @@ export const toJsonKey = (key: QueryKey | ReadonlyArray<unknown>): string =>
 const canonical = (u: unknown): unknown => {
   // JSON has no bigint; tag it so it neither throws nor collides with strings.
   if (typeof u === "bigint") return { "~bigint": u.toString() };
+  // JSON drops `undefined` properties and turns array holes into `null`,
+  // which would merge keys the cache keeps apart.
+  if (u === undefined) return { "~undefined": true };
   if (Array.isArray(u)) return u.map(canonical);
   if (isPlainContainer(u)) {
     const out: Record<string, unknown> = {};

@@ -420,10 +420,17 @@ export const make: (options?: Options) => Effect.Effect<Service, never, Scope.Sc
     const refetchEntries = (
       entries: ReadonlyArray<QueryEntry<any, any>>,
       cancelRefetch: boolean,
+      // A reset leaves a `"static"` query without data: it has to load again.
+      staticWithoutData = false,
     ): Effect.Effect<void> =>
       Effect.suspend(() => {
         const started = entries
-          .filter((entry) => !entry.isDisabled && entry.options.staleTime !== "static")
+          .filter(
+            (entry) =>
+              !entry.isDisabled &&
+              (entry.options.staleTime !== "static" ||
+                (staticWithoutData && Option.isNone(entry.state.data))),
+          )
           .map((entry) => [entry, entry.fetch({ cancelRefetch })] as const);
         // Paused (offline) fetches are not awaited, as in TanStack.
         return Effect.forEach(started, ([entry, fiber]) => entry.awaitUnlessPaused(fiber), {
@@ -458,6 +465,7 @@ export const make: (options?: Options) => Effect.Effect<Service, never, Scope.Sc
         return refetchEntries(
           entries.filter((entry) => entry.isActive),
           options?.cancelRefetch ?? true,
+          true,
         );
       });
 

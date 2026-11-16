@@ -14,6 +14,7 @@ import {
   OnlineManager,
   Query,
   QueryClient,
+  QueryKey,
   QueryObserver,
   QueryPersister,
 } from "../src/index.ts";
@@ -519,6 +520,203 @@ describe("review 2026-11-16", () => {
       expect(runs.count).toBe(1);
       expect(registry.get(q).data).toEqual(Option.some(1)); // keeps the last result
       registry.dispose();
+    }),
+  );
+
+  it.effect("resetQueries reloads an observed static query", () =>
+    Effect.gen(function* () {
+      const { client } = yield* setup();
+      const runs = counter();
+      const q = Query.single({ key: ["static-reset"], run: runs.tick, staleTime: "static" });
+      const observer = QueryObserver.make(client, q);
+      observer.subscribe(() => {});
+      yield* settle;
+      yield* client.resetQueries({ queryKey: ["static-reset"] });
+      yield* settle;
+      expect(observer.getCurrentResult().data).toEqual(Option.some(2));
+      // static data is still never refetched by an invalidation
+      yield* client.invalidateQueries({ queryKey: ["static-reset"] });
+      yield* settle;
+      expect(runs.count).toBe(2);
+    }),
+  );
+
+  it.effect("restored data wins over initialData", () =>
+    Effect.gen(function* () {
+      const { client } = yield* setup();
+      const persisted = {
+        buster: "",
+        timestamp: 0,
+        mutations: [],
+        queries: [
+          {
+            key: QueryKey.toJsonKey(["restored-initial"]),
+            queryKey: ["restored-initial"],
+            data: 42,
+            dataUpdatedAt: 5,
+          },
+        ],
+      };
+      const q = Query.single({
+        key: ["restored-initial"],
+        run: Effect.succeed(1),
+        initialData: () => 0,
+        persist: { schema: Schema.Number },
+        enabled: false,
+      });
+      // restored before the entry exists
+      yield* QueryPersister.hydrate(client, persisted);
+      expect(client.cache.build(q).state.data).toEqual(Option.some(42));
+      expect(client.runtime.preloaded.size).toBe(0);
+
+      // restored after the entry exists (a background restore)
+      yield* client.removeQueries({ queryKey: ["restored-initial"] });
+      expect(client.cache.build(q).state.data).toEqual(Option.some(0));
+      yield* QueryPersister.hydrate(client, persisted);
+      expect(client.cache.build(q).state.data).toEqual(Option.some(42));
+
+      // data that was fetched or written is never replaced
+      yield* client.removeQueries({ queryKey: ["restored-initial"] });
+      yield* client.setQueryData(q, 7);
+      yield* QueryPersister.hydrate(client, persisted);
+      expect(client.cache.build(q).state.data).toEqual(Option.some(7));
+    }),
+  );
+
+  it.effect("refreshing a query atom refetches in that registry only", () =>
+    Effect.gen(function* () {
+      const a = yield* setup();
+      const b = yield* setup();
+      const runs = counter();
+      const q = Query.single({ key: ["two-registries"], run: runs.tick, staleTime: "1 hour" });
+      a.registry.mount(q);
+      b.registry.mount(q);
+      yield* settle;
+      expect(runs.count).toBe(2);
+      a.registry.refresh(q);
+      yield* settle;
+      expect(a.registry.get(q).data).toEqual(Option.some(3));
+      expect(b.registry.get(q).data).toEqual(Option.some(2));
+      b.registry.refresh(q);
+      b.registry.refresh(q);
+      yield* settle;
+      expect(a.registry.get(q).data).toEqual(Option.some(3));
+      expect(b.registry.get(q).dataUpdateCount).toBeGreaterThan(1);
+      expect(a.registry.get(q).dataUpdateCount).toBe(2);
+    }),
+  );
+
+  it.effect("an observer's own staleTime notifies when it passes", () =>
+    Effect.gen(function* () {
+      const { client } = yield* setup();
+      const q = Query.single({ key: ["own-stale"], run: Effect.succeed(1), staleTime: "1 hour" });
+      const observer = QueryObserver.make(client, q, { staleTime: "5 seconds" });
+      let notifications = 0;
+      const unsubscribe = observer.subscribe(() => notifications++);
+      yield* settle;
+      expect(observer.getCurrentResult().isStale).toBe(false);
+      const before = notifications;
+      yield* TestClock.adjust("5 seconds");
+      yield* settle;
+      expect(notifications).toBe(before + 1);
+      expect(observer.getCurrentResult().isStale).toBe(true);
+
+      // new data restarts the timer; changed options reschedule it
+      yield* client.setQueryData(q, 2);
+      observer.setOptions(q, { staleTime: "1 minute" });
+      const afterWrite = notifications;
+      yield* TestClock.adjust("5 seconds");
+      yield* settle;
+      expect(notifications).toBe(afterWrite);
+      yield* TestClock.adjust("55 seconds");
+      yield* settle;
+      expect(notifications).toBe(afterWrite + 1);
+
+      // no timer outlives the subscription
+      yield* client.setQueryData(q, 3);
+      unsubscribe();
+      const afterUnsubscribe = notifications;
+      yield* TestClock.adjust("1 hour");
+      yield* settle;
+      expect(notifications).toBe(afterUnsubscribe);
+    }),
+  );
+
+  it.effect("an unobserved entry is collected after resetQueries drops its fetch", () =>
+    Effect.gen(function* () {
+      const { client } = yield* setup();
+      const q = Query.single({
+        key: ["reset-gc"],
+        run: Effect.succeed(1).pipe(Effect.delay("10 minutes")),
+        gcTime: "1 minute",
+      });
+      yield* Effect.forkChild(client.prefetchQuery(q));
+      yield* settle;
+      yield* TestClock.adjust("2 minutes"); // the gc timer fires and skips: still fetching
+      yield* settle;
+      expect(client.cache.all()).toHaveLength(1);
+      yield* client.resetQueries({ queryKey: ["reset-gc"] });
+      yield* settle;
+      yield* TestClock.adjust("1 minute");
+      yield* settle;
+      expect(client.cache.all()).toHaveLength(0);
+    }),
+  );
+
+  it.effect("polling continues after resetQueries drops an interval fetch", () =>
+    Effect.gen(function* () {
+      const { client } = yield* setup();
+      const runs = counter();
+      const q = Query.single({
+        key: ["reset-poll"],
+        run: runs.tick.pipe(Effect.delay("1 second")),
+        staleTime: "static",
+        enabled: true,
+      });
+      QueryObserver.make(client, q, { refetchInterval: "10 seconds" }).subscribe(() => {});
+      yield* settle;
+      yield* TestClock.adjust("1 second");
+      yield* settle;
+      expect(runs.count).toBe(1);
+      yield* TestClock.adjust("10 seconds"); // the interval fetch starts
+      yield* settle;
+      client.cache.build(q).reset(); // drops it; nothing else refetches a static query
+      yield* settle;
+      yield* TestClock.adjust("11 seconds");
+      yield* settle;
+      expect(runs.count).toBe(2);
+    }),
+  );
+
+  it.effect("keys that differ only in undefined values get different storage keys", () =>
+    Effect.gen(function* () {
+      const { client } = yield* setup();
+      expect(QueryKey.toJsonKey(["k", { a: undefined }])).not.toBe(QueryKey.toJsonKey(["k", {}]));
+      expect(QueryKey.toJsonKey(["k", undefined])).not.toBe(QueryKey.toJsonKey(["k", null]));
+      expect(QueryKey.toJsonKey(["k", { b: 1, a: 2 }])).toBe(
+        QueryKey.toJsonKey(["k", { a: 2, b: 1 }]),
+      );
+
+      const make = (filter: { readonly a?: undefined }, value: string) =>
+        Query.single({
+          key: ["undefined-key", filter],
+          run: Effect.succeed(value),
+          persist: { schema: Schema.String },
+        });
+      const withUndefined = make({ a: undefined }, "with");
+      const without = make({}, "without");
+      yield* client.fetchQuery(withUndefined);
+      yield* client.fetchQuery(without);
+      const snapshot = yield* QueryPersister.dehydrate(client);
+      expect(new Set(snapshot.queries.map((query) => query.data))).toEqual(
+        new Set(["with", "without"]),
+      );
+
+      // and each entry claims its own data back
+      yield* client.clear;
+      yield* QueryPersister.hydrate(client, snapshot);
+      expect(client.cache.build(withUndefined).state.data).toEqual(Option.some("with"));
+      expect(client.cache.build(without).state.data).toEqual(Option.some("without"));
     }),
   );
 });

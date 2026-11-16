@@ -303,12 +303,22 @@ export const makeAtom = <A, E, R, W = never, Extra extends object = {}>(
     readonly write?: ((entry: QueryEntry<A, E>, value: W) => void) | undefined;
   },
 ): QueryAtom<A, E, R> & Extra => {
-  // The entry of the current build, so `refresh` can reach it.
-  let current: QueryEntry<A, E> | undefined;
+  // Refreshing the query atom refreshes this atom instead, in the registry
+  // that was asked to. Its rebuild forces a refetch with that registry's
+  // client (one atom can be mounted in several registries, each with its own).
+  const refetch = Atom.readable((get): true => {
+    // A previous value means this is a rebuild, i.e. a refresh.
+    if (Option.isSome(get.self<true>())) {
+      QueryClient.fromAtomContext(get).cache.build<A, E>(self).fetch({ cancelRefetch: true });
+    }
+    return true;
+  });
   const read = (get: Atom.AtomContext): QueryResult.QueryResult<A, E> => {
     const client = QueryClient.fromAtomContext(get);
     const entry = client.cache.build<A, E>(self);
-    current = entry;
+    // Keeps `refetch` (and its previous value) alive while this atom is
+    // mounted. Its value never changes, so it never rebuilds this atom.
+    get(refetch);
     const fetchedAtMount = entry.fetchCount;
     const observer = entry.addObserver();
     const unsubscribe = entry.subscribe(() => {
@@ -323,13 +333,10 @@ export const makeAtom = <A, E, R, W = never, Extra extends object = {}>(
     get.addFinalizer(() => {
       unsubscribe();
       observer.release();
-      if (current === entry) current = undefined;
     });
     return entry.toResult({ fetchedAtMount });
   };
-  const refresh = () => {
-    current?.fetch({ cancelRefetch: true });
-  };
+  const refresh = (f: <T>(atom: Atom.Atom<T>) => void) => f(refetch);
   const write = extra?.write;
   const atom =
     write === undefined
