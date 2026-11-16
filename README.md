@@ -244,6 +244,21 @@ vp run docs#dev       # documentation site
 pnpm run ready        # everything CI runs: check, tests, builds, size budget
 ```
 
+### With Nix
+
+The flake provides Node.js 22 and pnpm, and nothing else needs to be installed.
+pnpm downloads the exact version pinned in `package.json` on first use.
+
+```sh
+nix run .#flights     # install dependencies if needed, start the flight dashboard
+nix run .#playground  # the playground
+nix run .#docs        # the documentation site
+nix develop           # a shell with node and pnpm; run `pnpm install`, then `vp` is on PATH
+```
+
+Without Nix or the global `vp`, don't use `npx vp`: npm refuses to run in this
+repository because `devEngines` requires pnpm. Use `pnpm install`, then `pnpm run dev:flights`.
+
 Releases use Changesets; see [docs/RELEASING.md](https://github.com/tjercus/effect-atom-query/blob/main/docs/RELEASING.md).
 
 ## License
