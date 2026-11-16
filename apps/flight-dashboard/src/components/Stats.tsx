@@ -4,6 +4,13 @@ import { requestLog, useStore } from "../store.ts";
 
 const kinds: ReadonlyArray<RequestOutcome["_tag"]> = ["Ok", "Failed", "Defect", "Cancelled"];
 
+/** The median of sorted numbers: the middle one, or the mean of the middle two. */
+export const median = (sorted: ReadonlyArray<number>): number | undefined => {
+  if (sorted.length === 0) return undefined;
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 1 ? sorted[mid] : Math.round((sorted[mid - 1]! + sorted[mid]!) / 2);
+};
+
 /** Headline numbers from the request log and the query cache. */
 export function Stats() {
   const fetching = useIsFetching();
@@ -13,14 +20,14 @@ export function Stats() {
   const failed = count("Failed") + count("Defect");
   const settled = entries.filter((e) => e.outcome._tag !== "Cancelled");
   const millis = settled.map((e) => e.millis).toSorted((a, b) => a - b);
-  const median = millis.length === 0 ? undefined : millis[Math.floor(millis.length / 2)];
+  const middle = median(millis);
 
   return (
     <div className="stats">
       <div className="stat">
         <span className="stat-label">In flight</span>
         <strong className="stat-value">{fetching}</strong>
-        <span className="muted" data-testid="global">
+        <span className="muted" data-testid="global" aria-live="polite">
           {fetching > 0 ? `${fetching} queries fetching` : "idle"}
         </span>
       </div>
@@ -51,8 +58,8 @@ export function Stats() {
       <div className="stat">
         <span className="stat-label">Median latency</span>
         <strong className="stat-value">
-          {median ?? "—"}
-          {median !== undefined && <small> ms</small>}
+          {middle ?? "—"}
+          {middle !== undefined && <small> ms</small>}
         </strong>
         <span className="muted">
           last {entries.length} {entries.length === 1 ? "request" : "requests"}

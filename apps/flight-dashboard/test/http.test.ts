@@ -7,7 +7,12 @@ import { QueryClient } from "@effect-atom-query/react";
 import { Deferred, Effect, Exit, Fiber, Option } from "effect";
 import { FetchHttpClient } from "effect/http";
 import { describe, expect } from "vite-plus/test";
-import { FlightNotFound, RateLimited, UpstreamUnavailable } from "../src/api/domain.ts";
+import {
+  BadResponse,
+  FlightNotFound,
+  RateLimited,
+  UpstreamUnavailable,
+} from "../src/api/domain.ts";
 import { FlightApi } from "../src/api/FlightApi.ts";
 import { layerHttp } from "../src/api/layers.ts";
 import { departuresAt } from "../src/api/flightData.ts";
@@ -79,6 +84,13 @@ describe("layerHttp", () => {
         Promise.reject(new TypeError("Failed to fetch"))) as unknown as typeof fetch;
       const exit = yield* withFetch(offline, (api) => api.departures("AMS"));
       expect(exit).toStrictEqual(Exit.fail(new UpstreamUnavailable({ status: 0 })));
+    }),
+  );
+
+  it.effect("maps another non-2xx status to BadResponse, without decoding the body", () =>
+    Effect.gen(function* () {
+      const exit = yield* withFetch(respond(403, []), (api) => api.departures("AMS"));
+      expect(exit).toStrictEqual(Exit.fail(new BadResponse({ reason: "Unexpected status 403" })));
     }),
   );
 
