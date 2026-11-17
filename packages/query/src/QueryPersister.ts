@@ -103,7 +103,7 @@ export type PersistedClient = typeof PersistedClient.Type;
 
 const PersistedClientJson = Schema.fromJsonString(PersistedClient);
 const decodeSnapshot = Schema.decodeUnknownOption(PersistedClientJson);
-const encodeSnapshot = Schema.encodeSync(PersistedClientJson);
+const encodeSnapshot = Schema.encodeEffect(PersistedClientJson);
 
 const resolve = (options: Options = {}) => ({
   storageKey: options.storageKey ?? "effect-atom-query",
@@ -301,7 +301,23 @@ export const persist = (
     const client = yield* QueryClient.QueryClient;
     const store = yield* KeyValueStore.KeyValueStore;
     const resolved = resolve(options);
-    yield* store.set(resolved.storageKey, encodeSnapshot(snapshot(client, resolved)));
+    // Codecs only emit JSON, so this should not fail. If it does, the write is
+    // skipped with a warning instead of dying (which would stop persisting).
+    const encoded = yield* encodeSnapshot(snapshot(client, resolved)).pipe(
+      Effect.map(Option.some),
+      Effect.catchTag("SchemaError", (error) =>
+        Effect.as(
+          Effect.logWarning(
+            "effect-atom-query: the persisted snapshot could not be encoded",
+            error,
+          ),
+          Option.none<string>(),
+        ),
+      ),
+    );
+    if (Option.isSome(encoded)) {
+      yield* store.set(resolved.storageKey, encoded.value);
+    }
   });
 
 /**

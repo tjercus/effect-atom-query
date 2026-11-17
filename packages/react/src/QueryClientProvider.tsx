@@ -1,6 +1,6 @@
 import { QueryClient } from "@effect-atom-query/query";
 import { RegistryContext, RegistryProvider } from "@effect/atom-react";
-import { type ManagedRuntime, Option } from "effect";
+import { type ManagedRuntime, Option, Result } from "effect";
 import type { AtomRegistry } from "effect/reactivity";
 import * as React from "react";
 
@@ -187,19 +187,27 @@ const useRegistryBinding = (
           return;
         }
         bindings.delete(registry);
-        try {
+        const unbound = Result.try(() => {
           if (boundClient(registry) === client) {
             registry.set(QueryClient.current, Option.none());
           }
-        } catch {
-          // The app disposed the registry before this ran (in tests, `afterEach`
-          // usually disposes before testing-library unmounts). A disposed
-          // registry needs no unbind, and `AtomRegistry` has no `isDisposed`.
+        });
+        // The app may have disposed the registry before this ran (in tests,
+        // `afterEach` usually disposes before testing-library unmounts). A
+        // disposed registry needs no unbind, and `AtomRegistry` has no
+        // `isDisposed`, so only its "registry is disposed" error is expected.
+        // Anything else (e.g. a subscriber throwing) is rethrown, not hidden.
+        if (Result.isFailure(unbound) && !isRegistryDisposed(unbound.failure)) {
+          throw unbound.failure;
         }
       }, 0);
     };
   }, [registry, client, token]);
 };
+
+/** The error `AtomRegistry` throws when a disposed registry is accessed. */
+const isRegistryDisposed = (error: unknown): boolean =>
+  error instanceof Error && error.message.endsWith("registry is disposed");
 
 /**
  * @since 0.1.0

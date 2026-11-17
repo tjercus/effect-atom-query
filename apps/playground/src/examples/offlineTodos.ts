@@ -1,9 +1,7 @@
 /** The persisted todo list of the offline example (shared with runtime.ts). */
 import { Mutation, Query } from "@effect-atom-query/react";
 import { Schema } from "effect";
-import { Api, type Todo } from "../api.ts";
-
-const TodoSchema = Schema.Struct({ id: Schema.Number, text: Schema.String });
+import { Api, Todo } from "../api.ts";
 
 const todosQuery = Query.single({
   key: ["todos", "offline"],
@@ -11,7 +9,7 @@ const todosQuery = Query.single({
   staleTime: "30 seconds",
   gcTime: "24 hours",
   // Opt in to persistence: restored data is decoded with this schema.
-  persist: { schema: Schema.Array(TodoSchema) },
+  persist: { schema: Schema.Array(Todo) },
 });
 
 /** Registered with QueryPersister.layer in runtime.ts, so it can resume after a reload. */

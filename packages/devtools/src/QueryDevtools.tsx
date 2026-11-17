@@ -1,6 +1,6 @@
 import { type QueryClient, QueryInspector } from "@effect-atom-query/query";
-import { useQueryClient } from "@effect-atom-query/react";
-import { Option } from "effect";
+import { MissingQueryClientProviderError, useQueryClient } from "@effect-atom-query/react";
+import { Option, Result } from "effect";
 import * as React from "react";
 import {
   formatAgo,
@@ -552,11 +552,15 @@ const Panel = ({
 
 /** The provider's client, or `undefined` outside a provider. */
 const useOptionalQueryClient = (): QueryClient.Service | undefined => {
-  try {
-    return useQueryClient();
-  } catch {
+  const client = Result.try(useQueryClient);
+  if (Result.isSuccess(client)) {
+    return client.success;
+  }
+  // Only "no provider" means there is no client; anything else is a bug.
+  if (client.failure instanceof MissingQueryClientProviderError) {
     return undefined;
   }
+  throw client.failure;
 };
 
 const corner = (position: NonNullable<QueryDevtoolsProps["position"]>): React.CSSProperties => {

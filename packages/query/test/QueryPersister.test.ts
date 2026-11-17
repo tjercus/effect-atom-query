@@ -449,6 +449,28 @@ describe("QueryPersister with Standard Schema validators", () => {
     }).pipe(Effect.provide(KeyValueStore.layerMemory)),
   );
 
+  it.effect("skips Standard Schema data that is not JSON, and still persists the rest", () =>
+    Effect.gen(function* () {
+      // Standard Schema data is stored as is; a bigint is not JSON.
+      const notJson = Query.single({
+        key: ["not-json"],
+        run: Effect.succeed({ n: 1n }),
+        persist: { schema: standard((u: unknown): u is { n: bigint } => typeof u === "object") },
+      });
+      const a = yield* persistedClient();
+      a.registry.mount(notesQuery(counter()));
+      a.registry.mount(notJson);
+      yield* settle;
+      yield* TestClock.adjust("1 second"); // throttle
+      yield* settle;
+      const store = yield* KeyValueStore.KeyValueStore;
+      const raw = Option.getOrThrow(Option.fromNullishOr(yield* store.get("effect-atom-query")));
+      const queries = JSON.parse(raw).queries as ReadonlyArray<{ readonly key: string }>;
+      expect(queries.map((q) => q.key)).toEqual([JSON.stringify(["notes"])]);
+      yield* a.close; // the final write must not die either
+    }).pipe(Effect.provide(KeyValueStore.layerMemory)),
+  );
+
   it("types the validator's output against the query's data", () => {
     Query.single({
       key: ["typed"],

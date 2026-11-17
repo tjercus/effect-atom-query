@@ -47,6 +47,13 @@ describe("persistCodec", () => {
     warn.mockRestore();
   });
 
+  it("returns Invalid when encoding Standard Schema data that is not JSON", () => {
+    const codec = persistCodec(standard((value) => ({ value })));
+    expect(tagOf(codec.encode({ n: 1n }))).toBe("Invalid");
+    expect(tagOf(codec.encode(new Date()))).toBe("Invalid");
+    expect(codec.encode({ n: [1, "a", null] })).toEqual(Result.succeed({ n: [1, "a", null] }));
+  });
+
   it("returns Defect when a Standard Schema validator throws", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const codec = persistCodec(

@@ -2,7 +2,7 @@
  * A fake backend as an Effect service, so examples run offline with realistic
  * latency and failures. Queries depend on `Api`; the runtime provides it.
  */
-import { Context, Effect, Layer, Option, Schema } from "effect";
+import { Context, Effect, Layer, Option, Result, Schema } from "effect";
 
 export class ApiError extends Schema.TaggedError<ApiError>()("ApiError", {
   message: Schema.String,
@@ -25,10 +25,11 @@ export interface FeedPage {
   readonly next: Option.Option<number>;
 }
 
-export interface Todo {
-  readonly id: number;
-  readonly text: string;
-}
+export const Todo = Schema.Struct({ id: Schema.Number, text: Schema.String });
+export type Todo = typeof Todo.Type;
+
+/** A stored todo list: JSON, validated when read back. */
+const decodeStoredTodos = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Array(Todo)));
 
 export interface User {
   readonly id: number;
@@ -87,28 +88,42 @@ const makeApi = (): Api["Service"] => {
   // The fake server keeps its todo lists in localStorage, so persisted client
   // caches and resumed mutations stay consistent across reloads.
   const storageKey = (name: string) => `playground-api/todos/${name}`;
-  const save = (name: string) => {
-    try {
-      localStorage.setItem(storageKey(name), JSON.stringify(todoLists.get(name) ?? []));
-    } catch {
-      // storage unavailable: in-memory only
+  // localStorage throws when it is unavailable (e.g. blocked site data): the
+  // fake server then keeps its lists in memory only.
+  let warned = false;
+  const storageUnavailable = (error: unknown) => {
+    if (!warned) {
+      warned = true;
+      console.warn("playground-api: localStorage is unavailable, todos stay in memory", error);
     }
+  };
+  const save = (name: string) => {
+    const saved = Result.try(() =>
+      localStorage.setItem(storageKey(name), JSON.stringify(todoLists.get(name) ?? [])),
+    );
+    if (Result.isFailure(saved)) {
+      storageUnavailable(saved.failure);
+    }
+  };
+  /** The stored list, if there is one that is valid. */
+  const load = (name: string): Option.Option<Array<Todo>> => {
+    const stored = Result.try(() => localStorage.getItem(storageKey(name)));
+    if (Result.isFailure(stored)) {
+      storageUnavailable(stored.failure);
+      return Option.none();
+    }
+    return Option.fromNullishOr(stored.success).pipe(
+      Option.flatMap(decodeStoredTodos),
+      Option.map((todos) => todos.slice()),
+    );
   };
   const list = (name: string): Array<Todo> => {
     let l = todoLists.get(name);
     if (l === undefined) {
-      try {
-        const stored = localStorage.getItem(storageKey(name));
-        if (stored !== null) {
-          l = JSON.parse(stored) as Array<Todo>;
-        }
-      } catch {
-        // ignore
-      }
-      l ??= [
+      l = Option.getOrElse(load(name), () => [
         { id: 1, text: "learn Effect" },
         { id: 2, text: "try effect-atom-query" },
-      ];
+      ]);
       todoLists.set(name, l);
       nextTodoId = Math.max(nextTodoId, ...l.map((t) => t.id + 1));
     }
@@ -199,13 +214,13 @@ const makeApi = (): Api["Service"] => {
       ),
     characters: request(400, () => characters.map(({ id, name }) => ({ id, name }))),
     character: (id) =>
-      request(800, () => {
-        const c = characters.find((c) => c.id === id);
-        if (c === undefined) {
-          throw new Error(`no character ${id}`);
-        }
-        return c;
-      }),
+      request(800, () => characters.find((c) => c.id === id)).pipe(
+        Effect.flatMap((c) =>
+          c === undefined
+            ? Effect.fail(new ApiError({ message: `No character ${id}` }))
+            : Effect.succeed(c),
+        ),
+      ),
     failNext: Effect.sync(() => {
       failNext = true;
     }),
