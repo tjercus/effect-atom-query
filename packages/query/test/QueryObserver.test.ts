@@ -1,4 +1,4 @@
-import { assert, describe, expect, it } from "@effect/vitest";
+import { assert, describe, it } from "@effect/vitest";
 import { Effect, Fiber, Option } from "effect";
 import { TestClock } from "effect/testing";
 import { InfiniteQuery, Query, QueryObserver } from "../src/index.ts";
@@ -10,12 +10,12 @@ describe("structural sharing", () => {
     const prev = { a: { x: 1 }, b: [{ y: 1 }, { y: 2 }], c: 1 };
     const next = { a: { x: 1 }, b: [{ y: 1 }, { y: 3 }], c: 1 };
     const shared = replaceEqualDeep(prev, next);
-    expect(shared).toEqual(next);
-    expect(shared).not.toBe(prev);
-    expect(shared.a).toBe(prev.a);
-    expect(shared.b[0]).toBe(prev.b[0]);
-    expect(shared.b[1]).not.toBe(prev.b[1]);
-    expect(replaceEqualDeep(prev, structuredClone(prev))).toBe(prev);
+    assert.deepStrictEqual(shared, next);
+    assert.notStrictEqual(shared, prev);
+    assert.strictEqual(shared.a, prev.a);
+    assert.strictEqual(shared.b[0], prev.b[0]);
+    assert.notStrictEqual(shared.b[1], prev.b[1]);
+    assert.strictEqual(replaceEqualDeep(prev, structuredClone(prev)), prev);
   });
 
   it.effect("refetching equal data keeps the previous reference", () =>
@@ -32,8 +32,8 @@ describe("structural sharing", () => {
       registry.refresh(q);
       yield* settle;
       const second = Option.getOrThrow(yield* client.getQueryData(q));
-      expect(second).not.toBe(first);
-      expect(second.stable).toBe(first.stable);
+      assert.notStrictEqual(second, first);
+      assert.strictEqual(second.stable, first.stable);
     }),
   );
 
@@ -50,7 +50,7 @@ describe("structural sharing", () => {
       const first = Option.getOrThrow(yield* client.getQueryData(q));
       registry.refresh(q);
       yield* settle;
-      expect(Option.getOrThrow(yield* client.getQueryData(q))).not.toBe(first);
+      assert.notStrictEqual(Option.getOrThrow(yield* client.getQueryData(q)), first);
     }),
   );
 });
@@ -70,12 +70,12 @@ describe("initialData", () => {
       registry.mount(fresh);
       const r = registry.get(fresh);
       assert(r.isSuccess);
-      expect(r.data.value).toBe(0);
+      assert.strictEqual(r.data.value, 0);
       yield* settle;
-      expect(runs.count).toBe(0);
+      assert.strictEqual(runs.count, 0);
       registry.mount(stale);
       yield* settle;
-      expect(runs.count).toBe(1);
+      assert.strictEqual(runs.count, 1);
     }),
   );
 
@@ -95,7 +95,7 @@ describe("initialData", () => {
       registry.mount(q(1)); // 1 minute old: fresh
       registry.mount(q(5)); // 5 minutes old: stale
       yield* settle;
-      expect(runs.count).toBe(1);
+      assert.strictEqual(runs.count, 1);
     }),
   );
 });
@@ -109,17 +109,17 @@ describe("QueryObserver", () => {
         run: Effect.succeed(1).pipe(Effect.delay("1 second")),
       });
       const observer = QueryObserver.make(client, q);
-      expect(observer.getCurrentResult()).toMatchObject({
+      assert.deepInclude(observer.getCurrentResult(), {
         status: "pending",
         fetchStatus: "fetching",
       });
-      expect(yield* client.isFetching()).toBe(0); // optimistic only
+      assert.strictEqual(yield* client.isFetching(), 0); // optimistic only
 
       const unsubscribe = observer.subscribe(() => {});
-      expect(yield* client.isFetching()).toBe(1);
+      assert.strictEqual(yield* client.isFetching(), 1);
       yield* TestClock.adjust("1 second");
       yield* settle;
-      expect(observer.getCurrentResult()).toMatchObject({
+      assert.deepInclude(observer.getCurrentResult(), {
         status: "success",
         isFetchedAfterMount: true,
       });
@@ -142,10 +142,10 @@ describe("QueryObserver", () => {
       const a = observer.getCurrentResult();
       const b = observer.getCurrentResult();
       assert(a.isSuccess);
-      expect(a.data.value).toEqual([2, 3]);
-      expect(b).toBe(a);
-      expect(selects).toBe(1);
-      expect(yield* client.getQueryData(q)).toEqual(Option.some({ items: [1, 2, 3] }));
+      assert.deepStrictEqual(a.data.value, [2, 3]);
+      assert.strictEqual(b, a);
+      assert.strictEqual(selects, 1);
+      assert.deepStrictEqual(yield* client.getQueryData(q), Option.some({ items: [1, 2, 3] }));
     }),
   );
 
@@ -164,12 +164,12 @@ describe("QueryObserver", () => {
       observer.setOptions(page(2), options);
       const r = observer.getCurrentResult();
       assert(r.isSuccess);
-      expect(r.isPlaceholderData).toBe(true);
-      expect(r.data.value).toBe("page 1");
+      assert.isTrue(r.isPlaceholderData);
+      assert.strictEqual(r.data.value, "page 1");
       yield* TestClock.adjust("1 second");
       yield* settle;
-      expect(observer.getCurrentResult()).toMatchObject({ isPlaceholderData: false });
-      expect(observer.getCurrentResult().data).toEqual(Option.some("page 2"));
+      assert.deepInclude(observer.getCurrentResult(), { isPlaceholderData: false });
+      assert.deepStrictEqual(observer.getCurrentResult().data, Option.some("page 2"));
     }),
   );
 
@@ -181,11 +181,11 @@ describe("QueryObserver", () => {
       const observer = QueryObserver.make(client, q, { enabled: false });
       observer.subscribe(() => {});
       yield* settle;
-      expect(runs.count).toBe(0);
-      expect(observer.getCurrentResult()).toMatchObject({ isEnabled: false, fetchStatus: "idle" });
+      assert.strictEqual(runs.count, 0);
+      assert.deepInclude(observer.getCurrentResult(), { isEnabled: false, fetchStatus: "idle" });
       observer.setOptions(q, { enabled: true });
       yield* settle;
-      expect(runs.count).toBe(1);
+      assert.strictEqual(runs.count, 1);
     }),
   );
 
@@ -194,10 +194,10 @@ describe("QueryObserver", () => {
       const { client } = yield* setup();
       const q = Query.single({ key: ["ghost"], run: Effect.succeed(1) });
       QueryObserver.make(client, q).getCurrentResult(); // e.g. a render that never committed
-      expect(Option.isSome(yield* client.getQueryState(q))).toBe(true);
+      assert.isTrue(Option.isSome(yield* client.getQueryState(q)));
       yield* TestClock.adjust("5 minutes");
       yield* settle;
-      expect(yield* client.getQueryState(q)).toEqual(Option.none());
+      assert.deepStrictEqual(yield* client.getQueryState(q), Option.none());
     }),
   );
 });
@@ -210,23 +210,23 @@ describe("QueryObserver with skipToken", () => {
       const todo = Query.make({ key: (id: number) => ["skip-todo", id], run: () => runs.tick });
       const observer = QueryObserver.make(client, todo(Query.skipToken));
       const first = observer.getCurrentResult();
-      expect(first).toMatchObject({ status: "pending", isEnabled: false, fetchStatus: "idle" });
-      expect(observer.getCurrentResult()).toBe(first); // memoised
+      assert.deepInclude(first, { status: "pending", isEnabled: false, fetchStatus: "idle" });
+      assert.strictEqual(observer.getCurrentResult(), first); // memoised
       let notified = 0;
       observer.subscribe(() => notified++);
       observer.refetch();
       observer.fetchPage("forward");
-      expect(observer.fetchOptimistic(todo(Query.skipToken))).toBeUndefined();
-      expect(observer.entryOf(todo(Query.skipToken))).toBeUndefined();
+      assert.isUndefined(observer.fetchOptimistic(todo(Query.skipToken)));
+      assert.isUndefined(observer.entryOf(todo(Query.skipToken)));
       yield* settle;
-      expect(runs.count).toBe(0);
-      expect(yield* client.isFetching()).toBe(0);
+      assert.strictEqual(runs.count, 0);
+      assert.strictEqual(yield* client.isFetching(), 0);
 
       observer.setOptions(todo(1));
       yield* settle;
-      expect(runs.count).toBe(1);
-      expect(notified).toBeGreaterThan(0);
-      expect(observer.getCurrentResult().data).toEqual(Option.some(1));
+      assert.strictEqual(runs.count, 1);
+      assert.isAbove(notified, 0);
+      assert.deepStrictEqual(observer.getCurrentResult().data, Option.some(1));
     }),
   );
 
@@ -237,9 +237,9 @@ describe("QueryObserver with skipToken", () => {
       const observer = QueryObserver.make(client, todo(Query.skipToken), { placeholderData: 42 });
       const r = observer.getCurrentResult();
       assert(r.isSuccess);
-      expect(r.isPlaceholderData).toBe(true);
-      expect(r.data.value).toBe(42);
-      expect(r.isEnabled).toBe(false);
+      assert.isTrue(r.isPlaceholderData);
+      assert.strictEqual(r.data.value, 42);
+      assert.isFalse(r.isEnabled);
     }),
   );
 });
@@ -260,11 +260,11 @@ describe("QueryObserver imperative API", () => {
       const joined = observer.fetchOptimistic(q); // already fetching: join
       assert(joined !== undefined);
       yield* TestClock.adjust("1 second");
-      expect(yield* Fiber.join(fiber)).toBe(1);
-      expect(yield* Fiber.join(joined)).toBe(1);
-      expect(runs.count).toBe(1);
+      assert.strictEqual(yield* Fiber.join(fiber), 1);
+      assert.strictEqual(yield* Fiber.join(joined), 1);
+      assert.strictEqual(runs.count, 1);
       // fresh data: nothing to wait for
-      expect(observer.fetchOptimistic(q)).toBeUndefined();
+      assert.isUndefined(observer.fetchOptimistic(q));
     }),
   );
 
@@ -273,11 +273,11 @@ describe("QueryObserver imperative API", () => {
       const { client } = yield* setup();
       const q = Query.single({ key: ["entry-of"], run: Effect.succeed("x") });
       const observer = QueryObserver.make(client, q);
-      expect(observer.entryOf(q)).toBeUndefined();
+      assert.isUndefined(observer.entryOf(q));
       observer.getCurrentResult(); // builds the entry
       const entry = observer.entryOf(q);
       assert(entry !== undefined);
-      expect(entry.key).toEqual(["entry-of"]);
+      assert.deepStrictEqual(entry.key, ["entry-of"]);
     }),
   );
 
@@ -289,14 +289,14 @@ describe("QueryObserver imperative API", () => {
       const observer = QueryObserver.make(client, q);
       observer.refetch(); // not subscribed: builds the entry and fetches
       yield* settle;
-      expect(runs.count).toBe(1);
+      assert.strictEqual(runs.count, 1);
       const unsubscribe = observer.subscribe(() => {});
       yield* settle;
-      expect(runs.count).toBe(1); // fresh: no mount fetch
+      assert.strictEqual(runs.count, 1); // fresh: no mount fetch
       observer.refetch();
       yield* settle;
-      expect(runs.count).toBe(2);
-      expect(observer.getCurrentResult().data).toEqual(Option.some(2));
+      assert.strictEqual(runs.count, 2);
+      assert.deepStrictEqual(observer.getCurrentResult().data, Option.some(2));
       unsubscribe();
     }),
   );
@@ -318,11 +318,11 @@ describe("QueryObserver imperative API", () => {
         );
       observer.fetchPage("forward"); // unmounted: builds the entry
       yield* settle;
-      expect(pages()).toEqual([0, 1]);
+      assert.deepStrictEqual(pages(), [0, 1]);
       observer.subscribe(() => {});
       observer.fetchPage("forward");
       yield* settle;
-      expect(pages()).toEqual([0, 1, 2, 3]);
+      assert.deepStrictEqual(pages(), [0, 1, 2, 3]);
     }),
   );
 });
@@ -338,11 +338,11 @@ describe("QueryObserver options", () => {
       const value = QueryObserver.make(client, q, { placeholderData: 0 });
       const r = value.getCurrentResult();
       assert(r.isSuccess);
-      expect(r).toMatchObject({ isPlaceholderData: true, isRefetching: true, isLoading: false });
-      expect(r.data.value).toBe(0);
+      assert.deepInclude(r, { isPlaceholderData: true, isRefetching: true, isLoading: false });
+      assert.strictEqual(r.data.value, 0);
 
       const none = QueryObserver.make(client, q, { placeholderData: () => Option.none<number>() });
-      expect(none.getCurrentResult()).toMatchObject({
+      assert.deepInclude(none.getCurrentResult(), {
         status: "pending",
         isPlaceholderData: false,
       });
@@ -371,9 +371,9 @@ describe("QueryObserver options", () => {
       yield* settle;
       const second = observer.getCurrentResult();
       assert(second.isSuccess);
-      expect(second.data.value).toEqual({ tags: ["a", "b"], parity: 0 });
-      expect(second.data.value).not.toBe(first.data.value);
-      expect(second.data.value.tags).toBe(first.data.value.tags);
+      assert.deepStrictEqual(second.data.value, { tags: ["a", "b"], parity: 0 });
+      assert.notStrictEqual(second.data.value, first.data.value);
+      assert.strictEqual(second.data.value.tags, first.data.value.tags);
     }),
   );
 
@@ -385,11 +385,11 @@ describe("QueryObserver options", () => {
       const observer = QueryObserver.make(client, q);
       observer.setOptions(q, { enabled: false });
       yield* settle;
-      expect(runs.count).toBe(0);
+      assert.strictEqual(runs.count, 0);
       observer.subscribe(() => {});
       yield* settle;
-      expect(runs.count).toBe(0);
-      expect(observer.getCurrentResult()).toMatchObject({ isEnabled: false });
+      assert.strictEqual(runs.count, 0);
+      assert.deepInclude(observer.getCurrentResult(), { isEnabled: false });
     }),
   );
 
@@ -400,7 +400,7 @@ describe("QueryObserver options", () => {
       const make = () => Query.single({ key: ["same-key"], run: runs.tick });
       const a = make();
       const b = make();
-      expect(a).not.toBe(b);
+      assert.notStrictEqual(a, b);
       const observer = QueryObserver.make(client, a);
       let notified = 0;
       observer.subscribe(() => notified++);
@@ -408,9 +408,9 @@ describe("QueryObserver options", () => {
       const before = notified;
       observer.setOptions(b);
       yield* settle;
-      expect(runs.count).toBe(1);
-      expect(notified).toBe(before);
-      expect(observer.getCurrentResult().data).toEqual(Option.some(1));
+      assert.strictEqual(runs.count, 1);
+      assert.strictEqual(notified, before);
+      assert.deepStrictEqual(observer.getCurrentResult().data, Option.some(1));
     }),
   );
 
@@ -424,8 +424,8 @@ describe("QueryObserver options", () => {
       observer.subscribe(() => {});
       observer.setOptions(q, { enabled: true });
       yield* settle;
-      expect(runs.count).toBe(1);
-      expect(observer.getCurrentResult()).toMatchObject({ isEnabled: true, isStale: false });
+      assert.strictEqual(runs.count, 1);
+      assert.deepInclude(observer.getCurrentResult(), { isEnabled: true, isStale: false });
     }),
   );
 });
@@ -441,11 +441,11 @@ describe("QueryObserver lifecycle", () => {
       yield* settle;
       const entry = observer.entryOf(q);
       assert(entry !== undefined);
-      expect(entry.isActive).toBe(true);
+      assert.isTrue(entry.isActive);
       a();
-      expect(entry.isActive).toBe(true);
+      assert.isTrue(entry.isActive);
       b();
-      expect(entry.isActive).toBe(false);
+      assert.isFalse(entry.isActive);
     }),
   );
 
@@ -462,10 +462,10 @@ describe("QueryObserver lifecycle", () => {
       yield* settle;
       const second = observer.entryOf(q);
       assert(second !== undefined);
-      expect(second).not.toBe(first);
-      expect(second.isActive).toBe(true);
-      expect(runs.count).toBe(2);
-      expect(observer.getCurrentResult().data).toEqual(Option.some(2));
+      assert.notStrictEqual(second, first);
+      assert.isTrue(second.isActive);
+      assert.strictEqual(runs.count, 2);
+      assert.deepStrictEqual(observer.getCurrentResult().data, Option.some(2));
     }),
   );
 });
@@ -481,33 +481,35 @@ describe("QueriesObserver", () => {
       });
       const inputs = (ids: ReadonlyArray<number>) => ids.map((id) => ({ query: item(id) }));
       const observer = new QueryObserver.QueriesObserver(client, inputs([1, 2]));
-      expect(observer.getOptimisticResults(inputs([1, 2])).map((r) => r.fetchStatus)).toEqual([
-        "fetching",
-        "fetching",
-      ]);
-      expect(fetched).toEqual([]);
+      assert.deepStrictEqual(
+        observer.getOptimisticResults(inputs([1, 2])).map((r) => r.fetchStatus),
+        ["fetching", "fetching"],
+      );
+      assert.deepStrictEqual(fetched, []);
 
       let versions = 0;
       const unsubscribe = observer.subscribe(() => versions++);
       yield* settle;
-      expect(fetched).toEqual([1, 2]);
-      expect(observer.getOptimisticResults(inputs([1, 2])).map((r) => r.data)).toEqual([
-        Option.some(10),
-        Option.some(20),
-      ]);
-      expect(observer.version).toBe(versions);
+      assert.deepStrictEqual(fetched, [1, 2]);
+      assert.deepStrictEqual(
+        observer.getOptimisticResults(inputs([1, 2])).map((r) => r.data),
+        [Option.some(10), Option.some(20)],
+      );
+      assert.strictEqual(observer.version, versions);
 
       // grow: the new observer is subscribed and fetches
       observer.setQueries(inputs([1, 2, 3]));
       yield* settle;
-      expect(fetched).toEqual([1, 2, 3]);
-      expect(client.cache.get(item(3).key).pipe(Option.map((e) => e.isActive))).toEqual(
+      assert.deepStrictEqual(fetched, [1, 2, 3]);
+      assert.deepStrictEqual(
+        client.cache.get(item(3).key).pipe(Option.map((e) => e.isActive)),
         Option.some(true),
       );
 
       // shrink: the dropped observer is unsubscribed
       observer.setQueries(inputs([1]));
-      expect(client.cache.get(item(3).key).pipe(Option.map((e) => e.isActive))).toEqual(
+      assert.deepStrictEqual(
+        client.cache.get(item(3).key).pipe(Option.map((e) => e.isActive)),
         Option.some(false),
       );
 
@@ -515,20 +517,21 @@ describe("QueriesObserver", () => {
       const before = observer.version;
       observer.setQueries(inputs([4]));
       yield* settle;
-      expect(fetched).toEqual([1, 2, 3, 4]);
-      expect(observer.version).toBeGreaterThan(before);
+      assert.deepStrictEqual(fetched, [1, 2, 3, 4]);
+      assert.isAbove(observer.version, before);
 
       observer.refetch(0);
       observer.refetch(5); // out of range: ignored
       yield* settle;
-      expect(fetched).toEqual([1, 2, 3, 4, 4]);
+      assert.deepStrictEqual(fetched, [1, 2, 3, 4, 4]);
 
       const v = observer.version;
       observer.notify();
-      expect(observer.version).toBe(v + 1);
+      assert.strictEqual(observer.version, v + 1);
 
       unsubscribe();
-      expect(client.cache.get(item(4).key).pipe(Option.map((e) => e.isActive))).toEqual(
+      assert.deepStrictEqual(
+        client.cache.get(item(4).key).pipe(Option.map((e) => e.isActive)),
         Option.some(false),
       );
     }),
@@ -544,9 +547,9 @@ describe("QueriesObserver", () => {
       observer.subscribe(() => notified++)();
       observer.setQueries([{ query: q(1) }, { query: q(2) }]);
       yield* settle;
-      expect(runs.count).toBe(0);
-      expect(notified).toBe(0);
-      expect(observer.version).toBe(1); // length changed
+      assert.strictEqual(runs.count, 0);
+      assert.strictEqual(notified, 0);
+      assert.strictEqual(observer.version, 1); // length changed
     }),
   );
 
@@ -571,8 +574,8 @@ describe("QueriesObserver", () => {
       ];
       const observer = new QueryObserver.QueriesObserver(client, []);
       const fibers = observer.fetchOptimistic(inputs);
-      expect(fibers).toHaveLength(1);
-      expect(yield* Fiber.join(fibers[0]!)).toBe("s");
+      assert.lengthOf(fibers, 1);
+      assert.strictEqual(yield* Fiber.join(fibers[0]!), "s");
     }),
   );
 });

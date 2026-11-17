@@ -1,7 +1,7 @@
 /**
  * Regression tests for defects found in the pre-release review (2026-11-14).
  */
-import { describe, expect, it } from "@effect/vitest";
+import { assert, describe, it } from "@effect/vitest";
 import { Cause, Effect, Exit, Layer, Option, Schema, Scope } from "effect";
 import { KeyValueStore } from "effect/persistence";
 import { AtomRegistry } from "effect/reactivity";
@@ -26,9 +26,9 @@ describe("core engine", () => {
     Effect.gen(function* () {
       const { client } = yield* setup();
       yield* client.setQueryData(["invoice", 10n], "paid");
-      expect(yield* client.getQueryData(["invoice", 10n])).toEqual(Option.some("paid"));
+      assert.deepStrictEqual(yield* client.getQueryData(["invoice", 10n]), Option.some("paid"));
       const pay = Mutation.make({ key: ["pay", 10n], run: (n: number) => Effect.succeed(n) });
-      expect(yield* client.mutate(pay, 1)).toBe(1);
+      assert.strictEqual(yield* client.mutate(pay, 1), 1);
     }),
   );
 
@@ -45,8 +45,8 @@ describe("core engine", () => {
         client.invalidateQueries({ queryKey: ["offline-invalidate"] }),
       );
       yield* settle;
-      expect(invalidate.pollUnsafe()).toBeDefined(); // completed
-      expect(client.cache.build(q).state.fetchStatus).toBe("paused");
+      assert.isDefined(invalidate.pollUnsafe()); // completed
+      assert.strictEqual(client.cache.build(q).state.fetchStatus, "paused");
     }),
   );
 
@@ -65,7 +65,7 @@ describe("core engine", () => {
       online.setOnline(false);
       const mutation = yield* Effect.forkChild(client.mutate(m, undefined));
       yield* settle;
-      expect(mutation.pollUnsafe()).toBeDefined(); // settled despite the paused refetch
+      assert.isDefined(mutation.pollUnsafe()); // settled despite the paused refetch
     }),
   );
 
@@ -85,8 +85,8 @@ describe("core engine", () => {
       yield* settle;
       yield* Scope.close(scope, Exit.void);
       yield* settle;
-      expect(client.cache.all()).toHaveLength(0);
-      expect(runs.count).toBe(1);
+      assert.lengthOf(client.cache.all(), 0);
+      assert.strictEqual(runs.count, 1);
     }),
   );
 
@@ -122,23 +122,23 @@ describe("core engine", () => {
       registry.mount(q);
       registry.mount(feed);
       yield* settle;
-      expect([runs.count, pages.count]).toEqual([1, 1]);
+      assert.deepStrictEqual([runs.count, pages.count], [1, 1]);
       yield* Scope.close(scope, Exit.void);
       yield* settle;
-      expect(client.cache.all()).toHaveLength(0);
-      expect([runs.count, pages.count]).toEqual([1, 1]);
+      assert.lengthOf(client.cache.all(), 0);
+      assert.deepStrictEqual([runs.count, pages.count], [1, 1]);
       // Mounted atoms keep their last result instead of resetting.
       const last = registry.get(q);
-      expect(last.isSuccess && last.data.value).toBe(1);
+      assert.strictEqual(last.isSuccess && last.data.value, 1);
 
       // A query first read after shutdown does not create an entry or fetch.
       const late = counter();
       const lateQuery = Query.single({ key: ["after-shutdown"], run: late.tick });
       registry.mount(lateQuery);
       yield* settle;
-      expect(late.count).toBe(0);
-      expect(client.cache.all()).toHaveLength(0);
-      expect(registry.get(lateQuery).isEnabled).toBe(false);
+      assert.strictEqual(late.count, 0);
+      assert.lengthOf(client.cache.all(), 0);
+      assert.isFalse(registry.get(lateQuery).isEnabled);
       registry.dispose();
     }),
   );
@@ -160,11 +160,14 @@ describe("core engine", () => {
       entry.fetch();
       yield* settle;
       const r = entry.toResult();
-      expect([r.status, r.isLoading, Option.isNone(r.error)]).toEqual(["pending", true, true]);
+      assert.deepStrictEqual(
+        [r.status, r.isLoading, Option.isNone(r.error)],
+        ["pending", true, true],
+      );
       // cancelling reverts to the error
       entry.cancel();
       yield* settle;
-      expect(entry.toResult().status).toBe("error");
+      assert.strictEqual(entry.toResult().status, "error");
     }),
   );
 
@@ -177,7 +180,7 @@ describe("core engine", () => {
       yield* TestClock.adjust("1 second");
       yield* client.ensureQueryData(q, { staleTime: "1 hour", revalidateIfStale: true });
       yield* settle;
-      expect(runs.count).toBe(1);
+      assert.strictEqual(runs.count, 1);
     }),
   );
 
@@ -197,7 +200,7 @@ describe("core engine", () => {
       const seen: Array<string> = [];
       entry.subscribe(() => seen.push(entry.state.fetchStatus));
       entry.fetch({ cancelRefetch: true });
-      expect(seen).not.toContain("idle");
+      assert.notInclude(seen, "idle");
     }),
   );
 });
@@ -255,7 +258,7 @@ describe("persistence", () => {
         Effect.provideService(KeyValueStore.KeyValueStore, slow),
       );
       yield* b.close;
-      expect(yield* store.get("effect-atom-query")).toEqual(before);
+      assert.deepStrictEqual(yield* store.get("effect-atom-query"), before);
     }).pipe(Effect.provide(KeyValueStore.layerMemory)),
   );
 
@@ -269,7 +272,7 @@ describe("persistence", () => {
       yield* b.client.clear;
       yield* b.close;
       const store = yield* KeyValueStore.KeyValueStore;
-      expect((yield* store.get("effect-atom-query")) ?? "").not.toContain("secret");
+      assert.notInclude((yield* store.get("effect-atom-query")) ?? "", "secret");
     }).pipe(Effect.provide(KeyValueStore.layerMemory)),
   );
 
@@ -284,7 +287,7 @@ describe("persistence", () => {
       yield* b.client.removeQueries({ queryKey: ["drop"] });
       yield* b.close;
       const stored = (yield* (yield* KeyValueStore.KeyValueStore).get("effect-atom-query")) ?? "";
-      expect([stored.includes("keep"), stored.includes("drop")]).toEqual([true, false]);
+      assert.deepStrictEqual([stored.includes("keep"), stored.includes("drop")], [true, false]);
     }).pipe(Effect.provide(KeyValueStore.layerMemory)),
   );
 
@@ -298,7 +301,7 @@ describe("persistence", () => {
       yield* TestClock.adjust("2 hours");
       yield* b.close;
       const stored = (yield* (yield* KeyValueStore.KeyValueStore).get("effect-atom-query")) ?? "";
-      expect(stored).not.toContain("old");
+      assert.notInclude(stored, "old");
     }).pipe(Effect.provide(KeyValueStore.layerMemory)),
   );
 
@@ -319,9 +322,9 @@ describe("persistence", () => {
       yield* a.close;
       const b = yield* persistedClient({ mutations: [addTodo] });
       yield* settle;
-      expect(onMutates).toBe(1);
+      assert.strictEqual(onMutates, 1);
       const [resumed] = b.client.mutationCache.all();
-      expect(resumed?.state.status).toBe("success");
+      assert.strictEqual(resumed?.state.status, "success");
     }).pipe(Effect.provide(KeyValueStore.layerMemory)),
   );
 });
@@ -340,7 +343,7 @@ describe("mutations", () => {
       yield* settle;
       yield* TestClock.adjust("10 seconds");
       yield* settle;
-      expect(runs).toBe(3);
+      assert.strictEqual(runs, 3);
     }),
   );
 
@@ -376,7 +379,7 @@ describe("mutations", () => {
         yield* settle;
         yield* TestClock.adjust("110 millis");
         yield* settle;
-        expect(registry.get(view).data).toEqual(Option.some(["a", "b…"]));
+        assert.deepStrictEqual(registry.get(view).data, Option.some(["a", "b…"]));
       }),
   );
 
@@ -390,9 +393,10 @@ describe("mutations", () => {
       for (const id of ["a", "b", "c"]) {
         yield* client.mutate(save, id);
       }
-      expect(
+      assert.strictEqual(
         (client.mutationCache as unknown as { scopes: Map<string, unknown> }).scopes.size,
-      ).toBe(0);
+        0,
+      );
     }),
   );
 });
@@ -422,15 +426,20 @@ describe("review 2026-11-16", () => {
       yield* settle;
       yield* TestClock.adjust("1 second");
       yield* settle;
-      expect(log).toEqual(["after clear", "definition onSettled", "ui onSuccess", "ui onSettled"]);
-      expect(observer.getCurrentResult().status).toBe("success");
-      expect(client.mutationCache.all()).toHaveLength(0);
+      assert.deepStrictEqual(log, [
+        "after clear",
+        "definition onSettled",
+        "ui onSuccess",
+        "ui onSettled",
+      ]);
+      assert.strictEqual(observer.getCurrentResult().status, "success");
+      assert.lengthOf(client.mutationCache.all(), 0);
 
       const viaClient = yield* Effect.forkChild(client.mutate(logout, undefined));
       yield* settle;
       yield* TestClock.adjust("1 second");
       yield* settle;
-      expect(viaClient.pollUnsafe()).toEqual(Exit.succeed("bye"));
+      assert.deepStrictEqual(viaClient.pollUnsafe(), Exit.succeed("bye"));
     }),
   );
 
@@ -456,8 +465,8 @@ describe("review 2026-11-16", () => {
       yield* Scope.close(scope, Exit.void);
       yield* TestClock.adjust("1 second");
       yield* settle;
-      expect(finished).toBe(false);
-      expect(observer.getCurrentResult().status).toBe("idle");
+      assert.isFalse(finished);
+      assert.strictEqual(observer.getCurrentResult().status, "idle");
     }),
   );
 
@@ -479,7 +488,7 @@ describe("review 2026-11-16", () => {
       yield* TestClock.adjust("1 second");
       yield* settle;
       // the first run was interrupted before it produced a value
-      expect(fetching.pollUnsafe()).toEqual(Exit.succeed(1));
+      assert.deepStrictEqual(fetching.pollUnsafe(), Exit.succeed(1));
     }),
   );
 
@@ -500,7 +509,7 @@ describe("review 2026-11-16", () => {
       slow = false;
       yield* client.refetchQueries({ queryKey: ["superseded-sync"] });
       yield* settle;
-      expect(fetching.pollUnsafe()).toEqual(Exit.succeed("fast"));
+      assert.deepStrictEqual(fetching.pollUnsafe(), Exit.succeed("fast"));
     }),
   );
 
@@ -516,9 +525,9 @@ describe("review 2026-11-16", () => {
       yield* client.cancelQueries({ queryKey: ["cancelled-fetch"] });
       yield* settle;
       const exit = fetching.pollUnsafe();
-      expect(
+      assert.isTrue(
         exit !== undefined && Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause),
-      ).toBe(true);
+      );
     }),
   );
 
@@ -535,23 +544,23 @@ describe("review 2026-11-16", () => {
       observer.mutate(undefined, { onError: () => calls.push("onError") });
       yield* settle;
       const result = observer.getCurrentResult();
-      expect(result.status).toBe("idle");
-      expect(MutationResult.isDefect(result)).toBe(false);
-      expect(calls).toEqual([]);
+      assert.strictEqual(result.status, "idle");
+      assert.isFalse(MutationResult.isDefect(result));
+      assert.deepStrictEqual(calls, []);
 
       registry.mount(interrupted);
       registry.set(interrupted, undefined);
       yield* settle;
-      expect(registry.get(interrupted).status).toBe("idle");
+      assert.strictEqual(registry.get(interrupted).status, "idle");
 
       const exit = yield* Effect.exit(client.mutate(interrupted, undefined));
-      expect(Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)).toBe(true);
+      assert.isTrue(Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause));
       // Settled (although idle), so the unobserved execution is collected;
       // the observer's and the mounted atom's stay.
-      expect(client.mutationCache.findAll({ mutation: interrupted })).toHaveLength(3);
+      assert.lengthOf(client.mutationCache.findAll({ mutation: interrupted }), 3);
       yield* TestClock.adjust("5 minutes");
       yield* settle;
-      expect(client.mutationCache.findAll({ mutation: interrupted })).toHaveLength(2);
+      assert.lengthOf(client.mutationCache.findAll({ mutation: interrupted }), 2);
     }),
   );
 
@@ -572,9 +581,9 @@ describe("review 2026-11-16", () => {
       yield* settle;
       yield* Scope.close(scope, Exit.void);
       yield* settle;
-      expect(client.cache.all()).toHaveLength(0);
-      expect(runs.count).toBe(1);
-      expect(registry.get(q).data).toEqual(Option.some(1)); // keeps the last result
+      assert.lengthOf(client.cache.all(), 0);
+      assert.strictEqual(runs.count, 1);
+      assert.deepStrictEqual(registry.get(q).data, Option.some(1)); // keeps the last result
       registry.dispose();
     }),
   );
@@ -589,11 +598,11 @@ describe("review 2026-11-16", () => {
       yield* settle;
       yield* client.resetQueries({ queryKey: ["static-reset"] });
       yield* settle;
-      expect(observer.getCurrentResult().data).toEqual(Option.some(2));
+      assert.deepStrictEqual(observer.getCurrentResult().data, Option.some(2));
       // static data is still never refetched by an invalidation
       yield* client.invalidateQueries({ queryKey: ["static-reset"] });
       yield* settle;
-      expect(runs.count).toBe(2);
+      assert.strictEqual(runs.count, 2);
     }),
   );
 
@@ -622,20 +631,20 @@ describe("review 2026-11-16", () => {
       });
       // restored before the entry exists
       yield* QueryPersister.hydrate(client, persisted);
-      expect(client.cache.build(q).state.data).toEqual(Option.some(42));
-      expect(client.runtime.preloaded.size).toBe(0);
+      assert.deepStrictEqual(client.cache.build(q).state.data, Option.some(42));
+      assert.strictEqual(client.runtime.preloaded.size, 0);
 
       // restored after the entry exists (a background restore)
       yield* client.removeQueries({ queryKey: ["restored-initial"] });
-      expect(client.cache.build(q).state.data).toEqual(Option.some(0));
+      assert.deepStrictEqual(client.cache.build(q).state.data, Option.some(0));
       yield* QueryPersister.hydrate(client, persisted);
-      expect(client.cache.build(q).state.data).toEqual(Option.some(42));
+      assert.deepStrictEqual(client.cache.build(q).state.data, Option.some(42));
 
       // data that was fetched or written is never replaced
       yield* client.removeQueries({ queryKey: ["restored-initial"] });
       yield* client.setQueryData(q, 7);
       yield* QueryPersister.hydrate(client, persisted);
-      expect(client.cache.build(q).state.data).toEqual(Option.some(7));
+      assert.deepStrictEqual(client.cache.build(q).state.data, Option.some(7));
     }),
   );
 
@@ -648,17 +657,17 @@ describe("review 2026-11-16", () => {
       a.registry.mount(q);
       b.registry.mount(q);
       yield* settle;
-      expect(runs.count).toBe(2);
+      assert.strictEqual(runs.count, 2);
       a.registry.refresh(q);
       yield* settle;
-      expect(a.registry.get(q).data).toEqual(Option.some(3));
-      expect(b.registry.get(q).data).toEqual(Option.some(2));
+      assert.deepStrictEqual(a.registry.get(q).data, Option.some(3));
+      assert.deepStrictEqual(b.registry.get(q).data, Option.some(2));
       b.registry.refresh(q);
       b.registry.refresh(q);
       yield* settle;
-      expect(a.registry.get(q).data).toEqual(Option.some(3));
-      expect(b.registry.get(q).dataUpdateCount).toBeGreaterThan(1);
-      expect(a.registry.get(q).dataUpdateCount).toBe(2);
+      assert.deepStrictEqual(a.registry.get(q).data, Option.some(3));
+      assert.isAbove(b.registry.get(q).dataUpdateCount, 1);
+      assert.strictEqual(a.registry.get(q).dataUpdateCount, 2);
     }),
   );
 
@@ -670,12 +679,12 @@ describe("review 2026-11-16", () => {
       let notifications = 0;
       const unsubscribe = observer.subscribe(() => notifications++);
       yield* settle;
-      expect(observer.getCurrentResult().isStale).toBe(false);
+      assert.isFalse(observer.getCurrentResult().isStale);
       const before = notifications;
       yield* TestClock.adjust("5 seconds");
       yield* settle;
-      expect(notifications).toBe(before + 1);
-      expect(observer.getCurrentResult().isStale).toBe(true);
+      assert.strictEqual(notifications, before + 1);
+      assert.isTrue(observer.getCurrentResult().isStale);
 
       // new data restarts the timer; changed options reschedule it
       yield* client.setQueryData(q, 2);
@@ -683,10 +692,10 @@ describe("review 2026-11-16", () => {
       const afterWrite = notifications;
       yield* TestClock.adjust("5 seconds");
       yield* settle;
-      expect(notifications).toBe(afterWrite);
+      assert.strictEqual(notifications, afterWrite);
       yield* TestClock.adjust("55 seconds");
       yield* settle;
-      expect(notifications).toBe(afterWrite + 1);
+      assert.strictEqual(notifications, afterWrite + 1);
 
       // no timer outlives the subscription
       yield* client.setQueryData(q, 3);
@@ -694,7 +703,7 @@ describe("review 2026-11-16", () => {
       const afterUnsubscribe = notifications;
       yield* TestClock.adjust("1 hour");
       yield* settle;
-      expect(notifications).toBe(afterUnsubscribe);
+      assert.strictEqual(notifications, afterUnsubscribe);
     }),
   );
 
@@ -710,12 +719,12 @@ describe("review 2026-11-16", () => {
       yield* settle;
       yield* TestClock.adjust("2 minutes"); // the gc timer fires and skips: still fetching
       yield* settle;
-      expect(client.cache.all()).toHaveLength(1);
+      assert.lengthOf(client.cache.all(), 1);
       yield* client.resetQueries({ queryKey: ["reset-gc"] });
       yield* settle;
       yield* TestClock.adjust("1 minute");
       yield* settle;
-      expect(client.cache.all()).toHaveLength(0);
+      assert.lengthOf(client.cache.all(), 0);
     }),
   );
 
@@ -733,23 +742,27 @@ describe("review 2026-11-16", () => {
       yield* settle;
       yield* TestClock.adjust("1 second");
       yield* settle;
-      expect(runs.count).toBe(1);
+      assert.strictEqual(runs.count, 1);
       yield* TestClock.adjust("10 seconds"); // the interval fetch starts
       yield* settle;
       client.cache.build(q).reset(); // drops it; nothing else refetches a static query
       yield* settle;
       yield* TestClock.adjust("11 seconds");
       yield* settle;
-      expect(runs.count).toBe(2);
+      assert.strictEqual(runs.count, 2);
     }),
   );
 
   it.effect("keys that differ only in undefined values get different storage keys", () =>
     Effect.gen(function* () {
       const { client } = yield* setup();
-      expect(QueryKey.toJsonKey(["k", { a: undefined }])).not.toBe(QueryKey.toJsonKey(["k", {}]));
-      expect(QueryKey.toJsonKey(["k", undefined])).not.toBe(QueryKey.toJsonKey(["k", null]));
-      expect(QueryKey.toJsonKey(["k", { b: 1, a: 2 }])).toBe(
+      assert.notStrictEqual(
+        QueryKey.toJsonKey(["k", { a: undefined }]),
+        QueryKey.toJsonKey(["k", {}]),
+      );
+      assert.notStrictEqual(QueryKey.toJsonKey(["k", undefined]), QueryKey.toJsonKey(["k", null]));
+      assert.strictEqual(
+        QueryKey.toJsonKey(["k", { b: 1, a: 2 }]),
         QueryKey.toJsonKey(["k", { a: 2, b: 1 }]),
       );
 
@@ -764,15 +777,16 @@ describe("review 2026-11-16", () => {
       yield* client.fetchQuery(withUndefined);
       yield* client.fetchQuery(without);
       const snapshot = yield* QueryPersister.dehydrate(client);
-      expect(new Set(snapshot.queries.map((query) => query.data))).toEqual(
+      assert.deepStrictEqual(
+        new Set(snapshot.queries.map((query) => query.data)),
         new Set(["with", "without"]),
       );
 
       // and each entry claims its own data back
       yield* client.clear;
       yield* QueryPersister.hydrate(client, snapshot);
-      expect(client.cache.build(withUndefined).state.data).toEqual(Option.some("with"));
-      expect(client.cache.build(without).state.data).toEqual(Option.some("without"));
+      assert.deepStrictEqual(client.cache.build(withUndefined).state.data, Option.some("with"));
+      assert.deepStrictEqual(client.cache.build(without).state.data, Option.some("without"));
     }),
   );
 });

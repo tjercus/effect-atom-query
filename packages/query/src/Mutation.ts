@@ -18,6 +18,7 @@
 import { type Cause, Effect, type Exit, Option } from "effect";
 import { Atom } from "effect/reactivity";
 import type { MutationEntry, MutationKey, MutationOptions } from "./internal/mutationEntry.ts";
+import { keyLabel } from "./internal/jsonKey.ts";
 import type { ReactivityKeys } from "./internal/queryEntry.ts";
 import * as Query from "./Query.ts";
 import * as QueryClient from "./QueryClient.ts";
@@ -156,7 +157,7 @@ export const make = <I = void, A = void, E = never, R = never, C = never>(
 ): MutationAtom<I, A, E, R, C> => {
   const options = definition as MutationOptions<I, A, E, R, C>;
   const latest = Atom.make(Option.none<MutationEntry<I, A, E, C>>()).pipe(
-    Atom.withLabel(`Mutation.latest(${QueryKey.toJsonKey(definition.key ?? [])})`),
+    Atom.withLabel(`Mutation.latest(${keyLabel(definition.key ?? [])})`),
   );
   const self: MutationAtom<I, A, E, R, C> = Object.assign(
     Atom.writable<MutationResult.MutationResult<A, E, I, C>, I | Atom.Reset>(
@@ -307,39 +308,44 @@ export const optimisticUpdate = <A, I>(
   const target = (input: I): Query.QueryAtom<A, any, any> =>
     Query.isQueryAtom(query) ? query : query(input);
   return {
-    onMutate: (input) =>
-      Effect.gen(function* () {
-        const client = yield* QueryClient.QueryClient;
-        const atom = target(input);
-        if (Option.isNone(yield* client.getQueryData(atom))) {
-          return Option.none();
-        }
-        yield* client.cancelQueries({ queryKey: atom.key, exact: true });
-        // Read again: cancelling restores the state from before the fetch.
-        const previous = yield* client.getQueryData(atom);
-        if (Option.isSome(previous)) {
-          yield* client.setQueryData(atom, () => Option.some(update(previous.value, input)));
-        }
-        return previous;
-      }),
-    onError: (_cause, input, context) =>
-      Effect.gen(function* () {
-        const previous = Option.flatten(context);
-        if (Option.isNone(previous)) {
-          return;
-        }
-        const client = yield* QueryClient.QueryClient;
-        yield* client.setQueryData(target(input), () => previous);
-      }),
-    onSettled: (_exit, input, context) =>
-      Effect.gen(function* () {
-        // `onMutate` found no data, so it wrote nothing (a resumed execution,
-        // with no context at all, may have written before the reload).
-        if (Option.isSome(context) && Option.isNone(context.value)) {
-          return;
-        }
-        const client = yield* QueryClient.QueryClient;
-        yield* client.invalidateQueries({ queryKey: target(input).key, exact: true });
-      }),
+    onMutate: Effect.fnUntraced(function* (input: I) {
+      const client = yield* QueryClient.QueryClient;
+      const atom = target(input);
+      if (Option.isNone(yield* client.getQueryData(atom))) {
+        return Option.none();
+      }
+      yield* client.cancelQueries({ queryKey: atom.key, exact: true });
+      // Read again: cancelling restores the state from before the fetch.
+      const previous = yield* client.getQueryData(atom);
+      if (Option.isSome(previous)) {
+        yield* client.setQueryData(atom, () => Option.some(update(previous.value, input)));
+      }
+      return previous;
+    }),
+    onError: Effect.fnUntraced(function* (
+      _cause: Cause.Cause<unknown>,
+      input: I,
+      context: Option.Option<Option.Option<A>>,
+    ) {
+      const previous = Option.flatten(context);
+      if (Option.isNone(previous)) {
+        return;
+      }
+      const client = yield* QueryClient.QueryClient;
+      yield* client.setQueryData(target(input), () => previous);
+    }),
+    onSettled: Effect.fnUntraced(function* (
+      _exit: Exit.Exit<unknown, unknown>,
+      input: I,
+      context: Option.Option<Option.Option<A>>,
+    ) {
+      // `onMutate` found no data, so it wrote nothing (a resumed execution,
+      // with no context at all, may have written before the reload).
+      if (Option.isSome(context) && Option.isNone(context.value)) {
+        return;
+      }
+      const client = yield* QueryClient.QueryClient;
+      yield* client.invalidateQueries({ queryKey: target(input).key, exact: true });
+    }),
   };
 };

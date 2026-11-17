@@ -12,7 +12,9 @@ const program = Effect.gen(function* () {
 ```
 
 In components, `useQueryClient()` returns the same service. Run its Effects
-on your runtime (`runtime.runFork(...)`).
+on your runtime (`runtime.runFork(...)`). Outside a provider it throws;
+`useQueryClientOption()` returns an `Option` instead, for components that
+also work without one.
 
 ## Reading
 

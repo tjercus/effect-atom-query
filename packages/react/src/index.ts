@@ -26,6 +26,7 @@ export {
   QueryClientProvider,
   type QueryClientProviderProps,
   useQueryClient,
+  useQueryClientOption,
 } from "./QueryClientProvider.tsx";
 
 /** @since 0.1.0 */

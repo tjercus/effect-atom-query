@@ -19,7 +19,8 @@ import { AsyncResult, type Reactivity } from "effect/reactivity";
 import type * as FocusManager from "../FocusManager.ts";
 import type * as OnlineManager from "../OnlineManager.ts";
 import * as QueryKey from "../QueryKey.ts";
-import { jsonKey, type PersistCodec } from "./persistCodec.ts";
+import { jsonKey } from "./jsonKey.ts";
+import type { PersistCodec } from "./persistCodec.ts";
 import type * as QueryResult from "../QueryResult.ts";
 import { replaceEqualDeep } from "./structuralSharing.ts";
 
@@ -263,6 +264,11 @@ export interface ClientRuntime {
     effect: Effect.Effect<A, E, any>,
     context?: Context.Context<any>,
   ) => Fiber.Fiber<A, E>;
+  /** Run in the client's context; aborting `signal` interrupts the fiber. */
+  readonly runPromiseExit: <A, E>(
+    effect: Effect.Effect<A, E, any>,
+    options?: { readonly signal?: AbortSignal | undefined },
+  ) => Promise<Exit.Exit<A, E>>;
   readonly remove: (entry: QueryEntry<any, any>) => void;
   /** Cache-wide change notification (batched by the cache). */
   readonly onChange: () => void;

@@ -30,6 +30,11 @@ import { departuresAt, flightAt, searchAt } from "./flightData.ts";
 
 const Flights = Schema.Array(Flight);
 
+/** `Retry-After` in seconds; a missing or unreadable header means 1 second. */
+const decodeRetryAfter = Schema.decodeUnknownOption(
+  Schema.FiniteFromString.check(Schema.isGreaterThanOrEqualTo(0)),
+);
+
 /** Maps a response to the domain: 2xx is decoded, everything else is a typed error. */
 const decode =
   <A>(schema: Schema.Codec<A, unknown>) =>
@@ -37,7 +42,7 @@ const decode =
     response: HttpClientResponse.HttpClientResponse,
   ): Effect.Effect<A, TransientError | BadResponse> => {
     if (response.status === 429) {
-      const seconds = Number(response.headers["retry-after"] ?? "1");
+      const seconds = Option.getOrElse(decodeRetryAfter(response.headers["retry-after"]), () => 1);
       return Effect.fail(new RateLimited({ retryAfterMs: seconds * 1000 }));
     }
     if (response.status >= 500) {
@@ -216,12 +221,12 @@ export const layerRequestLog = (
         <A, E extends { readonly _tag: string }>(
           effect: Effect.Effect<A, E>,
         ): Effect.Effect<A, E> =>
-          Effect.suspend(() => {
+          Effect.gen(function* () {
             const id = nextId++;
-            const startedAt = Date.now();
-            return effect.pipe(
+            const startedAt = yield* Clock.currentTimeMillis;
+            return yield* effect.pipe(
               Effect.onExit((exit) =>
-                Effect.sync(() => {
+                Effect.map(Clock.currentTimeMillis, (endedAt) => {
                   const outcome: RequestOutcome = Exit.isSuccess(exit)
                     ? { _tag: "Ok" }
                     : Exit.hasInterrupts(exit)
@@ -230,7 +235,7 @@ export const layerRequestLog = (
                           onNone: () => ({ _tag: "Defect" }) as const,
                           onSome: (error) => ({ _tag: "Failed", error: error._tag }) as const,
                         });
-                  record({ id, request, startedAt, millis: Date.now() - startedAt, outcome });
+                  record({ id, request, startedAt, millis: endedAt - startedAt, outcome });
                 }),
               ),
             );

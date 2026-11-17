@@ -1,24 +1,25 @@
-import { describe, expect, it } from "@effect/vitest";
+import { assert, describe, it } from "@effect/vitest";
 import { Effect } from "effect";
 import { expectTypeOf } from "vite-plus/test";
 import { Mutation, Query, QueryKey } from "../src/index.ts";
 
 describe("QueryKey", () => {
   it("compares structurally, ignoring property order", () => {
-    expect(
+    assert.isTrue(
       QueryKey.equals(["todos", { page: 1, done: true }], ["todos", { done: true, page: 1 }]),
-    ).toBe(true);
-    expect(QueryKey.equals(["todos", 1], ["todos", 2])).toBe(false);
+    );
+    assert.isFalse(QueryKey.equals(["todos", 1], ["todos", 2]));
   });
 
   it("matches prefixes and partial objects", () => {
-    expect(QueryKey.matches(["todos", 1], ["todos"])).toBe(true);
-    expect(QueryKey.matches(["todos", { done: true, page: 2 }], ["todos", { done: true }])).toBe(
+    assert.isTrue(QueryKey.matches(["todos", 1], ["todos"]));
+    assert.strictEqual(
+      QueryKey.matches(["todos", { done: true, page: 2 }], ["todos", { done: true }]),
       true,
     );
-    expect(QueryKey.matches(["todos", { done: false }], ["todos", { done: true }])).toBe(false);
-    expect(QueryKey.matches(["todos"], ["todos", 1])).toBe(false);
-    expect(QueryKey.matches(["users", 1], ["todos"])).toBe(false);
+    assert.isFalse(QueryKey.matches(["todos", { done: false }], ["todos", { done: true }]));
+    assert.isFalse(QueryKey.matches(["todos"], ["todos", 1]));
+    assert.isFalse(QueryKey.matches(["users", 1], ["todos"]));
   });
 });
 
@@ -26,9 +27,9 @@ describe("QueryKey.make", () => {
   it("returns the key as a tuple", () => {
     const all = QueryKey.make("posts");
     const detail = (id: number) => QueryKey.make(...all, "detail", id);
-    expect(all).toEqual(["posts"]);
-    expect(detail(1)).toEqual(["posts", "detail", 1]);
-    expect(QueryKey.matches(detail(1), all)).toBe(true);
+    assert.deepStrictEqual(all, ["posts"]);
+    assert.deepStrictEqual(detail(1), ["posts", "detail", 1]);
+    assert.isTrue(QueryKey.matches(detail(1), all));
   });
 
   it("infers a tuple type without as const", () => {
@@ -41,9 +42,9 @@ describe("QueryKey.make", () => {
   it("rejects keys that are not a tuple starting with a string", () => {
     const widened: Array<string> = ["posts"];
     // @ts-expect-error a widened array is not a key
-    expect(() => QueryKey.make(...widened)).not.toThrow();
+    assert.doesNotThrow(() => QueryKey.make(...widened));
     // @ts-expect-error the first element must be a string
-    expect(QueryKey.make(1, 2)).toEqual([1, 2]);
+    assert.deepStrictEqual(QueryKey.make(1, 2), [1, 2]);
   });
 
   it("works as a definition key and in invalidates", () => {
@@ -59,7 +60,7 @@ describe("QueryKey.make", () => {
       run: (id: number) => Effect.succeed(id),
       invalidates: [postKeys.all],
     });
-    expect(postQuery(1).key).toEqual(["posts", "detail", 1]);
-    expect(save.options.invalidates).toEqual([["posts"]]);
+    assert.deepStrictEqual(postQuery(1).key, ["posts", "detail", 1]);
+    assert.deepStrictEqual(save.options.invalidates, [["posts"]]);
   });
 });

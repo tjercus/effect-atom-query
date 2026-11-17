@@ -1,4 +1,4 @@
-import { assert, describe, expect, it } from "@effect/vitest";
+import { assert, describe, it } from "@effect/vitest";
 import { Cause, Effect, Fiber, Option, Schema } from "effect";
 import { Atom, Reactivity } from "effect/reactivity";
 import { TestClock } from "effect/testing";
@@ -43,21 +43,23 @@ describe("mutations", () => {
 
       const fiber = yield* Effect.forkChild(client.mutate(double, 21));
       yield* settle;
-      expect(yield* client.isMutating()).toBe(1);
+      assert.strictEqual(yield* client.isMutating(), 1);
       yield* TestClock.adjust("1 second");
-      expect(yield* Fiber.join(fiber)).toBe(42);
+      assert.strictEqual(yield* Fiber.join(fiber), 42);
 
       registry.mount(double);
-      expect(registry.get(double).status).toBe("idle");
+      assert.strictEqual(registry.get(double).status, "idle");
       registry.set(double, 5);
-      expect(registry.get(double)).toMatchObject({ status: "pending", variables: Option.some(5) });
+      const pending = registry.get(double);
+      assert.strictEqual(pending.status, "pending");
+      assert.deepStrictEqual(pending.variables, Option.some(5));
       yield* TestClock.adjust("1 second");
       yield* settle;
       const r = registry.get(double);
       assert(r.isSuccess);
-      expect(r.data.value).toBe(10);
+      assert.strictEqual(r.data.value, 10);
       registry.set(double, Atom.Reset);
-      expect(registry.get(double).isIdle).toBe(true);
+      assert.isTrue(registry.get(double).isIdle);
     }),
   );
 
@@ -86,7 +88,7 @@ describe("mutations", () => {
       });
       yield* client.mutate(m, "ok");
       yield* client.mutate(m, "fail").pipe(Effect.ignore);
-      expect(log).toEqual([
+      assert.deepStrictEqual(log, [
         "mutate ok",
         "success OK ok ctx-ok",
         "settled Success ok",
@@ -110,13 +112,16 @@ describe("mutations", () => {
       registry.set(add, "b");
       yield* TestClock.adjust("100 millis"); // mutation done, refetch started
       yield* settle;
-      expect(registry.get(add).status).toBe("pending");
-      expect(registry.get(server.todosQuery).isFetching).toBe(true);
+      assert.strictEqual(registry.get(add).status, "pending");
+      assert.isTrue(registry.get(server.todosQuery).isFetching);
       yield* TestClock.adjust("100 millis");
       yield* settle;
-      expect(registry.get(add).status).toBe("success");
-      expect(registry.get(server.todosQuery).data).toEqual(Option.some(["a", "b"]));
-      expect(yield* client.getQueryData(server.todosQuery)).toEqual(Option.some(["a", "b"]));
+      assert.strictEqual(registry.get(add).status, "success");
+      assert.deepStrictEqual(registry.get(server.todosQuery).data, Option.some(["a", "b"]));
+      assert.deepStrictEqual(
+        yield* client.getQueryData(server.todosQuery),
+        Option.some(["a", "b"]),
+      );
     }),
   );
 
@@ -148,12 +153,12 @@ describe("mutations", () => {
 
       const fiber = yield* Effect.forkChild(client.mutate(add, "bad"));
       yield* settle;
-      expect(registry.get(todos).data).toEqual(Option.some(["a", "bad"])); // optimistic
+      assert.deepStrictEqual(registry.get(todos).data, Option.some(["a", "bad"])); // optimistic
       yield* TestClock.adjust("100 millis");
       const exit = yield* Fiber.await(fiber);
-      expect(exit._tag).toBe("Failure");
+      assert.strictEqual(exit._tag, "Failure");
       yield* settle;
-      expect(registry.get(todos).data).toEqual(Option.some(["a"])); // rolled back
+      assert.deepStrictEqual(registry.get(todos).data, Option.some(["a"])); // rolled back
     }),
   );
 
@@ -172,27 +177,27 @@ describe("mutations", () => {
 
       const bad = yield* Effect.forkChild(client.mutate(add, "bad"));
       yield* settle;
-      expect(registry.get(todos).data).toEqual(Option.some(["a", "bad"])); // optimistic
+      assert.deepStrictEqual(registry.get(todos).data, Option.some(["a", "bad"])); // optimistic
       yield* TestClock.adjust("100 millis");
       yield* settle;
-      expect(registry.get(todos).data).toEqual(Option.some(["a"])); // rolled back
-      expect(registry.get(todos).isFetching).toBe(true); // and refetching
+      assert.deepStrictEqual(registry.get(todos).data, Option.some(["a"])); // rolled back
+      assert.isTrue(registry.get(todos).isFetching); // and refetching
       yield* TestClock.adjust("100 millis");
-      expect((yield* Fiber.await(bad))._tag).toBe("Failure");
+      assert.strictEqual((yield* Fiber.await(bad))._tag, "Failure");
       yield* settle;
 
       const good = yield* Effect.forkChild(client.mutate(add, "b"));
       yield* settle;
-      expect(registry.get(todos).data).toEqual(Option.some(["a", "b"]));
+      assert.deepStrictEqual(registry.get(todos).data, Option.some(["a", "b"]));
       const fetches = server.fetches;
       yield* TestClock.adjust("100 millis"); // saved on the server
       yield* settle;
-      expect(registry.get(todos).isFetching).toBe(true); // refetching after success too
+      assert.isTrue(registry.get(todos).isFetching); // refetching after success too
       yield* TestClock.adjust("100 millis");
-      expect((yield* Fiber.await(good))._tag).toBe("Success");
+      assert.strictEqual((yield* Fiber.await(good))._tag, "Success");
       yield* settle;
-      expect(server.fetches).toBe(fetches + 1);
-      expect(registry.get(todos).data).toEqual(Option.some(["a", "b"])); // from the server
+      assert.strictEqual(server.fetches, fetches + 1);
+      assert.deepStrictEqual(registry.get(todos).data, Option.some(["a", "b"])); // from the server
     }),
   );
 
@@ -215,14 +220,14 @@ describe("mutations", () => {
       yield* settle;
       const b = yield* Effect.forkChild(client.mutate(add, "bad"));
       yield* settle;
-      expect(registry.get(todos).data).toEqual(Option.some(["a", "bad", "bad"]));
+      assert.deepStrictEqual(registry.get(todos).data, Option.some(["a", "bad", "bad"]));
       yield* TestClock.adjust("100 millis"); // both fail
       yield* settle;
       yield* TestClock.adjust("100 millis"); // the invalidation refetch lands
       yield* settle;
       yield* Fiber.await(a);
       yield* Fiber.await(b);
-      expect(registry.get(todos).data).toEqual(Option.some(["a"]));
+      assert.deepStrictEqual(registry.get(todos).data, Option.some(["a"]));
     }),
   );
 
@@ -245,19 +250,19 @@ describe("mutations", () => {
       yield* settle;
       const slow = yield* Effect.forkChild(client.mutate(add, "slow"));
       yield* settle;
-      expect(registry.get(todos).data).toEqual(Option.some(["a", "bad", "slow"]));
+      assert.deepStrictEqual(registry.get(todos).data, Option.some(["a", "bad", "slow"]));
       yield* TestClock.adjust("100 millis"); // "bad" fails: rollback to [a]
       yield* settle;
       yield* TestClock.adjust("100 millis"); // its refetch lands, "slow" not saved yet
       yield* settle;
-      expect((yield* Fiber.await(bad))._tag).toBe("Failure");
-      expect(registry.get(todos).data).toEqual(Option.some(["a"]));
+      assert.strictEqual((yield* Fiber.await(bad))._tag, "Failure");
+      assert.deepStrictEqual(registry.get(todos).data, Option.some(["a"]));
       yield* TestClock.adjust("200 millis"); // "slow" is saved
       yield* settle;
       yield* TestClock.adjust("100 millis"); // and its refetch lands
-      expect((yield* Fiber.await(slow))._tag).toBe("Success");
+      assert.strictEqual((yield* Fiber.await(slow))._tag, "Success");
       yield* settle;
-      expect(registry.get(todos).data).toEqual(Option.some(["a", "slow"]));
+      assert.deepStrictEqual(registry.get(todos).data, Option.some(["a", "slow"]));
     }),
   );
 
@@ -271,16 +276,16 @@ describe("mutations", () => {
       });
       registry.mount(server.todosQuery);
       yield* settle;
-      expect(registry.get(server.todosQuery).isLoading).toBe(true);
+      assert.isTrue(registry.get(server.todosQuery).isLoading);
       const fiber = yield* Effect.forkChild(client.mutate(add, "b"));
       yield* settle;
-      expect(registry.get(server.todosQuery).isFetching).toBe(true); // still loading
+      assert.isTrue(registry.get(server.todosQuery).isFetching); // still loading
       yield* TestClock.adjust("100 millis");
       yield* Fiber.await(fiber);
       yield* settle;
       const result = registry.get(server.todosQuery);
-      expect(result.isSuccess).toBe(true);
-      expect(server.fetches).toBe(1);
+      assert.isTrue(result.isSuccess);
+      assert.strictEqual(server.fetches, 1);
     }),
   );
 
@@ -312,11 +317,11 @@ describe("mutations", () => {
       yield* settle;
       yield* Effect.forkChild(client.mutate(rename, { id: "1", title: "renamed" }));
       yield* settle;
-      expect(registry.get(todoQuery("1")).data).toEqual(Option.some("1:renamed"));
+      assert.deepStrictEqual(registry.get(todoQuery("1")).data, Option.some("1:renamed"));
       yield* TestClock.adjust("100 millis");
       yield* settle;
-      expect(registry.get(todoQuery("1")).data).toEqual(Option.some("1:renamed"));
-      expect(registry.get(todoQuery("2")).data).toEqual(Option.some("2:server")); // untouched
+      assert.deepStrictEqual(registry.get(todoQuery("1")).data, Option.some("1:renamed"));
+      assert.deepStrictEqual(registry.get(todoQuery("2")).data, Option.some("2:server")); // untouched
     }),
   );
 
@@ -330,12 +335,12 @@ describe("mutations", () => {
       });
       const fiber = yield* Effect.forkChild(client.mutate(add, "bad"));
       yield* settle;
-      expect(Option.isNone(yield* client.getQueryData(server.todosQuery))).toBe(true);
+      assert.isTrue(Option.isNone(yield* client.getQueryData(server.todosQuery)));
       yield* TestClock.adjust("100 millis");
       yield* Fiber.await(fiber);
       yield* settle;
-      expect(Option.isNone(yield* client.getQueryData(server.todosQuery))).toBe(true);
-      expect(registry.get(server.todosQuery).isPending).toBe(true);
+      assert.isTrue(Option.isNone(yield* client.getQueryData(server.todosQuery)));
+      assert.isTrue(registry.get(server.todosQuery).isPending);
     }),
   );
 
@@ -360,12 +365,15 @@ describe("mutations", () => {
       });
       registry.set(add, "b");
       yield* settle;
-      expect(registry.get(view).data).toEqual(Option.some(["a", "b…"]));
+      assert.deepStrictEqual(registry.get(view).data, Option.some(["a", "b…"]));
       yield* TestClock.adjust("200 millis"); // mutation + invalidation refetch
       yield* settle;
-      expect(registry.get(view).data).toEqual(Option.some(["a", "b"]));
+      assert.deepStrictEqual(registry.get(view).data, Option.some(["a", "b"]));
       // The overlay hands over to the refetched list without showing both.
-      expect(seen.filter((list) => list.includes("b") && list.includes("b…"))).toEqual([]);
+      assert.deepStrictEqual(
+        seen.filter((list) => list.includes("b") && list.includes("b…")),
+        [],
+      );
     }),
   );
 
@@ -386,13 +394,13 @@ describe("mutations", () => {
       a.mutate("a");
       b.mutate("b");
       yield* settle;
-      expect(b.getCurrentResult()).toMatchObject({ status: "pending", isPaused: true });
+      assert.deepInclude(b.getCurrentResult(), { status: "pending", isPaused: true });
       yield* TestClock.adjust("1 second");
       yield* settle;
-      expect(b.getCurrentResult()).toMatchObject({ status: "pending", isPaused: false });
+      assert.deepInclude(b.getCurrentResult(), { status: "pending", isPaused: false });
       yield* TestClock.adjust("1 second");
       yield* settle;
-      expect(order).toEqual(["start a", "end a", "start b", "end b"]);
+      assert.deepStrictEqual(order, ["start a", "end a", "start b", "end b"]);
     }),
   );
 
@@ -403,20 +411,20 @@ describe("mutations", () => {
       const flaky = (retry?: number) =>
         Mutation.make({ run: () => runs.tick.pipe(Effect.andThen(Effect.fail("x"))), retry });
       yield* client.mutate(flaky(), undefined).pipe(Effect.ignore);
-      expect(runs.count).toBe(1);
+      assert.strictEqual(runs.count, 1);
       const fiber = yield* Effect.forkChild(client.mutate(flaky(2), undefined).pipe(Effect.ignore));
       yield* TestClock.adjust("10 seconds");
       yield* Fiber.join(fiber);
-      expect(runs.count).toBe(4);
+      assert.strictEqual(runs.count, 4);
 
       online.setOnline(false);
       const offline = MutationObserver.make(client, Mutation.make({ run: () => runs.tick }));
       offline.mutate();
       yield* settle;
-      expect(offline.getCurrentResult()).toMatchObject({ status: "pending", isPaused: true });
+      assert.deepInclude(offline.getCurrentResult(), { status: "pending", isPaused: true });
       online.setOnline(true);
       yield* settle;
-      expect(offline.getCurrentResult().status).toBe("success");
+      assert.strictEqual(offline.getCurrentResult().status, "success");
     }),
   );
 
@@ -434,7 +442,7 @@ describe("mutations", () => {
       observer.mutate(2);
       yield* TestClock.adjust("2 seconds");
       yield* settle;
-      expect(seen).toEqual([2]);
+      assert.deepStrictEqual(seen, [2]);
     }),
   );
 
@@ -452,7 +460,7 @@ describe("mutations", () => {
       yield* settle;
       observer.mutate("boom", { onError: (_cause, _input, error) => seen.push(error) });
       yield* settle;
-      expect(seen).toEqual([Option.some(new Rejected({ title: "bad" })), Option.none()]);
+      assert.deepStrictEqual(seen, [Option.some(new Rejected({ title: "bad" })), Option.none()]);
     }),
   );
 
@@ -461,10 +469,10 @@ describe("mutations", () => {
       const { client } = yield* setup();
       const m = Mutation.make({ key: ["gc"], run: () => Effect.void });
       yield* client.mutate(m, undefined);
-      expect(client.mutationCache.findAll({ mutationKey: ["gc"] })).toHaveLength(1);
+      assert.lengthOf(client.mutationCache.findAll({ mutationKey: ["gc"] }), 1);
       yield* TestClock.adjust("5 minutes");
       yield* settle;
-      expect(client.mutationCache.findAll({ mutationKey: ["gc"] })).toHaveLength(0);
+      assert.lengthOf(client.mutationCache.findAll({ mutationKey: ["gc"] }), 0);
     }),
   );
 
@@ -480,7 +488,7 @@ describe("mutations", () => {
       const fiber = yield* Effect.forkChild(client.mutate(m, undefined).pipe(Effect.ignore));
       yield* TestClock.adjust("5 seconds");
       yield* Fiber.join(fiber);
-      expect(runs.count).toBe(2);
+      assert.strictEqual(runs.count, 2);
     }),
   );
 });
@@ -492,23 +500,23 @@ describe("cache writes and invalidation", () => {
       const q = Query.single({ key: ["counter"], run: Effect.succeed(0), staleTime: "1 minute" });
       registry.mount(q);
       yield* settle;
-      expect(yield* client.setQueryData(q, 5)).toEqual(Option.some(5));
-      expect(registry.get(q).data).toEqual(Option.some(5));
+      assert.deepStrictEqual(yield* client.setQueryData(q, 5), Option.some(5));
+      assert.deepStrictEqual(registry.get(q).data, Option.some(5));
       yield* client.setQueryData(q, (n) => Option.map(n, (x) => x + 1));
       yield* client.setQueryData(q, () => Option.none());
-      expect(registry.get(q).data).toEqual(Option.some(6));
-      expect(registry.get(q).isStale).toBe(false);
+      assert.deepStrictEqual(registry.get(q).data, Option.some(6));
+      assert.isFalse(registry.get(q).isStale);
 
       // A key without a definition gets an entry too.
       yield* client.setQueryData(["orphan", 1] as const, "x");
-      expect(yield* client.getQueryData(["orphan", 1])).toEqual(Option.some("x"));
-      expect(yield* client.getQueriesData({ queryKey: ["orphan"] })).toEqual([
+      assert.deepStrictEqual(yield* client.getQueryData(["orphan", 1]), Option.some("x"));
+      assert.deepStrictEqual(yield* client.getQueriesData({ queryKey: ["orphan"] }), [
         [["orphan", 1], Option.some("x")],
       ]);
       const updated = yield* client.setQueriesData<string>({ queryKey: ["orphan"] }, (s) =>
         Option.map(s, (v) => v + "!"),
       );
-      expect(updated).toEqual([[["orphan", 1], Option.some("x!")]]);
+      assert.deepStrictEqual(updated, [[["orphan", 1], Option.some("x!")]]);
     }),
   );
 
@@ -533,11 +541,11 @@ describe("cache writes and invalidation", () => {
         yield* settle;
 
         yield* client.invalidateQueries({ queryKey: ["inv"] });
-        expect([active.count, inactive.count, fixed.count]).toEqual([2, 1, 1]);
-        expect(Option.getOrThrow(yield* client.getQueryState(qi)).isStale).toBe(true);
+        assert.deepStrictEqual([active.count, inactive.count, fixed.count], [2, 1, 1]);
+        assert.isTrue(Option.getOrThrow(yield* client.getQueryState(qi)).isStale);
 
         yield* client.invalidateQueries({ queryKey: ["inv"] }, { refetchType: "all" });
-        expect([active.count, inactive.count, fixed.count]).toEqual([3, 2, 1]);
+        assert.deepStrictEqual([active.count, inactive.count, fixed.count], [3, 2, 1]);
       }),
   );
 
@@ -555,10 +563,10 @@ describe("cache writes and invalidation", () => {
       yield* client.setQueryData(q, 99);
       const reset = yield* Effect.forkChild(client.resetQueries({ queryKey: ["reset"] }));
       yield* settle;
-      expect(registry.get(q)).toMatchObject({ data: Option.some(0), isFetching: true });
+      assert.deepInclude(registry.get(q), { data: Option.some(0), isFetching: true });
       yield* TestClock.adjust("1 second");
       yield* Fiber.join(reset);
-      expect(registry.get(q).data).toEqual(Option.some(1));
+      assert.deepStrictEqual(registry.get(q).data, Option.some(1));
     }),
   );
 
@@ -572,8 +580,8 @@ describe("cache writes and invalidation", () => {
       yield* settle;
       registry.mount(q);
       yield* settle;
-      expect(runs.count).toBe(1);
-      expect(yield* client.getQueryDefaults(["slow", 1])).toMatchObject({ staleTime: "1 hour" });
+      assert.strictEqual(runs.count, 1);
+      assert.deepInclude(yield* client.getQueryDefaults(["slow", 1]), { staleTime: "1 hour" });
     }),
   );
 
@@ -600,7 +608,7 @@ describe("cache writes and invalidation", () => {
         yield* settle;
         return [afterExternal, runs.count];
       }).pipe(Effect.provide(Reactivity.layer));
-      expect(result).toEqual([2, 3]);
+      assert.deepStrictEqual(result, [2, 3]);
     }),
   );
 });
@@ -619,12 +627,12 @@ describe("MutationObserver", () => {
       observer.setOptions(triple, { onSuccess: (a) => seen.push(`new ${a}`) });
       observer.mutate(2);
       yield* settle;
-      expect(seen).toEqual(["new 6"]);
+      assert.deepStrictEqual(seen, ["new 6"]);
       observer.setOptions(double);
       observer.mutate(2);
       yield* settle;
-      expect(seen).toEqual(["new 6"]); // no callbacks any more
-      expect(observer.getCurrentResult().data).toEqual(Option.some(4));
+      assert.deepStrictEqual(seen, ["new 6"]); // no callbacks any more
+      assert.deepStrictEqual(observer.getCurrentResult().data, Option.some(4));
     }),
   );
 
@@ -639,20 +647,20 @@ describe("MutationObserver", () => {
       observer.mutate(1);
       yield* settle;
       const pending = observer.getCurrentResult();
-      expect(pending.status).toBe("pending");
-      expect(observer.getCurrentResult()).toBe(pending); // memoised per state
+      assert.strictEqual(pending.status, "pending");
+      assert.strictEqual(observer.getCurrentResult(), pending); // memoised per state
 
       let notified = 0;
       const unsubscribe = observer.subscribe(() => notified++);
       const entry = client.mutationCache.all()[0]!;
-      expect(entry.observers).toBe(1);
+      assert.strictEqual(entry.observers, 1);
       yield* TestClock.adjust("1 second");
       yield* settle;
-      expect(notified).toBeGreaterThan(0);
-      expect(observer.getCurrentResult().status).toBe("success");
-      expect(settled).toEqual([1]); // subscribed when it settled
+      assert.isAbove(notified, 0);
+      assert.strictEqual(observer.getCurrentResult().status, "success");
+      assert.deepStrictEqual(settled, [1]); // subscribed when it settled
       unsubscribe();
-      expect(entry.observers).toBe(0);
+      assert.strictEqual(entry.observers, 0);
     }),
   );
 
@@ -664,11 +672,11 @@ describe("MutationObserver", () => {
           n > 0 ? Effect.succeed(n + 1) : Effect.fail(new Rejected({ title: String(n) })),
       });
       const observer = MutationObserver.make(client, m);
-      expect(yield* observer.mutateEffect(1)).toBe(2);
-      expect(observer.getCurrentResult().data).toEqual(Option.some(2));
+      assert.strictEqual(yield* observer.mutateEffect(1), 2);
+      assert.deepStrictEqual(observer.getCurrentResult().data, Option.some(2));
       const error = yield* Effect.flip(observer.mutateEffect(0));
-      expect(error).toEqual(new Rejected({ title: "0" }));
-      expect(observer.getCurrentResult().status).toBe("error");
+      assert.deepStrictEqual(error, new Rejected({ title: "0" }));
+      assert.strictEqual(observer.getCurrentResult().status, "error");
     }),
   );
 
@@ -681,14 +689,14 @@ describe("MutationObserver", () => {
       observer.subscribe(() => notified++);
       observer.mutate(7);
       yield* settle;
-      expect(observer.getCurrentResult().status).toBe("success");
+      assert.strictEqual(observer.getCurrentResult().status, "success");
       const entry = client.mutationCache.all()[0]!;
       const before = notified;
       observer.reset();
-      expect(notified).toBe(before + 1);
-      expect(observer.getCurrentResult().status).toBe("idle");
-      expect(entry.observers).toBe(0);
-      expect(MutationResult.isDefect(observer.getCurrentResult())).toBe(false);
+      assert.strictEqual(notified, before + 1);
+      assert.strictEqual(observer.getCurrentResult().status, "idle");
+      assert.strictEqual(entry.observers, 0);
+      assert.isFalse(MutationResult.isDefect(observer.getCurrentResult()));
     }),
   );
 
@@ -701,9 +709,9 @@ describe("MutationObserver", () => {
       });
       const observer = MutationObserver.make(client, m);
       yield* Effect.exit(observer.mutateEffect("die"));
-      expect(MutationResult.isDefect(observer.getCurrentResult())).toBe(true);
+      assert.isTrue(MutationResult.isDefect(observer.getCurrentResult()));
       yield* Effect.exit(observer.mutateEffect("typed"));
-      expect(MutationResult.isDefect(observer.getCurrentResult())).toBe(false);
+      assert.isFalse(MutationResult.isDefect(observer.getCurrentResult()));
     }),
   );
 });
@@ -728,12 +736,12 @@ describe("Mutation.optimistic with overlapping executions", () => {
       yield* TestClock.adjust("1 millis");
       b.mutate("second");
       yield* settle;
-      expect(registry.get(view).data).toEqual(Option.some(["first", "second"]));
-      expect(Mutation.isMutationAtom(add)).toBe(true);
-      expect(Mutation.isMutationAtom(list)).toBe(false);
+      assert.deepStrictEqual(registry.get(view).data, Option.some(["first", "second"]));
+      assert.isTrue(Mutation.isMutationAtom(add));
+      assert.isFalse(Mutation.isMutationAtom(list));
       yield* TestClock.adjust("1 second");
       yield* settle;
-      expect(registry.get(view).data).toEqual(Option.some([]));
+      assert.deepStrictEqual(registry.get(view).data, Option.some([]));
     }),
   );
 });

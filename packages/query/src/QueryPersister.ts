@@ -30,7 +30,8 @@
  */
 import { Duration, Effect, Fiber, Layer, Option, Result, Schema } from "effect";
 import { KeyValueStore } from "effect/persistence";
-import { jsonKey, persistCodec } from "./internal/persistCodec.ts";
+import { jsonKey, keyLabel } from "./internal/jsonKey.ts";
+import { persistCodec } from "./internal/persistCodec.ts";
 import type * as Mutation from "./Mutation.ts";
 import * as QueryClient from "./QueryClient.ts";
 import * as QueryKey from "./QueryKey.ts";
@@ -103,7 +104,28 @@ export type PersistedClient = typeof PersistedClient.Type;
 
 const PersistedClientJson = Schema.fromJsonString(PersistedClient);
 const decodeSnapshot = Schema.decodeUnknownOption(PersistedClientJson);
-const encodeSnapshot = Schema.encodeSync(PersistedClientJson);
+
+/**
+ * A codec's output as `JSON.stringify` writes it, or a failure for what it
+ * cannot write (a bigint, a cycle). Codecs are not trusted to emit JSON: a
+ * Standard Schema does not encode, and `Schema.Any` passes values through.
+ * One value that is not JSON would otherwise make every write fail.
+ */
+const toJson = (value: unknown): Result.Result<Schema.Json, unknown> =>
+  Result.try(() => JSON.parse(JSON.stringify(value)) as Schema.Json);
+
+/** Entries already reported by `notJson`: a snapshot is taken on every write. */
+const reported = new WeakSet<object>();
+
+const notJson = (entry: object, what: string, key: ReadonlyArray<unknown>, cause: unknown) => {
+  if (!reported.has(entry)) {
+    reported.add(entry);
+    console.warn(
+      `effect-atom-query: ${what} ${keyLabel(key)} was not persisted, because JSON cannot hold it.`,
+      cause,
+    );
+  }
+};
 
 const resolve = (options: Options = {}) => ({
   storageKey: options.storageKey ?? "effect-atom-query",
@@ -149,14 +171,19 @@ const snapshot = (client: QueryClient.Service, options: Resolved): PersistedClie
     if (Result.isFailure(key)) {
       continue;
     }
-    const data = codec.encode(entry.state.data.value);
+    const encoded = codec.encode(entry.state.data.value);
+    if (Result.isFailure(encoded)) {
+      continue;
+    }
+    const data = toJson(encoded.success);
     if (Result.isFailure(data)) {
+      notJson(entry, "the data of query", entry.key, data.failure);
       continue;
     }
     queries.push({
       key: key.success,
       queryKey: JSON.parse(key.success) as Schema.Json,
-      data: data.success as Schema.Json,
+      data: data.success,
       dataUpdatedAt: entry.state.dataUpdatedAt,
     });
     seen.add(key.success);
@@ -194,13 +221,18 @@ const snapshot = (client: QueryClient.Service, options: Resolved): PersistedClie
     if (Result.isFailure(key)) {
       continue;
     }
-    const variables = persistCodec(persist.variables).encode(state.variables.value);
+    const encoded = persistCodec(persist.variables).encode(state.variables.value);
+    if (Result.isFailure(encoded)) {
+      continue;
+    }
+    const variables = toJson(encoded.success);
     if (Result.isFailure(variables)) {
+      notJson(entry, "the variables of mutation", entry.key, variables.failure);
       continue;
     }
     mutations.push({
       mutationKey: JSON.parse(key.success) as Schema.Json,
-      variables: variables.success as Schema.Json,
+      variables: variables.success,
       submittedAt: state.submittedAt,
     });
   }
@@ -220,12 +252,11 @@ export const hydrate = (
 ): Effect.Effect<void> =>
   Effect.sync(() => {
     for (const query of persisted.queries) {
-      if (Option.isSome(client.cache.get(query.queryKey as QueryKey.QueryKey))) {
-        // An entry exists already: let it claim the data if it is still empty.
-        client.runtime.preloaded.set(query.key, query);
-        Option.getOrThrow(client.cache.get(query.queryKey as QueryKey.QueryKey)).claimPersisted();
-      } else {
-        client.runtime.preloaded.set(query.key, query);
+      client.runtime.preloaded.set(query.key, query);
+      // An entry exists already: let it claim the data if it is still empty.
+      const entry = client.cache.get(query.queryKey as QueryKey.QueryKey);
+      if (Option.isSome(entry)) {
+        entry.value.claimPersisted();
       }
     }
     for (const mutation of persisted.mutations) {
@@ -242,12 +273,14 @@ export const hydrate = (
     }
   });
 
-const readSnapshot = (
+// `@__PURE__`: a top-level call is kept by bundlers unless marked, which would
+// pull persistence into every bundle that imports the package.
+const readSnapshot: (
   client: QueryClient.Service,
   store: KeyValueStore.KeyValueStore,
   options: Resolved,
-): Effect.Effect<Option.Option<PersistedClient>> =>
-  Effect.gen(function* () {
+) => Effect.Effect<Option.Option<PersistedClient>> = /* @__PURE__ */ Effect.fnUntraced(
+  function* (client: QueryClient.Service, store: KeyValueStore.KeyValueStore, options: Resolved) {
     const raw = yield* store.get(options.storageKey);
     if (raw === undefined) {
       return Option.none();
@@ -263,7 +296,15 @@ const readSnapshot = (
       yield* store.remove(options.storageKey);
     }
     return valid;
-  }).pipe(Effect.catch(() => Effect.succeed(Option.none<PersistedClient>())));
+  },
+  // Unreadable storage restores nothing, but says why.
+  Effect.catch((error) =>
+    Effect.as(
+      Effect.logWarning("effect-atom-query: the persisted snapshot could not be read", error),
+      Option.none<PersistedClient>(),
+    ),
+  ),
+);
 
 /**
  * Restore the client from storage once.
@@ -271,10 +312,10 @@ const readSnapshot = (
  * @since 0.1.0
  * @category persisting
  */
-export const restore = (
+export const restore: (
   options?: Options,
-): Effect.Effect<void, never, QueryClient.QueryClient | KeyValueStore.KeyValueStore> =>
-  Effect.gen(function* () {
+) => Effect.Effect<void, never, QueryClient.QueryClient | KeyValueStore.KeyValueStore> =
+  /* @__PURE__ */ Effect.fnUntraced(function* (options?: Options) {
     const client = yield* QueryClient.QueryClient;
     const store = yield* KeyValueStore.KeyValueStore;
     const resolved = resolve(options);
@@ -290,19 +331,20 @@ export const restore = (
  * @since 0.1.0
  * @category persisting
  */
-export const persist = (
+export const persist: (
   options?: Options,
-): Effect.Effect<
+) => Effect.Effect<
   void,
   KeyValueStore.KeyValueStoreError,
   QueryClient.QueryClient | KeyValueStore.KeyValueStore
-> =>
-  Effect.gen(function* () {
-    const client = yield* QueryClient.QueryClient;
-    const store = yield* KeyValueStore.KeyValueStore;
-    const resolved = resolve(options);
-    yield* store.set(resolved.storageKey, encodeSnapshot(snapshot(client, resolved)));
-  });
+> = /* @__PURE__ */ Effect.fnUntraced(function* (options?: Options) {
+  const client = yield* QueryClient.QueryClient;
+  const store = yield* KeyValueStore.KeyValueStore;
+  const resolved = resolve(options);
+  // `snapshot` holds JSON values only (see `toJson`), and the stored form of
+  // `PersistedClient` is the value itself, so this is a plain stringify.
+  yield* store.set(resolved.storageKey, JSON.stringify(snapshot(client, resolved)));
+});
 
 /**
  * Remove the stored snapshot (e.g. on logout).
@@ -338,8 +380,10 @@ export const layer = (
         }
       }
 
+      // Detached: resuming must not hold up the restore, nor stop with this
+      // layer (the mutations themselves run in the client's context).
       const afterRestore = resolved.resumePausedMutations
-        ? Effect.sync(() => client.runtime.runFork(client.resumePausedMutations))
+        ? Effect.forkDetach(client.resumePausedMutations, { startImmediately: true })
         : Effect.void;
       const restoring = client.runtime.restoring;
       restoring.start();

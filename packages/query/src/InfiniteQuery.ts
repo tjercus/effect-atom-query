@@ -273,45 +273,42 @@ const prepend = <Page, Param>(
 };
 
 /** @internal The fetch behavior: one page in a direction, or every loaded page in order. */
-export const behavior =
-  <Page, Param, E, R>(
-    config: Config<Page, Param>,
-    fetchPage: (param: Param) => Effect.Effect<Page, E, R>,
-  ) =>
-  ({
-    data,
-    direction,
-  }: BehaviorContext<InfiniteData<Page, Param>>): Effect.Effect<InfiniteData<Page, Param>, E, R> =>
-    Effect.gen(function* () {
-      const empty: InfiniteData<Page, Param> = { pages: [], pageParams: [] };
-      if (Option.isSome(data) && data.value.pages.length > 0 && direction !== undefined) {
-        const current = data.value;
-        const param =
-          direction === "forward"
-            ? nextPageParam(config, current)
-            : previousPageParam(config, current);
-        if (Option.isNone(param)) {
-          return current;
-        }
-        const page = yield* fetchPage(param.value);
-        return direction === "forward"
-          ? append(current, page, param.value, config.maxPages)
-          : prepend(current, page, param.value, config.maxPages);
+export const behavior = <Page, Param, E, R>(
+  config: Config<Page, Param>,
+  fetchPage: (param: Param) => Effect.Effect<Page, E, R>,
+): ((
+  context: BehaviorContext<InfiniteData<Page, Param>>,
+) => Effect.Effect<InfiniteData<Page, Param>, E, R>) =>
+  Effect.fnUntraced(function* ({ data, direction }: BehaviorContext<InfiniteData<Page, Param>>) {
+    const empty: InfiniteData<Page, Param> = { pages: [], pageParams: [] };
+    if (Option.isSome(data) && data.value.pages.length > 0 && direction !== undefined) {
+      const current = data.value;
+      const param =
+        direction === "forward"
+          ? nextPageParam(config, current)
+          : previousPageParam(config, current);
+      if (Option.isNone(param)) {
+        return current;
       }
-      // Initial load, or refetch of every loaded page in order.
-      const previous = Option.getOrElse(data, () => empty);
-      const count = Math.max(previous.pages.length, 1);
-      let result = empty;
-      let param: Option.Option<Param> = Option.some(
-        previous.pageParams[0] ?? config.initialPageParam,
-      );
-      for (let i = 0; i < count && Option.isSome(param); i++) {
-        const page = yield* fetchPage(param.value);
-        result = append(result, page, param.value, undefined);
-        param = nextPageParam(config, result);
-      }
-      return result;
-    });
+      const page = yield* fetchPage(param.value);
+      return direction === "forward"
+        ? append(current, page, param.value, config.maxPages)
+        : prepend(current, page, param.value, config.maxPages);
+    }
+    // Initial load, or refetch of every loaded page in order.
+    const previous = Option.getOrElse(data, () => empty);
+    const count = Math.max(previous.pages.length, 1);
+    let result = empty;
+    let param: Option.Option<Param> = Option.some(
+      previous.pageParams[0] ?? config.initialPageParam,
+    );
+    for (let i = 0; i < count && Option.isSome(param); i++) {
+      const page = yield* fetchPage(param.value);
+      result = append(result, page, param.value, undefined);
+      param = nextPageParam(config, result);
+    }
+    return result;
+  });
 
 const makeAtom = <Page, Param, E, R>(descriptor: {
   readonly key: QueryKey.Tagged<InfiniteData<Page, Param>, E>;

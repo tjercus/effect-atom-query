@@ -71,6 +71,16 @@ describe("layerHttp", () => {
     }),
   );
 
+  it.effect("waits 1 second when Retry-After is not a number of seconds", () =>
+    Effect.gen(function* () {
+      const exit = yield* withFetch(
+        respond(429, {}, { "retry-after": "Wed, 21 Oct 2015 07:28:00 GMT" }),
+        (api) => api.departures("AMS"),
+      );
+      expect(exit).toStrictEqual(Exit.fail(new RateLimited({ retryAfterMs: 1000 })));
+    }),
+  );
+
   it.effect("maps 5xx to UpstreamUnavailable", () =>
     Effect.gen(function* () {
       const exit = yield* withFetch(respond(502, {}), (api) => api.departures("AMS"));

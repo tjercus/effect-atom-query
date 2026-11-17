@@ -1,4 +1,4 @@
-import { assert, describe, expect, it } from "@effect/vitest";
+import { assert, describe, it } from "@effect/vitest";
 import { Effect, Option, Schema } from "effect";
 import { TestClock } from "effect/testing";
 import { AsyncResult } from "effect/reactivity";
@@ -44,12 +44,15 @@ describe("QueryResult constructors", () => {
       registry.mount(ok);
       registry.mount(ko);
       yield* settle;
-      expect(queryFlags(QueryResult.pending())).toEqual(queryFlags(registry.get(ok)));
+      assert.deepStrictEqual(queryFlags(QueryResult.pending()), queryFlags(registry.get(ok)));
       yield* TestClock.adjust("1 second");
       yield* settle;
-      expect(queryFlags(QueryResult.success(1))).toEqual(queryFlags(registry.get(ok)));
-      expect(queryFlags(QueryResult.failure(new NotFound()))).toEqual(queryFlags(registry.get(ko)));
-      expect(QueryResult.isDefect(QueryResult.failure(new NotFound()))).toBe(false);
+      assert.deepStrictEqual(queryFlags(QueryResult.success(1)), queryFlags(registry.get(ok)));
+      assert.deepStrictEqual(
+        queryFlags(QueryResult.failure(new NotFound())),
+        queryFlags(registry.get(ko)),
+      );
+      assert.isFalse(QueryResult.isDefect(QueryResult.failure(new NotFound())));
     }),
   );
 
@@ -59,8 +62,8 @@ describe("QueryResult constructors", () => {
       const off = Query.single({ key: ["off"], run: Effect.succeed(1), enabled: false });
       registry.mount(off);
       yield* settle;
-      expect(queryFlags(QueryResult.idle())).toEqual(queryFlags(registry.get(off)));
-      expect(QueryResult.idle().isLoading).toBe(false);
+      assert.deepStrictEqual(queryFlags(QueryResult.idle()), queryFlags(registry.get(off)));
+      assert.isFalse(QueryResult.idle().isLoading);
     }),
   );
 
@@ -71,15 +74,15 @@ describe("QueryResult constructors", () => {
       const skipped = family(Query.skipToken);
       registry.mount(skipped);
       yield* settle;
-      expect(queryFlags(QueryResult.disabled())).toEqual(queryFlags(registry.get(skipped)));
+      assert.deepStrictEqual(queryFlags(QueryResult.disabled()), queryFlags(registry.get(skipped)));
     }),
   );
 
   it("are deterministic: no timestamps from the clock", () => {
     const query = QueryResult.success(1).result;
     const mutation = MutationResult.success(4, 2).result;
-    expect(query._tag === "Success" && query.timestamp).toBe(0);
-    expect(mutation._tag === "Success" && mutation.timestamp).toBe(0);
+    assert.strictEqual(query._tag === "Success" && query.timestamp, 0);
+    assert.strictEqual(mutation._tag === "Success" && mutation.timestamp, 0);
   });
 });
 
@@ -101,19 +104,23 @@ describe("MutationResult constructors", () => {
         submittedAt: Option.none(),
         result: { ...r.result, timestamp: 0 },
       });
-      expect(strip(MutationResult.idle())).toEqual(strip(observer.getCurrentResult()));
+      assert.deepStrictEqual(strip(MutationResult.idle()), strip(observer.getCurrentResult()));
 
       observer.mutate(2);
       yield* settle;
-      expect(strip(MutationResult.pending(2))).toEqual(strip(observer.getCurrentResult()));
+      assert.deepStrictEqual(strip(MutationResult.pending(2)), strip(observer.getCurrentResult()));
       yield* TestClock.adjust("1 second");
       yield* settle;
-      expect(strip(MutationResult.success(4, 2))).toEqual(strip(observer.getCurrentResult()));
+      assert.deepStrictEqual(
+        strip(MutationResult.success(4, 2)),
+        strip(observer.getCurrentResult()),
+      );
 
       observer.mutate(0);
       yield* TestClock.adjust("1 second");
       yield* settle;
-      expect(strip(MutationResult.failure(new NotFound(), 0))).toEqual(
+      assert.deepStrictEqual(
+        strip(MutationResult.failure(new NotFound(), 0)),
         strip(observer.getCurrentResult()),
       );
     }),
@@ -129,9 +136,9 @@ describe("QueryResult combinators", () => {
     });
 
   it("match dispatches on the status", () => {
-    expect(describeResult(QueryResult.pending())).toBe("pending(fetching)");
-    expect(describeResult(QueryResult.success(3))).toBe("success(3)");
-    expect(describeResult(QueryResult.failure(new NotFound()))).toBe("failure(NotFound)");
+    assert.strictEqual(describeResult(QueryResult.pending()), "pending(fetching)");
+    assert.strictEqual(describeResult(QueryResult.success(3)), "success(3)");
+    assert.strictEqual(describeResult(QueryResult.failure(new NotFound())), "failure(NotFound)");
   });
 
   it.effect("isDefect is true only for failures without a typed error", () =>
@@ -141,31 +148,35 @@ describe("QueryResult combinators", () => {
       registry.mount(boom);
       yield* settle;
       const r = registry.get(boom);
-      expect(r.status).toBe("error");
-      expect(QueryResult.isDefect(r)).toBe(true);
-      expect(describeResult(r as QueryResult.QueryResult<number, NotFound>)).toBe(
+      assert.strictEqual(r.status, "error");
+      assert.isTrue(QueryResult.isDefect(r));
+      assert.strictEqual(
+        describeResult(r as QueryResult.QueryResult<number, NotFound>),
         "failure(defect)",
       );
-      expect(QueryResult.isDefect(QueryResult.success(1))).toBe(false);
-      expect(QueryResult.isDefect(QueryResult.pending())).toBe(false);
+      assert.isFalse(QueryResult.isDefect(QueryResult.success(1)));
+      assert.isFalse(QueryResult.isDefect(QueryResult.pending()));
     }),
   );
 
   it("map keeps pending results as they are", () => {
     const pending = QueryResult.pending<number>();
-    expect(QueryResult.map(pending, (n) => n + 1)).toBe(pending);
+    assert.strictEqual(
+      QueryResult.map(pending, (n) => n + 1),
+      pending,
+    );
   });
 
   it("map rebuilds the data and AsyncResult of a success, keeping flags", () => {
     const base = { ...QueryResult.success(2), isFetching: true, isRefetching: true };
     const mapped = QueryResult.map(base, (n) => `#${n}`);
-    expect(mapped.status).toBe("success");
-    expect(mapped.data).toEqual(Option.some("#2"));
-    expect(mapped.isRefetching).toBe(true);
-    expect(mapped.result._tag).toBe("Success");
-    expect(mapped.result.waiting).toBe(true);
-    expect(mapped.result._tag === "Success" && mapped.result.value).toBe("#2");
-    expect(mapped.result._tag === "Success" && mapped.result.timestamp).toBe(0);
+    assert.strictEqual(mapped.status, "success");
+    assert.deepStrictEqual(mapped.data, Option.some("#2"));
+    assert.isTrue(mapped.isRefetching);
+    assert.strictEqual(mapped.result._tag, "Success");
+    assert.isTrue(mapped.result.waiting);
+    assert.strictEqual(mapped.result._tag === "Success" && mapped.result.value, "#2");
+    assert.strictEqual(mapped.result._tag === "Success" && mapped.result.timestamp, 0);
   });
 
   it("map maps the previous data of a failure and keeps the cause", () => {
@@ -174,11 +185,12 @@ describe("QueryResult combinators", () => {
       QueryResult.failure<number, NotFound>(error),
       (n) => n * 10,
     );
-    expect(withoutData.data).toEqual(Option.none());
-    expect(withoutData.status === "error" && withoutData.cause).toEqual(
+    assert.deepStrictEqual(withoutData.data, Option.none());
+    assert.deepStrictEqual(
+      withoutData.status === "error" && withoutData.cause,
       QueryResult.failure(error).cause,
     );
-    expect(withoutData.result._tag).toBe("Failure");
+    assert.strictEqual(withoutData.result._tag, "Failure");
 
     const withData = QueryResult.map(
       {
@@ -189,23 +201,26 @@ describe("QueryResult combinators", () => {
       },
       (n) => n * 10,
     );
-    expect(withData.data).toEqual(Option.some(40));
-    expect(withData.status === "error" && withData.isRefetchError).toBe(true);
+    assert.deepStrictEqual(withData.data, Option.some(40));
+    assert.isTrue(withData.status === "error" && withData.isRefetchError);
     const result = withData.result;
     assert(result._tag === "Failure");
-    expect(Option.map(result.previousSuccess, (s) => s.value)).toEqual(Option.some(40));
-    expect(result.waiting).toBe(false);
+    assert.deepStrictEqual(
+      Option.map(result.previousSuccess, (s) => s.value),
+      Option.some(40),
+    );
+    assert.isFalse(result.waiting);
   });
 
   it("disabled builds a pending, disabled, idle result", () => {
     const r = QueryResult.disabled<number, never>(AsyncResult.initial());
-    expect(r).toMatchObject({
+    assert.deepInclude(r, {
       status: "pending",
       isPending: true,
       isEnabled: false,
       fetchStatus: "idle",
       isLoading: false,
     });
-    expect(r.data).toEqual(Option.none());
+    assert.deepStrictEqual(r.data, Option.none());
   });
 });

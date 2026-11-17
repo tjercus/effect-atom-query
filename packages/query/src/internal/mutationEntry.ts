@@ -1,6 +1,7 @@
 /**
  * One mutation execution (one `mutate` call). Internal.
  */
+import { keyLabel } from "./jsonKey.ts";
 import type { PersistSchema } from "./persistCodec.ts";
 import {
   Cause,
@@ -253,7 +254,7 @@ export class MutationEntry<I, A, E, C> {
       }));
       if (run === undefined) {
         return yield* Effect.die(
-          new Error(`Mutation ${QueryKey.toJsonKey(options.key ?? [])} has no \`run\``),
+          new Error(`Mutation ${keyLabel(options.key ?? [])} has no \`run\``),
         );
       }
 

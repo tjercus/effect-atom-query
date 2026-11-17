@@ -1,5 +1,5 @@
 import { type QueryClient, QueryInspector } from "@effect-atom-query/query";
-import { useQueryClient } from "@effect-atom-query/react";
+import { useQueryClientOption } from "@effect-atom-query/react";
 import { Option } from "effect";
 import * as React from "react";
 import {
@@ -140,7 +140,8 @@ const useSnapshot = (client: QueryClient.Service): Snapshot => {
       current ??= {
         queries: QueryInspector.queries(client),
         mutations: QueryInspector.mutations(client),
-        now: Date.now(),
+        // The client's clock, which also stamps the snapshot's times.
+        now: client.runtime.now(),
       };
       return current;
     };
@@ -298,17 +299,27 @@ const labelOrder: Record<QueryLabel, number> = {
   inactive: 5,
 };
 
+/** Thrown when the panel has neither a `client` prop nor a provider. */
+class MissingDevtoolsClientError extends Error {
+  constructor() {
+    super("QueryDevtools needs a `client` prop or a QueryClientProvider");
+    this.name = "MissingDevtoolsClientError";
+  }
+}
+
 /**
  * The devtools panel, for embedding anywhere (e.g. in a resizable pane).
+ * Throws (to the nearest error boundary) when it has neither a `client` prop
+ * nor a `QueryClientProvider` above it.
  *
  * @since 0.1.0
  * @category components
  */
 export const QueryDevtoolsPanelImpl = (props: QueryDevtoolsPanelProps) => {
-  const contextClient = useOptionalQueryClient();
+  const contextClient = Option.getOrUndefined(useQueryClientOption());
   const client = props.client ?? contextClient;
   if (client === undefined) {
-    throw new Error("QueryDevtools needs a `client` prop or a QueryClientProvider");
+    throw new MissingDevtoolsClientError();
   }
   return (
     <PanelBoundary style={props.style} onClose={props.onClose}>
@@ -548,15 +559,6 @@ const Panel = ({
       </div>
     </div>
   );
-};
-
-/** The provider's client, or `undefined` outside a provider. */
-const useOptionalQueryClient = (): QueryClient.Service | undefined => {
-  try {
-    return useQueryClient();
-  } catch {
-    return undefined;
-  }
 };
 
 const corner = (position: NonNullable<QueryDevtoolsProps["position"]>): React.CSSProperties => {

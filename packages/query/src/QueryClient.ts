@@ -18,6 +18,7 @@ import { Atom, AtomRegistry, Reactivity } from "effect/reactivity";
 import * as FocusManager from "./FocusManager.ts";
 import { type MutationFilters, MutationCache } from "./internal/mutationCache.ts";
 import type { MutationKey, MutationOptions } from "./internal/mutationEntry.ts";
+import { keyLabel } from "./internal/jsonKey.ts";
 import { type QueryFilters, QueryCache } from "./internal/queryCache.ts";
 import {
   type CancelOptions,
@@ -284,9 +285,11 @@ const descriptorOf = (
   Array.isArray(queryOrKey)
     ? {
         key: queryOrKey as QueryKey.QueryKey,
-        run: Effect.die(
-          new Error(
-            `Query ${QueryKey.toJsonKey(queryOrKey as QueryKey.QueryKey)} has no \`run\`: it was only written with setQueryData`,
+        run: Effect.suspend(() =>
+          Effect.die(
+            new Error(
+              `Query ${keyLabel(queryOrKey as QueryKey.QueryKey)} has no \`run\`: it was only written with setQueryData`,
+            ),
           ),
         ),
         options: {},
@@ -363,6 +366,8 @@ export const make: (options?: Options) => Effect.Effect<Service, never, Scope.Sc
         Effect.runForkWith(extra === undefined ? context : Context.merge(context, extra))(
           effect as Effect.Effect<any, any, never>,
         ),
+      runPromiseExit: (effect, options) =>
+        Effect.runPromiseExitWith(context)(effect as Effect.Effect<any, any, never>, options),
       remove: (entry) => cache.remove(entry),
       onChange: () => cache.notifyChange(),
       focus,

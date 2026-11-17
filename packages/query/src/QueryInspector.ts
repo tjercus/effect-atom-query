@@ -11,6 +11,7 @@
  * @since 0.1.0
  */
 import { Cause, Duration, type Effect, Option } from "effect";
+import { keyLabel } from "./internal/jsonKey.ts";
 import type { QueryEntry } from "./internal/queryEntry.ts";
 import type { MutationEntry } from "./internal/mutationEntry.ts";
 import type * as MutationResult from "./MutationResult.ts";
@@ -80,21 +81,12 @@ const millis = (d: Duration.Duration): number =>
 
 const epoch = (n: number): Option.Option<number> => (n > 0 ? Option.some(n) : Option.none());
 
-/** `toJsonKey`, falling back to a readable form for non-JSON keys (bigint, cycles). */
-const safeHash = (key: QueryKey.QueryKey): string => {
-  try {
-    return QueryKey.toJsonKey(key);
-  } catch {
-    return `[${key.map((part) => (typeof part === "bigint" ? `${part}n` : String(part))).join(",")}]`;
-  }
-};
-
 const snapshotQuery = (entry: QueryEntry<any, any>): QuerySnapshot => {
   const { state, options } = entry;
   return {
     id: entry.id,
     key: entry.key,
-    hash: safeHash(entry.key),
+    hash: keyLabel(entry.key),
     status: state.status,
     fetchStatus: state.fetchStatus,
     observers: entry.observers,

@@ -1,5 +1,4 @@
-import { Result, Schema } from "effect";
-import * as QueryKey from "../QueryKey.ts";
+import { Predicate, Result, Schema } from "effect";
 
 /**
  * A [Standard Schema v1](https://standardschema.dev) validator producing `A`,
@@ -78,13 +77,6 @@ const guard = <I, A>(
   };
 };
 
-/**
- * `QueryKey.toJsonKey` as a value: `JSON.stringify` throws on keys JSON cannot
- * hold (cycles, a throwing `toJSON`), which are then simply not persisted. @internal
- */
-export const jsonKey = (key: ReadonlyArray<unknown>): Result.Result<string, unknown> =>
-  Result.try(() => QueryKey.toJsonKey(key));
-
 const cache = new WeakMap<object, PersistCodec<any>>();
 
 const effectCodec = <A>(schema: Schema.Codec<A, any>): PersistCodec<A> => {
@@ -103,13 +95,11 @@ const effectCodec = <A>(schema: Schema.Codec<A, any>): PersistCodec<A> => {
   } as PersistCodec<A>;
 };
 
-const isPromiseLike = (u: unknown): u is PromiseLike<unknown> =>
-  typeof u === "object" && u !== null && typeof (u as PromiseLike<unknown>).then === "function";
-
 /**
- * Standard Schema validates but does not encode: the data is stored as is
- * (it must be JSON-compatible) and validated when restored. Restoring is
- * synchronous, so an asynchronous validator cannot be used.
+ * Standard Schema validates but does not encode: the data is stored as
+ * `JSON.stringify` writes it (the persister skips what that cannot write) and
+ * validated when restored. Restoring is synchronous, so an asynchronous
+ * validator cannot be used.
  */
 const standardCodec = <A>(schema: StandardSchema<A>): PersistCodec<A> => {
   let warned = false;
@@ -117,7 +107,7 @@ const standardCodec = <A>(schema: StandardSchema<A>): PersistCodec<A> => {
     encode: (data) => Result.succeed(data),
     decode: guard("decoding", (json: unknown): Result.Result<A, PersistCodecError> => {
       const result = schema["~standard"].validate(json);
-      if (isPromiseLike(result)) {
+      if (Predicate.isPromiseLike(result)) {
         if (!warned) {
           warned = true;
           console.warn(
@@ -157,6 +147,11 @@ export const persistCodec = <A>(schema: PersistSchema<A>): PersistCodec<A> => {
   return codec;
 };
 
+/** The stored shape of infinite query data, before its pages are decoded. */
+const isInfiniteJson = /* @__PURE__ */ Schema.is(
+  Schema.Struct({ pages: Schema.Array(Schema.Unknown), pageParams: Schema.Array(Schema.Unknown) }),
+);
+
 /** The codec of infinite query data, from codecs for pages and page params. @internal */
 export const infiniteCodec = <Page, Param>(
   page: PersistCodec<Page>,
@@ -170,20 +165,11 @@ export const infiniteCodec = <Page, Param>(
       pages: Result.all(data.pages.map((p) => page.encode(p))),
       pageParams: Result.all(data.pageParams.map((p) => pageParam.encode(p))),
     }),
-  decode: (json) => {
-    const value = json as { readonly pages?: unknown; readonly pageParams?: unknown } | null;
-    if (
-      typeof value !== "object" ||
-      value === null ||
-      !Array.isArray(value.pages) ||
-      !Array.isArray(value.pageParams) ||
-      value.pages.length !== value.pageParams.length
-    ) {
-      return invalid("Persisted infinite query data is invalid");
-    }
-    return Result.all({
-      pages: Result.all(value.pages.map((p) => page.decode(p))),
-      pageParams: Result.all(value.pageParams.map((p) => pageParam.decode(p))),
-    });
-  },
+  decode: (json) =>
+    isInfiniteJson(json) && json.pages.length === json.pageParams.length
+      ? Result.all({
+          pages: Result.all(json.pages.map((p) => page.decode(p))),
+          pageParams: Result.all(json.pageParams.map((p) => pageParam.decode(p))),
+        })
+      : invalid("Persisted infinite query data is invalid"),
 });

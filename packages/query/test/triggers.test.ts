@@ -1,15 +1,16 @@
-import { assert, describe, expect, it } from "@effect/vitest";
+import { assert, describe, it } from "@effect/vitest";
 import { Effect, Fiber, Option } from "effect";
 import { TestClock } from "effect/testing";
 import { Query, QueryObserver } from "../src/index.ts";
 import { counter, settle, setup } from "./utils.ts";
 
-const refocus = (focus: { setFocused: (f: boolean | undefined) => void }) =>
-  Effect.gen(function* () {
-    focus.setFocused(false);
-    focus.setFocused(true);
-    yield* settle;
-  });
+const refocus = Effect.fnUntraced(function* (focus: {
+  setFocused: (f: boolean | undefined) => void;
+}) {
+  focus.setFocused(false);
+  focus.setFocused(true);
+  yield* settle;
+});
 
 describe("refetchOnWindowFocus", () => {
   it.effect("refetches active stale queries when focus returns", () =>
@@ -19,9 +20,9 @@ describe("refetchOnWindowFocus", () => {
       const stale = Query.single({ key: ["focus-stale"], run: runs.tick });
       registry.mount(stale);
       yield* settle;
-      expect(runs.count).toBe(1);
+      assert.strictEqual(runs.count, 1);
       yield* refocus(focus);
-      expect(runs.count).toBe(2);
+      assert.strictEqual(runs.count, 2);
     }),
   );
 
@@ -43,7 +44,7 @@ describe("refetchOnWindowFocus", () => {
       registry.mount(Query.single({ key: ["f3"], run: never.tick, refetchOnWindowFocus: false }));
       yield* settle;
       yield* refocus(focus);
-      expect([fresh.count, always.count, never.count]).toEqual([1, 2, 1]);
+      assert.deepStrictEqual([fresh.count, always.count, never.count], [1, 2, 1]);
     }),
   );
 
@@ -56,7 +57,7 @@ describe("refetchOnWindowFocus", () => {
       registry.mount(Query.single({ key: ["static"], run: fixed.tick, staleTime: "static" }));
       yield* settle;
       yield* refocus(focus);
-      expect([inactive.count, fixed.count]).toEqual([1, 1]);
+      assert.deepStrictEqual([inactive.count, fixed.count], [1, 1]);
     }),
   );
 
@@ -68,7 +69,7 @@ describe("refetchOnWindowFocus", () => {
       QueryObserver.make(client, q, { refetchOnWindowFocus: false }).subscribe(() => {});
       yield* settle;
       yield* refocus(focus);
-      expect(runs.count).toBe(1);
+      assert.strictEqual(runs.count, 1);
     }),
   );
 });
@@ -88,7 +89,7 @@ describe("refetchOnReconnect", () => {
       online.setOnline(false);
       online.setOnline(true);
       yield* settle;
-      expect([runs.count, always.count]).toEqual([2, 1]);
+      assert.deepStrictEqual([runs.count, always.count], [2, 1]);
     }),
   );
 });
@@ -100,24 +101,24 @@ describe("networkMode", () => {
       const runs = counter();
       const q = Query.single({ key: ["paused"], run: runs.tick });
       online.setOnline(false);
-      expect(QueryObserver.make(client, q).getCurrentResult().fetchStatus).toBe("paused"); // optimistic
+      assert.strictEqual(QueryObserver.make(client, q).getCurrentResult().fetchStatus, "paused"); // optimistic
       registry.mount(q);
       yield* settle;
       let r = registry.get(q);
-      expect(r).toMatchObject({
+      assert.deepInclude(r, {
         status: "pending",
         fetchStatus: "paused",
         isPaused: true,
         isLoading: false,
       });
-      expect(runs.count).toBe(0);
-      expect(yield* client.isFetching()).toBe(0); // paused is not fetching
+      assert.strictEqual(runs.count, 0);
+      assert.strictEqual(yield* client.isFetching(), 0); // paused is not fetching
 
       online.setOnline(true);
       yield* settle;
       r = registry.get(q);
       assert(r.isSuccess);
-      expect(runs.count).toBe(1); // continued, not refetched twice
+      assert.strictEqual(runs.count, 1); // continued, not refetched twice
     }),
   );
 
@@ -133,17 +134,17 @@ describe("networkMode", () => {
       });
       registry.mount(q);
       yield* settle;
-      expect(runs.count).toBe(1);
+      assert.strictEqual(runs.count, 1);
       online.setOnline(false);
       yield* TestClock.adjust("1 second"); // retry delay elapses while offline
       yield* settle;
-      expect(registry.get(q).fetchStatus).toBe("paused");
-      expect(runs.count).toBe(1);
+      assert.strictEqual(registry.get(q).fetchStatus, "paused");
+      assert.strictEqual(runs.count, 1);
       online.setOnline(true);
       yield* settle;
       const r = registry.get(q);
       assert(r.isSuccess);
-      expect(r.data.value).toBe(2);
+      assert.strictEqual(r.data.value, 2);
     }),
   );
 
@@ -159,11 +160,11 @@ describe("networkMode", () => {
       online.setOnline(false);
       registry.mount(q);
       yield* settle;
-      expect(runs.count).toBe(1);
+      assert.strictEqual(runs.count, 1);
       yield* TestClock.adjust("1 second");
       yield* settle;
-      expect(registry.get(q).fetchStatus).toBe("paused");
-      expect(runs.count).toBe(1);
+      assert.strictEqual(registry.get(q).fetchStatus, "paused");
+      assert.strictEqual(runs.count, 1);
     }),
   );
 
@@ -175,7 +176,7 @@ describe("networkMode", () => {
       online.setOnline(false);
       registry.mount(q);
       yield* settle;
-      expect(registry.get(q).isSuccess).toBe(true);
+      assert.isTrue(registry.get(q).isSuccess);
     }),
   );
 });
@@ -192,12 +193,12 @@ describe("refetchInterval", () => {
         yield* TestClock.adjust("1 second");
         yield* settle;
       }
-      expect(runs.count).toBe(4);
+      assert.strictEqual(runs.count, 4);
       unmount();
       yield* settle;
       yield* TestClock.adjust("5 seconds");
       yield* settle;
-      expect(runs.count).toBe(4);
+      assert.strictEqual(runs.count, 4);
     }),
   );
 
@@ -221,7 +222,7 @@ describe("refetchInterval", () => {
         yield* TestClock.adjust("1 second");
         yield* settle;
       }
-      expect([fg.count, bg.count]).toEqual([1, 4]);
+      assert.deepStrictEqual([fg.count, bg.count], [1, 4]);
     }),
   );
 
@@ -240,7 +241,7 @@ describe("refetchInterval", () => {
         yield* TestClock.adjust("1 second");
         yield* settle;
       }
-      expect(runs.count).toBe(3);
+      assert.strictEqual(runs.count, 3);
     }),
   );
 
@@ -255,11 +256,11 @@ describe("refetchInterval", () => {
       observer.setOptions(q, { refetchInterval: "1 second" });
       yield* TestClock.adjust("1 second");
       yield* settle;
-      expect(runs.count).toBe(2);
+      assert.strictEqual(runs.count, 2);
       observer.setOptions(q, { refetchInterval: false });
       yield* TestClock.adjust("3 seconds");
       yield* settle;
-      expect(runs.count).toBe(2);
+      assert.strictEqual(runs.count, 2);
     }),
   );
 });
@@ -274,13 +275,13 @@ describe("cancelQueries", () => {
       });
       registry.mount(q);
       yield* settle;
-      expect(registry.get(q).fetchStatus).toBe("fetching");
+      assert.strictEqual(registry.get(q).fetchStatus, "fetching");
       yield* client.cancelQueries({ queryKey: ["cancel"] });
       yield* settle;
-      expect(registry.get(q)).toMatchObject({ status: "pending", fetchStatus: "idle" });
+      assert.deepInclude(registry.get(q), { status: "pending", fetchStatus: "idle" });
       yield* TestClock.adjust("1 second");
       yield* settle;
-      expect(registry.get(q).status).toBe("pending"); // never completed
+      assert.strictEqual(registry.get(q).status, "pending"); // never completed
     }),
   );
 
@@ -301,11 +302,11 @@ describe("cancelQueries", () => {
       yield* settle;
       yield* client.cancelQueries();
       const exit = yield* Fiber.await(joiner);
-      expect(exit._tag).toBe("Failure");
+      assert.strictEqual(exit._tag, "Failure");
       const r = registry.get(q);
       assert(r.isSuccess);
-      expect(r.data).toEqual(Option.some(1));
-      expect(r.fetchStatus).toBe("idle");
+      assert.deepStrictEqual(r.data, Option.some(1));
+      assert.strictEqual(r.fetchStatus, "idle");
     }),
   );
 
@@ -319,10 +320,10 @@ describe("cancelQueries", () => {
       });
       registry.mount(q);
       yield* settle;
-      expect(registry.get(q).failureCount).toBe(1);
+      assert.strictEqual(registry.get(q).failureCount, 1);
       yield* client.cancelQueries(undefined, { revert: false });
       yield* settle;
-      expect(registry.get(q)).toMatchObject({ fetchStatus: "idle", failureCount: 1 });
+      assert.deepInclude(registry.get(q), { fetchStatus: "idle", failureCount: 1 });
     }),
   );
 });
@@ -342,8 +343,8 @@ describe("retryOnMount", () => {
       yield* settle;
       registry.mount(q);
       yield* settle;
-      expect(runs.count).toBe(1);
-      expect(registry.get(q).isError).toBe(true);
+      assert.strictEqual(runs.count, 1);
+      assert.isTrue(registry.get(q).isError);
     }),
   );
 });

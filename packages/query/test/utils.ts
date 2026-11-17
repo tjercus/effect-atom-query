@@ -18,32 +18,31 @@ export const settle = Effect.promise(async () => {
  * A client bound to a fresh registry. Registry tasks (node removal on unmount)
  * run on microtasks, so `settle` flushes them.
  */
-export const setup = (options?: QueryClient.Options) =>
-  Effect.gen(function* () {
-    // Fresh managers per test, detached from any environment events.
-    const focus = FocusManager.make({ setup: () => () => {}, isFocused: () => true });
-    const online = OnlineManager.make({ setup: () => () => {} });
-    const client = yield* QueryClient.make(options).pipe(
-      Effect.provideService(FocusManager.FocusManager, focus),
-      Effect.provideService(OnlineManager.OnlineManager, online),
-    );
-    const registry = AtomRegistry.make({
-      initialValues: [QueryClient.initialValue(client)],
-      scheduleTask: (f) => {
-        let cancelled = false;
-        queueMicrotask(() => {
-          if (!cancelled) {
-            f();
-          }
-        });
-        return () => {
-          cancelled = true;
-        };
-      },
-    });
-    yield* Effect.addFinalizer(() => Effect.sync(() => registry.dispose()));
-    return { client, registry, focus, online };
+export const setup = Effect.fnUntraced(function* (options?: QueryClient.Options) {
+  // Fresh managers per test, detached from any environment events.
+  const focus = FocusManager.make({ setup: () => () => {}, isFocused: () => true });
+  const online = OnlineManager.make({ setup: () => () => {} });
+  const client = yield* QueryClient.make(options).pipe(
+    Effect.provideService(FocusManager.FocusManager, focus),
+    Effect.provideService(OnlineManager.OnlineManager, online),
+  );
+  const registry = AtomRegistry.make({
+    initialValues: [QueryClient.initialValue(client)],
+    scheduleTask: (f) => {
+      let cancelled = false;
+      queueMicrotask(() => {
+        if (!cancelled) {
+          f();
+        }
+      });
+      return () => {
+        cancelled = true;
+      };
+    },
   });
+  yield* Effect.addFinalizer(() => Effect.sync(() => registry.dispose()));
+  return { client, registry, focus, online };
+});
 
 /** A counter for how often a query ran. */
 export const counter = () => {

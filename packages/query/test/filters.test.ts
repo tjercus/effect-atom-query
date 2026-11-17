@@ -1,4 +1,4 @@
-import { describe, expect, it } from "@effect/vitest";
+import { assert, describe, it } from "@effect/vitest";
 import { Effect, Fiber, Option } from "effect";
 import { TestClock } from "effect/testing";
 import { Mutation, Query, QueryObserver } from "../src/index.ts";
@@ -26,28 +26,35 @@ describe("query filters", () => {
       QueryObserver.make(client, slow).subscribe(() => {});
       yield* settle;
 
-      expect(keys(yield* client.getQueriesData({ queryKey: ["f"] }))).toEqual([
+      assert.deepStrictEqual(keys(yield* client.getQueriesData({ queryKey: ["f"] })), [
         "fresh",
         "slow",
         "stale",
       ]);
-      expect(yield* client.getQueriesData({ queryKey: ["f"], exact: true })).toEqual([]);
-      expect(keys(yield* client.getQueriesData({ type: "active" }))).toEqual(["slow"]);
-      expect(keys(yield* client.getQueriesData({ type: "inactive" }))).toEqual(["fresh", "stale"]);
-      expect(keys(yield* client.getQueriesData({ stale: false }))).toEqual(["fresh"]);
-      expect(keys(yield* client.getQueriesData({ stale: true }))).toEqual(["slow", "stale"]);
-      expect(yield* client.isFetching({ fetchStatus: "fetching" })).toBe(1);
-      expect(keys(yield* client.getQueriesData({ fetchStatus: "idle" }))).toEqual([
+      assert.deepStrictEqual(yield* client.getQueriesData({ queryKey: ["f"], exact: true }), []);
+      assert.deepStrictEqual(keys(yield* client.getQueriesData({ type: "active" })), ["slow"]);
+      assert.deepStrictEqual(keys(yield* client.getQueriesData({ type: "inactive" })), [
         "fresh",
         "stale",
       ]);
-      expect(
+      assert.deepStrictEqual(keys(yield* client.getQueriesData({ stale: false })), ["fresh"]);
+      assert.deepStrictEqual(keys(yield* client.getQueriesData({ stale: true })), [
+        "slow",
+        "stale",
+      ]);
+      assert.strictEqual(yield* client.isFetching({ fetchStatus: "fetching" }), 1);
+      assert.deepStrictEqual(keys(yield* client.getQueriesData({ fetchStatus: "idle" })), [
+        "fresh",
+        "stale",
+      ]);
+      assert.deepStrictEqual(
         keys(
           yield* client.getQueriesData({
             predicate: ({ result }) => Option.getOrUndefined(result.data) === 2,
           }),
         ),
-      ).toEqual(["stale"]);
+        ["stale"],
+      );
       yield* TestClock.adjust("1 second");
     }),
   );
@@ -62,17 +69,20 @@ describe("query filters", () => {
       QueryObserver.make(client, a).subscribe(() => {});
       yield* client.fetchQuery(b);
       yield* settle;
-      expect([active.count, inactive.count]).toEqual([1, 1]);
+      assert.deepStrictEqual([active.count, inactive.count], [1, 1]);
 
       yield* client.invalidateQueries({ queryKey: ["inv"] }, { refetchType: "none" });
-      expect([active.count, inactive.count]).toEqual([1, 1]);
-      expect((yield* client.getQueriesData({ queryKey: ["inv"], stale: true })).length).toBe(2);
+      assert.deepStrictEqual([active.count, inactive.count], [1, 1]);
+      assert.strictEqual(
+        (yield* client.getQueriesData({ queryKey: ["inv"], stale: true })).length,
+        2,
+      );
 
       yield* client.invalidateQueries({ queryKey: ["inv"] }, { refetchType: "inactive" });
-      expect([active.count, inactive.count]).toEqual([1, 2]);
+      assert.deepStrictEqual([active.count, inactive.count], [1, 2]);
 
       yield* client.invalidateQueries({ queryKey: ["inv"] }, { refetchType: "all" });
-      expect([active.count, inactive.count]).toEqual([2, 3]);
+      assert.deepStrictEqual([active.count, inactive.count], [2, 3]);
     }),
   );
 
@@ -82,11 +92,11 @@ describe("query filters", () => {
       yield* client.setQueryDefaults(["d"], { staleTime: "1 minute" });
       yield* client.setQueryDefaults(["d"], { staleTime: "2 minutes" });
       yield* client.setQueryDefaults(["other"], { gcTime: "1 second" });
-      expect(yield* client.getQueryDefaults(["d", 1])).toEqual({
+      assert.deepStrictEqual(yield* client.getQueryDefaults(["d", 1]), {
         retry: false,
         staleTime: "2 minutes",
       });
-      expect(yield* client.getQueryDefaults(["x"])).toEqual({ retry: false });
+      assert.deepStrictEqual(yield* client.getQueryDefaults(["x"]), { retry: false });
     }),
   );
 });
@@ -106,18 +116,19 @@ describe("mutation filters", () => {
       yield* settle;
       const cache = client.mutationCache;
 
-      expect(cache.findAll({ mutation: add })).toHaveLength(1);
-      expect(cache.findAll({ mutationKey: ["todos"] })).toHaveLength(2);
-      expect(cache.findAll({ mutationKey: ["todos"], exact: true })).toHaveLength(1);
-      expect(cache.findAll({ mutationKey: ["nope"] })).toHaveLength(0);
-      expect(cache.findAll({ status: "success" })).toHaveLength(2);
-      expect(yield* client.isMutating()).toBe(1);
-      expect(
+      assert.lengthOf(cache.findAll({ mutation: add }), 1);
+      assert.lengthOf(cache.findAll({ mutationKey: ["todos"] }), 2);
+      assert.lengthOf(cache.findAll({ mutationKey: ["todos"], exact: true }), 1);
+      assert.lengthOf(cache.findAll({ mutationKey: ["nope"] }), 0);
+      assert.lengthOf(cache.findAll({ status: "success" }), 2);
+      assert.strictEqual(yield* client.isMutating(), 1);
+      assert.lengthOf(
         cache.findAll({ predicate: (m) => Option.getOrUndefined(m.state.variables) === 2 }),
-      ).toHaveLength(1);
+        1,
+      );
       yield* TestClock.adjust("1 second");
-      expect(yield* Fiber.join(running)).toBe(3);
-      expect(yield* client.isMutating()).toBe(0);
+      assert.strictEqual(yield* Fiber.join(running), 3);
+      assert.strictEqual(yield* client.isMutating(), 0);
     }),
   );
 
@@ -126,8 +137,8 @@ describe("mutation filters", () => {
       const { client } = yield* setup();
       yield* client.setMutationDefaults(["m"], { retry: 1 });
       yield* client.setMutationDefaults(["m"], { retry: 2 });
-      expect(yield* client.getMutationDefaults(["m", "x"])).toEqual({ retry: 2 });
-      expect(yield* client.getMutationDefaults(["other"])).toEqual({});
+      assert.deepStrictEqual(yield* client.getMutationDefaults(["m", "x"]), { retry: 2 });
+      assert.deepStrictEqual(yield* client.getMutationDefaults(["other"]), {});
     }),
   );
 });

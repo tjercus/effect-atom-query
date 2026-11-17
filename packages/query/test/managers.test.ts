@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "@effect/vitest";
+import { assert, afterEach, describe, it, vi } from "@effect/vitest";
 import { Effect } from "effect";
 import { FocusManager, OnlineManager } from "../src/index.ts";
 
@@ -18,9 +18,9 @@ describe("FocusManager", () => {
     const manager = FocusManager.make();
     const seen: Array<boolean> = [];
     const unsubscribe = manager.subscribe((f) => seen.push(f));
-    expect(manager.isFocused()).toBe(true);
+    assert.isTrue(manager.isFocused());
     unsubscribe();
-    expect(seen).toEqual([]);
+    assert.deepStrictEqual(seen, []);
   });
 
   it("follows visibilitychange in the browser and removes the listener on cleanup", () => {
@@ -34,21 +34,21 @@ describe("FocusManager", () => {
     const manager = FocusManager.make();
     const seen: Array<boolean> = [];
     const unsubscribe = manager.subscribe((f) => seen.push(f));
-    expect(manager.isFocused()).toBe(true);
+    assert.isTrue(manager.isFocused());
 
     visibility = "hidden";
     win.dispatchEvent(new Event("visibilitychange"));
-    expect(manager.isFocused()).toBe(false);
+    assert.isFalse(manager.isFocused());
     // the same state twice notifies once
     win.dispatchEvent(new Event("visibilitychange"));
     visibility = "visible";
     win.dispatchEvent(new Event("visibilitychange"));
-    expect(seen).toEqual([false, true]);
+    assert.deepStrictEqual(seen, [false, true]);
 
     unsubscribe();
     visibility = "hidden";
     win.dispatchEvent(new Event("visibilitychange"));
-    expect(seen).toEqual([false, true]);
+    assert.deepStrictEqual(seen, [false, true]);
   });
 
   it("an explicit value from setup or setFocused overrides the environment", () => {
@@ -65,14 +65,14 @@ describe("FocusManager", () => {
     const a = manager.subscribe((f) => seen.push(f));
     const b = manager.subscribe(() => {});
     emit(false);
-    expect(manager.isFocused()).toBe(false);
+    assert.isFalse(manager.isFocused());
     manager.setFocused(undefined); // back to the environment
-    expect(manager.isFocused()).toBe(true);
-    expect(seen).toEqual([false, true]);
+    assert.isTrue(manager.isFocused());
+    assert.deepStrictEqual(seen, [false, true]);
     a();
-    expect(cleanups).toBe(0); // still one listener
+    assert.strictEqual(cleanups, 0); // still one listener
     b();
-    expect(cleanups).toBe(1);
+    assert.strictEqual(cleanups, 1);
   });
 
   it.effect("the layer and accessors use the provided manager", () =>
@@ -82,7 +82,7 @@ describe("FocusManager", () => {
         yield* FocusManager.setFocused(false);
         return [before, yield* FocusManager.isFocused];
       }).pipe(Effect.provide(FocusManager.layer({ setup: () => () => {}, isFocused: () => true })));
-      expect(focused).toEqual([true, false]);
+      assert.deepStrictEqual(focused, [true, false]);
     }),
   );
 });
@@ -91,9 +91,9 @@ describe("OnlineManager", () => {
   it("starts online by default and does nothing outside the browser", () => {
     const manager = OnlineManager.make();
     const unsubscribe = manager.subscribe(() => {});
-    expect(manager.isOnline()).toBe(true);
+    assert.isTrue(manager.isOnline());
     unsubscribe();
-    expect(OnlineManager.make({ initialOnline: false }).isOnline()).toBe(false);
+    assert.isFalse(OnlineManager.make({ initialOnline: false }).isOnline());
   });
 
   it("follows online / offline events in the browser and removes them on cleanup", () => {
@@ -102,14 +102,14 @@ describe("OnlineManager", () => {
     const seen: Array<boolean> = [];
     const unsubscribe = manager.subscribe((o) => seen.push(o));
     win.dispatchEvent(new Event("offline"));
-    expect(manager.isOnline()).toBe(false);
+    assert.isFalse(manager.isOnline());
     win.dispatchEvent(new Event("offline")); // no change, no notification
     win.dispatchEvent(new Event("online"));
-    expect(seen).toEqual([false, true]);
+    assert.deepStrictEqual(seen, [false, true]);
     unsubscribe();
     win.dispatchEvent(new Event("offline"));
-    expect(manager.isOnline()).toBe(true);
-    expect(seen).toEqual([false, true]);
+    assert.isTrue(manager.isOnline());
+    assert.deepStrictEqual(seen, [false, true]);
   });
 
   it("runs setup while it has listeners", () => {
@@ -124,11 +124,11 @@ describe("OnlineManager", () => {
     const a = manager.subscribe(() => {});
     const b = manager.subscribe(() => {});
     a();
-    expect([setups, cleanups]).toEqual([1, 0]);
+    assert.deepStrictEqual([setups, cleanups], [1, 0]);
     b();
-    expect([setups, cleanups]).toEqual([1, 1]);
+    assert.deepStrictEqual([setups, cleanups], [1, 1]);
     manager.subscribe(() => {});
-    expect(setups).toBe(2);
+    assert.strictEqual(setups, 2);
   });
 
   it.effect("the layer and accessors use the provided manager", () =>
@@ -138,7 +138,7 @@ describe("OnlineManager", () => {
         yield* OnlineManager.setOnline(false);
         return [before, yield* OnlineManager.isOnline];
       }).pipe(Effect.provide(OnlineManager.layer({ setup: () => () => {} })));
-      expect(states).toEqual([true, false]);
+      assert.deepStrictEqual(states, [true, false]);
     }),
   );
 });
