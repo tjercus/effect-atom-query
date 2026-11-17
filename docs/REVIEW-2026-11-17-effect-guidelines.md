@@ -69,9 +69,9 @@ Status column: **fixed** means fixed in the change that added this document.
 
 ### API types
 
-| #   | Finding                                                  |
-| --- | -------------------------------------------------------- |
-| 24  | `react/src/testing.tsx:38,56`: optional fields without ` | undefined`. The fix is type-only but needs a runtime default, or the overrides spread copies `undefined`. |
+| #   | Finding                                                                                                         |
+| --- | --------------------------------------------------------------------------------------------------------------- |
+| 24  | **Fixed** (an `undefined` override keeps the default). `react/src/testing.tsx:38,56`: optional fields without ` | undefined`. The fix is type-only but needs a runtime default, or the overrides spread copies `undefined`. |
 
 ### Tests
 

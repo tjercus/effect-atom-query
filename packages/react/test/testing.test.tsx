@@ -70,9 +70,23 @@ describe("queryHookResult", () => {
     queryHookResult(QueryResult.idle(), { refetch }).refetch();
     expect(refetch).toHaveBeenCalledOnce();
   });
+
+  it("keeps the default refetch when the override is undefined", () => {
+    const result = queryHookResult(QueryResult.idle(), { refetch: undefined });
+    expect(typeof result.refetch).toBe("function");
+  });
 });
 
 describe("mutationHookResult", () => {
+  it("keeps the defaults when overrides are undefined", () => {
+    const result = mutationHookResult(MutationResult.idle<string, never, string>(), {
+      mutate: undefined,
+      reset: undefined,
+    });
+    expect(typeof result.mutate).toBe("function");
+    expect(typeof result.reset).toBe("function");
+  });
+
   it("adds no-op mutate and reset", () => {
     const result = mutationHookResult(MutationResult.idle<string, never, string>());
     expect(result.isIdle).toBe(true);

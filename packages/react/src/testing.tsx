@@ -35,8 +35,12 @@ import type { UseMutationResult } from "./useMutation.ts";
  */
 export const queryHookResult = <Q extends QueryResult.QueryResult<any, any>>(
   result: Q,
-  overrides?: { readonly refetch?: () => void },
-): Q & { readonly refetch: () => void } => ({ ...result, refetch: () => {}, ...overrides });
+  overrides?: { readonly refetch?: (() => void) | undefined },
+): Q & { readonly refetch: () => void } => ({
+  ...result,
+  // `undefined` keeps the default, so an override cannot remove the function.
+  refetch: overrides?.refetch ?? (() => {}),
+});
 
 /**
  * A `useMutation` result for mocking a hook: the given `MutationResult` plus
@@ -53,17 +57,23 @@ export const queryHookResult = <Q extends QueryResult.QueryResult<any, any>>(
  */
 export const mutationHookResult = <A, E = never, I = void, C = unknown, R = never>(
   result: MutationResult.MutationResult<A, E, I, C>,
-  overrides?: Partial<Pick<UseMutationResult<A, E, I, C, R>, "mutate" | "mutateEffect" | "reset">>,
+  overrides?: {
+    readonly mutate?: UseMutationResult<A, E, I, C, R>["mutate"] | undefined;
+    readonly mutateEffect?: UseMutationResult<A, E, I, C, R>["mutateEffect"] | undefined;
+    readonly reset?: UseMutationResult<A, E, I, C, R>["reset"] | undefined;
+  },
 ): UseMutationResult<A, E, I, C, R> =>
+  // `undefined` keeps the default, so an override cannot remove a function.
   ({
     ...result,
-    mutate: () => {},
-    mutateEffect: () =>
-      Effect.die(
-        new Error("mutationHookResult: mutateEffect is not mocked; pass it in the overrides"),
-      ),
-    reset: () => {},
-    ...overrides,
+    mutate: overrides?.mutate ?? (() => {}),
+    mutateEffect:
+      overrides?.mutateEffect ??
+      (() =>
+        Effect.die(
+          new Error("mutationHookResult: mutateEffect is not mocked; pass it in the overrides"),
+        )),
+    reset: overrides?.reset ?? (() => {}),
   }) as UseMutationResult<A, E, I, C, R>;
 
 // ---------------------------------------------------------------------------
