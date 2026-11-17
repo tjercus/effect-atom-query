@@ -1,4 +1,4 @@
-import { assert, describe, expect, it } from "@effect/vitest";
+import { assert, describe, it } from "@effect/vitest";
 import { vi } from "vite-plus/test";
 import { DateTime, Effect, Exit, Layer, Option, Schema, Scope } from "effect";
 import { KeyValueStore } from "effect/persistence";
@@ -74,7 +74,7 @@ describe("QueryPersister", () => {
       yield* settle;
       const store = yield* KeyValueStore.KeyValueStore;
       const raw = Option.getOrThrow(Option.fromNullishOr(yield* store.get("effect-atom-query")));
-      expect(JSON.parse(raw).queries).toHaveLength(1);
+      assert.lengthOf(JSON.parse(raw).queries, 1);
 
       const second = counter();
       const b = yield* persistedClient();
@@ -82,11 +82,11 @@ describe("QueryPersister", () => {
       b.registry.mount(q);
       const r = b.registry.get(q);
       assert(r.isSuccess);
-      expect(r.data.value[0]!.title).toBe("todo 1");
-      expect(DateTime.isDateTime(Option.getOrThrow(r.data.value[0]!.due))).toBe(true); // decoded, not JSON
-      expect(r.isFetching).toBe(false); // fresh: restored dataUpdatedAt + staleTime
+      assert.strictEqual(r.data.value[0]!.title, "todo 1");
+      assert.isTrue(DateTime.isDateTime(Option.getOrThrow(r.data.value[0]!.due))); // decoded, not JSON
+      assert.isFalse(r.isFetching); // fresh: restored dataUpdatedAt + staleTime
       yield* settle;
-      expect(second.count).toBe(0);
+      assert.strictEqual(second.count, 0);
     }).pipe(Effect.provide(KeyValueStore.layerMemory)),
   );
 
@@ -122,8 +122,11 @@ describe("QueryPersister", () => {
       const store = yield* KeyValueStore.KeyValueStore;
       const raw = Option.getOrThrow(Option.fromNullishOr(yield* store.get("effect-atom-query")));
       const queries = JSON.parse(raw).queries as ReadonlyArray<{ readonly key: string }>;
-      expect(queries.map((q) => q.key)).toEqual([JSON.stringify(["todos", { page: 1 }])]);
-      expect(warn).not.toHaveBeenCalled(); // rejected data is expected, not a defect
+      assert.deepStrictEqual(
+        queries.map((q) => q.key),
+        [JSON.stringify(["todos", { page: 1 }])],
+      );
+      assert.strictEqual(warn.mock.calls.length, 0); // rejected data is expected, not a defect
       warn.mockRestore();
     }).pipe(Effect.provide(KeyValueStore.layerMemory)),
   );
@@ -135,10 +138,10 @@ describe("QueryPersister", () => {
       a.registry.mount(todosQuery(counter()));
       yield* settle;
       yield* a.close; // final write
-      expect(yield* store.has("effect-atom-query")).toBe(true);
+      assert.isTrue(yield* store.has("effect-atom-query"));
 
       yield* persistedClient({ buster: "v2" });
-      expect(yield* store.has("effect-atom-query")).toBe(false);
+      assert.isFalse(yield* store.has("effect-atom-query"));
 
       const c = yield* persistedClient({ buster: "v1", maxAge: "1 hour" });
       c.registry.mount(todosQuery(counter()));
@@ -149,7 +152,7 @@ describe("QueryPersister", () => {
       const d = yield* persistedClient({ buster: "v1", maxAge: "1 hour" });
       d.registry.mount(todosQuery(runs));
       yield* settle;
-      expect(runs.count).toBe(1); // nothing restored: fetched
+      assert.strictEqual(runs.count, 1); // nothing restored: fetched
     }).pipe(Effect.provide(KeyValueStore.layerMemory)),
   );
 
@@ -167,7 +170,7 @@ describe("QueryPersister", () => {
       const b = yield* persistedClient();
       b.registry.mount(todosQuery(runs));
       yield* settle;
-      expect(runs.count).toBe(1);
+      assert.strictEqual(runs.count, 1);
     }).pipe(Effect.provide(KeyValueStore.layerMemory)),
   );
 
@@ -184,12 +187,13 @@ describe("QueryPersister", () => {
       const q = todosQuery(runs);
       b.registry.mount(q);
       yield* settle;
-      expect(yield* b.client.isRestoring).toBe(false);
-      expect(restoringAtStart).toBe(true);
-      expect(b.registry.get(q).data.pipe(Option.map((t) => t[0]!.title))).toEqual(
+      assert.isFalse(yield* b.client.isRestoring);
+      assert.isTrue(restoringAtStart);
+      assert.deepStrictEqual(
+        b.registry.get(q).data.pipe(Option.map((t) => t[0]!.title)),
         Option.some("todo 1"),
       );
-      expect(runs.count).toBe(0);
+      assert.strictEqual(runs.count, 0);
     }).pipe(Effect.provide(KeyValueStore.layerMemory)),
   );
 
@@ -206,14 +210,14 @@ describe("QueryPersister", () => {
       a.registry.mount(addTodo);
       a.registry.set(addTodo, "written offline");
       yield* settle;
-      expect(a.registry.get(addTodo)).toMatchObject({ status: "pending", isPaused: true });
+      assert.deepInclude(a.registry.get(addTodo), { status: "pending", isPaused: true });
       yield* a.close;
-      expect(saved).toEqual([]);
+      assert.deepStrictEqual(saved, []);
 
       const b = yield* persistedClient({ mutations: [addTodo] });
       yield* settle;
-      expect(saved).toEqual(["written offline"]);
-      expect(yield* b.client.isMutating()).toBe(0);
+      assert.deepStrictEqual(saved, ["written offline"]);
+      assert.strictEqual(yield* b.client.isMutating(), 0);
     }).pipe(Effect.provide(KeyValueStore.layerMemory)),
   );
 
@@ -240,7 +244,10 @@ describe("QueryPersister", () => {
       b.registry.mount(feed());
       const r = b.registry.get(feed());
       assert(r.isSuccess);
-      expect(r.data.value).toEqual({ pages: [{ items: [0] }, { items: [1] }], pageParams: [0, 1] });
+      assert.deepStrictEqual(r.data.value, {
+        pages: [{ items: [0] }, { items: [1] }],
+        pageParams: [0, 1],
+      });
     }).pipe(Effect.provide(KeyValueStore.layerMemory)),
   );
 });
@@ -293,9 +300,9 @@ describe("QueryPersister with Standard Schema validators", () => {
       b.registry.mount(q);
       const r = b.registry.get(q);
       assert(r.isSuccess);
-      expect(r.data.value).toEqual([{ id: 1, text: "note 1" }]);
+      assert.deepStrictEqual(r.data.value, [{ id: 1, text: "note 1" }]);
       yield* settle;
-      expect(runs.count).toBe(0);
+      assert.strictEqual(runs.count, 0);
     }).pipe(Effect.provide(KeyValueStore.layerMemory)),
   );
 
@@ -314,7 +321,7 @@ describe("QueryPersister with Standard Schema validators", () => {
       const b = yield* persistedClient();
       b.registry.mount(notesQuery(runs));
       yield* settle;
-      expect(runs.count).toBe(1);
+      assert.strictEqual(runs.count, 1);
     }).pipe(Effect.provide(KeyValueStore.layerMemory)),
   );
 
@@ -331,9 +338,9 @@ describe("QueryPersister with Standard Schema validators", () => {
       const b = yield* persistedClient();
       b.registry.mount(notesQuery(runs, asyncSchema));
       yield* settle;
-      expect(runs.count).toBe(1);
-      expect(warn).toHaveBeenCalledOnce();
-      expect(String(warn.mock.calls[0]![0])).toContain("asynchronous");
+      assert.strictEqual(runs.count, 1);
+      assert.strictEqual(warn.mock.calls.length, 1);
+      assert.include(String(warn.mock.calls[0]![0]), "asynchronous");
       warn.mockRestore();
     }).pipe(Effect.provide(KeyValueStore.layerMemory)),
   );
@@ -365,7 +372,7 @@ describe("QueryPersister with Standard Schema validators", () => {
       b.registry.mount(q);
       const r = b.registry.get(q);
       assert(r.isSuccess);
-      expect(DateTime.isDateTime(Option.getOrThrow(r.data.value[0]!.due))).toBe(true);
+      assert.isTrue(DateTime.isDateTime(Option.getOrThrow(r.data.value[0]!.due)));
     }).pipe(Effect.provide(KeyValueStore.layerMemory)),
   );
 
@@ -394,7 +401,10 @@ describe("QueryPersister with Standard Schema validators", () => {
       b.registry.mount(feed());
       const r = b.registry.get(feed());
       assert(r.isSuccess);
-      expect(r.data.value).toEqual({ pages: [{ items: [0] }, { items: [1] }], pageParams: [0, 1] });
+      assert.deepStrictEqual(r.data.value, {
+        pages: [{ items: [0] }, { items: [1] }],
+        pageParams: [0, 1],
+      });
     }).pipe(Effect.provide(KeyValueStore.layerMemory)),
   );
 
@@ -425,7 +435,7 @@ describe("QueryPersister with Standard Schema validators", () => {
       b.registry.mount(feed());
       yield* settle;
       // Restored data would be fresh for an hour: a fetch means it was dropped.
-      expect(runs.count).toBe(before + 1);
+      assert.strictEqual(runs.count, before + 1);
     }).pipe(Effect.provide(KeyValueStore.layerMemory)),
   );
 
@@ -445,7 +455,7 @@ describe("QueryPersister with Standard Schema validators", () => {
       yield* a.close;
       yield* persistedClient({ mutations: [addNote] });
       yield* settle;
-      expect(saved).toEqual(["written offline"]);
+      assert.deepStrictEqual(saved, ["written offline"]);
     }).pipe(Effect.provide(KeyValueStore.layerMemory)),
   );
 
@@ -466,7 +476,10 @@ describe("QueryPersister with Standard Schema validators", () => {
       const store = yield* KeyValueStore.KeyValueStore;
       const raw = Option.getOrThrow(Option.fromNullishOr(yield* store.get("effect-atom-query")));
       const queries = JSON.parse(raw).queries as ReadonlyArray<{ readonly key: string }>;
-      expect(queries.map((q) => q.key)).toEqual([JSON.stringify(["notes"])]);
+      assert.deepStrictEqual(
+        queries.map((q) => q.key),
+        [JSON.stringify(["notes"])],
+      );
       yield* a.close; // the final write must not die either
     }).pipe(Effect.provide(KeyValueStore.layerMemory)),
   );

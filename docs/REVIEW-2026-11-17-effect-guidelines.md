@@ -75,11 +75,11 @@ Status column: **fixed** means fixed in the change that added this document.
 
 ### Tests
 
-| #   | Finding                                                                                                                                                               |
-| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 25  | All `packages/query/test` files use `expect`; Effect's test conventions (`test-development/runtime.md`) say to use `assert` from `@effect/vitest`. Migrate gradually. |
-| 26  | `react/test/testing.test.tsx:83-148`: pure-Effect tests run effects by hand in async `it`; use `it.effect`.                                                           |
-| 27  | `Effect.runSync(getQueryData)` in final assertions: `react/test/useRunEffect.test.tsx:118`, `react/test/testing.test.tsx:184`.                                        |
+| #   | Finding                                                                                                                                                                                                                                                     |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 25  | **Fixed** (all at once, with a codemod; `toMatchObject` became `assert.deepInclude`). All `packages/query/test` files use `expect`; Effect's test conventions (`test-development/runtime.md`) say to use `assert` from `@effect/vitest`. Migrate gradually. |
+| 26  | **Fixed.** `react/test/testing.test.tsx:83-148`: pure-Effect tests run effects by hand in async `it`; use `it.effect`.                                                                                                                                      |
+| 27  | **Fixed** (read through the harness or runner, compared with `Option.some`). `Effect.runSync(getQueryData)` in final assertions: `react/test/useRunEffect.test.tsx:118`, `react/test/testing.test.tsx:184`.                                                 |
 
 ## 4. Checked and OK
 

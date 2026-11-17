@@ -115,7 +115,7 @@ describe("useRunEffect", () => {
         Effect.flatMap(QueryClient.QueryClient, (c) => c.fetchQuery(q)),
       );
       expect(value).toBe(42);
-      expect(Option.getOrThrow(Effect.runSync(client.getQueryData(q)))).toBe(42);
+      expect(await result.current.promise(client.getQueryData(q))).toEqual(Option.some(42));
     });
 
     it("runs with the services of the provider's runtime", async () => {

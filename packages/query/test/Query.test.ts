@@ -1,4 +1,4 @@
-import { assert, describe, expect, it } from "@effect/vitest";
+import { assert, describe, it } from "@effect/vitest";
 import { Context, Effect, Fiber, Layer, Option, Schedule, Schema } from "effect";
 import { TestClock } from "effect/testing";
 import { Query, QueryClient, QueryKey, QueryResult } from "../src/index.ts";
@@ -17,13 +17,13 @@ describe("QueryClient.fetchQuery", () => {
         staleTime: "1 minute",
       });
 
-      expect(yield* client.fetchQuery(todo(1))).toEqual({ id: 1, title: "todo 1" });
-      expect(yield* client.fetchQuery(todo(1))).toEqual({ id: 1, title: "todo 1" });
-      expect(runs.count).toBe(1);
+      assert.deepStrictEqual(yield* client.fetchQuery(todo(1)), { id: 1, title: "todo 1" });
+      assert.deepStrictEqual(yield* client.fetchQuery(todo(1)), { id: 1, title: "todo 1" });
+      assert.strictEqual(runs.count, 1);
 
       yield* TestClock.adjust("2 minutes");
       yield* client.fetchQuery(todo(1));
-      expect(runs.count).toBe(2);
+      assert.strictEqual(runs.count, 2);
     }),
   );
 
@@ -36,10 +36,10 @@ describe("QueryClient.fetchQuery", () => {
       const a = yield* Effect.forkChild(client.fetchQuery(slow));
       const b = yield* Effect.forkChild(client.fetchQuery(slow));
       yield* settle;
-      expect(yield* client.isFetching()).toBe(1);
+      assert.strictEqual(yield* client.isFetching(), 1);
       yield* TestClock.adjust("1 second");
-      expect([yield* Fiber.join(a), yield* Fiber.join(b)]).toEqual([1, 1]);
-      expect(runs.count).toBe(1);
+      assert.deepStrictEqual([yield* Fiber.join(a), yield* Fiber.join(b)], [1, 1]);
+      assert.strictEqual(runs.count, 1);
     }),
   );
 
@@ -52,8 +52,8 @@ describe("QueryClient.fetchQuery", () => {
         run: (id) => runs.tick.pipe(Effect.andThen(Effect.fail(new NotFound({ id })))),
       });
       const error = yield* client.fetchQuery(missing(7)).pipe(Effect.flip);
-      expect(error).toEqual(new NotFound({ id: 7 }));
-      expect(runs.count).toBe(1);
+      assert.deepStrictEqual(error, new NotFound({ id: 7 }));
+      assert.strictEqual(runs.count, 1);
     }),
   );
 
@@ -64,8 +64,8 @@ describe("QueryClient.fetchQuery", () => {
       const q = Query.single({ key: ["ensure"], run: runs.tick });
       yield* client.fetchQuery(q);
       yield* TestClock.adjust("1 minute");
-      expect(yield* client.ensureQueryData(q)).toBe(1);
-      expect(runs.count).toBe(1);
+      assert.strictEqual(yield* client.ensureQueryData(q), 1);
+      assert.strictEqual(runs.count, 1);
     }),
   );
 
@@ -76,11 +76,12 @@ describe("QueryClient.fetchQuery", () => {
         key: (id: number) => ["todo", id],
         run: (id) => Effect.succeed({ id }),
       });
-      expect(yield* client.getQueryData(todo(1))).toEqual(Option.none());
+      assert.deepStrictEqual(yield* client.getQueryData(todo(1)), Option.none());
       yield* client.prefetchQuery(todo(1));
       const data: Option.Option<{ id: number }> = yield* client.getQueryData(todo.key(1));
-      expect(data).toEqual(Option.some({ id: 1 }));
-      expect(yield* client.getQueryData(QueryKey.tagged<{ id: number }>(["todo", 1]))).toEqual(
+      assert.deepStrictEqual(data, Option.some({ id: 1 }));
+      assert.deepStrictEqual(
+        yield* client.getQueryData(QueryKey.tagged<{ id: number }>(["todo", 1])),
         Option.some({ id: 1 }),
       );
     }),
@@ -103,14 +104,14 @@ describe("QueryClient.fetchQuery", () => {
         Effect.flatMap((client) => client.fetchQuery(greeting("ada"))),
         Effect.provide(GreeterLive),
       );
-      expect(viaCaller).toBe("hello ada");
+      assert.strictEqual(viaCaller, "hello ada");
 
       // A client built inside the layer runs atom-triggered fetches with Greeter.
       const viaLayer = yield* Effect.gen(function* () {
         const client = yield* QueryClient.QueryClient;
         return yield* client.fetchQuery(greeting("lin"));
       }).pipe(Effect.provide(QueryClient.layer().pipe(Layer.provideMerge(GreeterLive))));
-      expect(viaLayer).toBe("hello lin");
+      assert.strictEqual(viaLayer, "hello lin");
     }),
   );
 });
@@ -126,18 +127,18 @@ describe("query atoms", () => {
 
       const unmount = registry.mount(q);
       const loading = registry.get(q);
-      expect(loading.status).toBe("pending");
-      expect(loading.isLoading).toBe(true);
-      expect(loading.fetchStatus).toBe("fetching");
+      assert.strictEqual(loading.status, "pending");
+      assert.isTrue(loading.isLoading);
+      assert.strictEqual(loading.fetchStatus, "fetching");
 
       yield* TestClock.adjust("1 second");
       yield* settle;
       const done = registry.get(q);
       assert(done.isSuccess);
-      expect(done.data.value).toBe("data");
-      expect(done.isFetching).toBe(false);
-      expect(done.isStale).toBe(true); // staleTime 0
-      expect(Option.isSome(done.dataUpdatedAt)).toBe(true);
+      assert.strictEqual(done.data.value, "data");
+      assert.isFalse(done.isFetching);
+      assert.isTrue(done.isStale); // staleTime 0
+      assert.isTrue(Option.isSome(done.dataUpdatedAt));
       unmount();
     }),
   );
@@ -150,11 +151,11 @@ describe("query atoms", () => {
         key: (f: { done: boolean }) => ["todos", f],
         run: () => runs.tick,
       });
-      expect(todos({ done: true })).toBe(todos({ done: true })); // memoised structurally
+      assert.strictEqual(todos({ done: true }), todos({ done: true })); // memoised structurally
       registry.mount(todos({ done: true }));
       registry.mount(todos({ done: true }));
       yield* settle;
-      expect(runs.count).toBe(1);
+      assert.strictEqual(runs.count, 1);
     }),
   );
 
@@ -168,17 +169,17 @@ describe("query atoms", () => {
 
       const unmount = registry.mount(q);
       yield* settle;
-      expect(registry.get(q).isStale).toBe(false);
+      assert.isFalse(registry.get(q).isStale);
       unmount();
       yield* settle;
 
       registry.mount(q); // fresh: no refetch
       yield* settle;
-      expect(runs.count).toBe(1);
+      assert.strictEqual(runs.count, 1);
 
       yield* TestClock.adjust("30 seconds");
       yield* settle;
-      expect(registry.get(q).isStale).toBe(true); // stale timer notified the atom
+      assert.isTrue(registry.get(q).isStale); // stale timer notified the atom
     }),
   );
 
@@ -191,10 +192,10 @@ describe("query atoms", () => {
       yield* settle;
       registry.mount(q);
       yield* settle;
-      expect(runs.count).toBe(2);
+      assert.strictEqual(runs.count, 2);
       const result = registry.get(q);
       assert(result.isSuccess);
-      expect(result.data.value).toBe(2);
+      assert.strictEqual(result.data.value, 2);
     }),
   );
 
@@ -208,16 +209,16 @@ describe("query atoms", () => {
       yield* settle;
 
       yield* TestClock.adjust("4 minutes");
-      expect(Option.isSome(yield* client.getQueryData(q))).toBe(true);
+      assert.isTrue(Option.isSome(yield* client.getQueryData(q)));
 
       registry.mount(q)(); // re-observing resets the timer
       yield* settle;
       yield* TestClock.adjust("4 minutes");
-      expect(Option.isSome(yield* client.getQueryData(q))).toBe(true);
+      assert.isTrue(Option.isSome(yield* client.getQueryData(q)));
 
       yield* TestClock.adjust("1 minute");
       yield* settle;
-      expect(yield* client.getQueryData(q)).toEqual(Option.none());
+      assert.deepStrictEqual(yield* client.getQueryData(q), Option.none());
     }),
   );
 
@@ -231,28 +232,28 @@ describe("query atoms", () => {
       });
       registry.mount(q);
       yield* settle;
-      expect(runs.count).toBe(1);
+      assert.strictEqual(runs.count, 1);
       let r = registry.get(q);
-      expect(r.status).toBe("pending"); // still retrying silently
-      expect(r.failureCount).toBe(1);
-      expect(r.failureReason).toEqual(Option.some(new NotFound({ id: 1 })));
+      assert.strictEqual(r.status, "pending"); // still retrying silently
+      assert.strictEqual(r.failureCount, 1);
+      assert.deepStrictEqual(r.failureReason, Option.some(new NotFound({ id: 1 })));
 
       yield* TestClock.adjust("1 second");
       yield* settle;
-      expect(runs.count).toBe(2);
+      assert.strictEqual(runs.count, 2);
       yield* TestClock.adjust("2 seconds");
       yield* settle;
-      expect(runs.count).toBe(3);
+      assert.strictEqual(runs.count, 3);
       yield* TestClock.adjust("4 seconds");
       yield* settle;
-      expect(runs.count).toBe(4);
+      assert.strictEqual(runs.count, 4);
 
       r = registry.get(q);
       assert(r.isError);
-      expect(r.error).toEqual(Option.some(new NotFound({ id: 1 })));
-      expect(r.isLoadingError).toBe(true);
-      expect(r.failureCount).toBe(4);
-      expect(QueryResult.isDefect(r)).toBe(false);
+      assert.deepStrictEqual(r.error, Option.some(new NotFound({ id: 1 })));
+      assert.isTrue(r.isLoadingError);
+      assert.strictEqual(r.failureCount, 4);
+      assert.isFalse(QueryResult.isDefect(r));
     }),
   );
 
@@ -278,9 +279,9 @@ describe("query atoms", () => {
         yield* TestClock.adjust("10 millis");
         yield* settle;
       }
-      expect(none.count).toBe(1);
-      expect(custom.count).toBe(6);
-      expect(registry.get(qNone).isError).toBe(true);
+      assert.strictEqual(none.count, 1);
+      assert.strictEqual(custom.count, 6);
+      assert.isTrue(registry.get(qNone).isError);
     }),
   );
 
@@ -296,9 +297,9 @@ describe("query atoms", () => {
       yield* settle;
       const r = registry.get(q);
       assert(r.isError);
-      expect(QueryResult.isDefect(r)).toBe(true);
-      expect(r.error).toEqual(Option.none());
-      expect(runs.count).toBe(1);
+      assert.isTrue(QueryResult.isDefect(r));
+      assert.deepStrictEqual(r.error, Option.none());
+      assert.strictEqual(runs.count, 1);
     }),
   );
 
@@ -318,8 +319,8 @@ describe("query atoms", () => {
       yield* settle;
       const r = registry.get(q);
       assert(r.isError);
-      expect(r.isRefetchError).toBe(true);
-      expect(r.data).toEqual(Option.some("ok"));
+      assert.isTrue(r.isRefetchError);
+      assert.deepStrictEqual(r.data, Option.some("ok"));
     }),
   );
 
@@ -332,7 +333,7 @@ describe("query atoms", () => {
       yield* settle;
       registry.refresh(q);
       yield* settle;
-      expect(runs.count).toBe(2);
+      assert.strictEqual(runs.count, 2);
     }),
   );
 
@@ -349,13 +350,13 @@ describe("query atoms", () => {
       const skipped = todo(Query.skipToken);
       registry.mount(skipped);
       yield* settle;
-      expect(runs.count).toBe(0);
-      expect(registry.get(todo(0))).toMatchObject({
+      assert.strictEqual(runs.count, 0);
+      assert.deepInclude(registry.get(todo(0)), {
         status: "pending",
         fetchStatus: "idle",
         isEnabled: false,
       });
-      expect(registry.get(skipped)).toMatchObject({
+      assert.deepInclude(registry.get(skipped), {
         status: "pending",
         fetchStatus: "idle",
         isEnabled: false,
@@ -372,15 +373,15 @@ describe("query atoms", () => {
       yield* settle;
       yield* client.removeQueries({ queryKey: ["removed"] });
       yield* settle;
-      expect(runs.count).toBe(2);
-      expect(yield* client.getQueryData(q)).toEqual(Option.some(2));
+      assert.strictEqual(runs.count, 2);
+      assert.deepStrictEqual(yield* client.getQueryData(q), Option.some(2));
     }),
   );
 
   it.effect("die with a helpful message without a client", () =>
     Effect.sync(() => {
       const q = Query.single({ key: ["orphan"], run: Effect.succeed(1) });
-      expect(() => AtomRegistryMake().get(q)).toThrow(QueryClient.MissingQueryClientError);
+      assert.throws(() => AtomRegistryMake().get(q), QueryClient.MissingQueryClientError);
     }),
   );
 });

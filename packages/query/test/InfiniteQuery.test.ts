@@ -1,4 +1,4 @@
-import { assert, describe, expect, it } from "@effect/vitest";
+import { assert, describe, it } from "@effect/vitest";
 import { Effect, Option } from "effect";
 import { TestClock } from "effect/testing";
 import { InfiniteQuery, Query, QueryObserver } from "../src/index.ts";
@@ -45,9 +45,9 @@ describe("InfiniteQuery", () => {
       const q = feed("all");
       registry.mount(q);
       yield* settle;
-      expect(items(registry.get(q))).toEqual([0, 1, 2]);
+      assert.deepStrictEqual(items(registry.get(q)), [0, 1, 2]);
       const entry = client.cache.get<any, any>(q.key);
-      expect(InfiniteQuery.pagingState(q.infinite, Option.getOrUndefined(entry))).toMatchObject({
+      assert.deepInclude(InfiniteQuery.pagingState(q.infinite, Option.getOrUndefined(entry)), {
         hasNextPage: true,
         hasPreviousPage: false,
       });
@@ -58,14 +58,14 @@ describe("InfiniteQuery", () => {
       yield* settle;
       registry.set(q, "next");
       yield* settle;
-      expect(items(registry.get(q))).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
-      expect(fetched).toEqual([0, 3, 6, 9]);
+      assert.deepStrictEqual(items(registry.get(q)), [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+      assert.deepStrictEqual(fetched, [0, 3, 6, 9]);
       registry.set(q, "next"); // no next page: no fetch
       yield* settle;
-      expect(fetched).toEqual([0, 3, 6, 9]);
+      assert.deepStrictEqual(fetched, [0, 3, 6, 9]);
       const r = registry.get(q);
       assert(r.isSuccess);
-      expect(r.data.value.pageParams).toEqual([0, 3, 6, 9]);
+      assert.deepStrictEqual(r.data.value.pageParams, [0, 3, 6, 9]);
     }),
   );
 
@@ -83,8 +83,8 @@ describe("InfiniteQuery", () => {
       shift = 100;
       registry.refresh(q);
       yield* settle;
-      expect(fetched).toEqual([0, 3]);
-      expect(items(registry.get(q))).toEqual([100, 101, 102, 103, 104, 105]);
+      assert.deepStrictEqual(fetched, [0, 3]);
+      assert.deepStrictEqual(items(registry.get(q)), [100, 101, 102, 103, 104, 105]);
     }),
   );
 
@@ -99,10 +99,10 @@ describe("InfiniteQuery", () => {
       yield* settle;
       registry.set(q, "next");
       yield* settle;
-      expect(items(registry.get(q))).toEqual([3, 4, 5, 6, 7, 8]);
+      assert.deepStrictEqual(items(registry.get(q)), [3, 4, 5, 6, 7, 8]);
       registry.set(q, "previous");
       yield* settle;
-      expect(items(registry.get(q))).toEqual([0, 1, 2, 3, 4, 5]);
+      assert.deepStrictEqual(items(registry.get(q)), [0, 1, 2, 3, 4, 5]);
     }),
   );
 
@@ -112,13 +112,13 @@ describe("InfiniteQuery", () => {
       const { feed, fetched } = makeFeed();
       const q = feed("client");
       const data = yield* client.fetchQuery(q);
-      expect(data.pages).toHaveLength(1);
+      assert.lengthOf(data.pages, 1);
       registry.mount(q);
       registry.set(q, "next");
       yield* settle;
       fetched.length = 0;
       yield* client.invalidateQueries({ queryKey: ["feed"] });
-      expect(fetched).toEqual([0, 3]);
+      assert.deepStrictEqual(fetched, [0, 3]);
     }),
   );
 
@@ -138,12 +138,12 @@ describe("InfiniteQuery", () => {
       registry.set(q, "next");
       yield* settle;
       const entry = Option.getOrUndefined(client.cache.get<any, any>(q.key));
-      expect(InfiniteQuery.pagingState(q.infinite, entry)).toMatchObject({
+      assert.deepInclude(InfiniteQuery.pagingState(q.infinite, entry), {
         isFetchingNextPage: true,
       });
       yield* TestClock.adjust("1 second");
       yield* settle;
-      expect(InfiniteQuery.pagingState(q.infinite, entry)).toMatchObject({
+      assert.deepInclude(InfiniteQuery.pagingState(q.infinite, entry), {
         isFetchingNextPage: false,
       });
     }),
@@ -159,10 +159,10 @@ describe("observer staleTime", () => {
       registry.mount(q);
       yield* settle;
       const observer = QueryObserver.make(client, q, { staleTime: "1 minute" });
-      expect(observer.getCurrentResult().isStale).toBe(false);
+      assert.isFalse(observer.getCurrentResult().isStale);
       observer.subscribe(() => {});
       yield* settle;
-      expect(runs.count).toBe(1);
+      assert.strictEqual(runs.count, 1);
     }),
   );
 });

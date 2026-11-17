@@ -1,9 +1,9 @@
 import { act, render, renderHook, screen } from "@testing-library/react";
 import { useAtomValue } from "@effect/atom-react";
-import { Cause, Context, Effect, Exit, Layer, Option } from "effect";
+import { Cause, Context, Effect, Exit, Fiber, Layer, Option } from "effect";
 import { Atom } from "effect/reactivity";
 import * as React from "react";
-import { afterEach, describe, expect, expectTypeOf, it, vi } from "vite-plus/test";
+import { afterEach, describe, expect, expectTypeOf, it, vi } from "@effect/vitest";
 import {
   type DefinedUseQueryResult,
   MutationResult,
@@ -94,11 +94,13 @@ describe("mutationHookResult", () => {
     expect(() => result.reset()).not.toThrow();
   });
 
-  it("makes an unmocked mutateEffect fail with a defect", async () => {
-    const result = mutationHookResult(MutationResult.idle<string, never, string>());
-    const exit = await Effect.runPromiseExit(result.mutateEffect("x"));
-    expect(Exit.isFailure(exit) && Cause.hasDies(exit.cause)).toBe(true);
-  });
+  it.effect("makes an unmocked mutateEffect fail with a defect", () =>
+    Effect.gen(function* () {
+      const result = mutationHookResult(MutationResult.idle<string, never, string>());
+      const exit = yield* Effect.exit(result.mutateEffect("x"));
+      expect(Exit.isFailure(exit) && Cause.hasDies(exit.cause)).toBe(true);
+    }),
+  );
 
   it("takes overrides, typed from the mocked hook", () => {
     const mutate = vi.fn();
@@ -112,29 +114,32 @@ describe("mutationHookResult", () => {
 });
 
 describe("controlled", () => {
-  it("stays pending until succeeded", async () => {
-    const response = controlled<number>();
-    const fiber = Effect.runFork(response.effect);
-    await Promise.resolve();
-    expect(fiber.pollUnsafe()).toBeUndefined();
-    expect(response.isDone()).toBe(false);
-    response.succeed(1);
-    expect(await Effect.runPromise(response.effect)).toBe(1);
-    expect(response.isDone()).toBe(true);
-  });
+  it.effect("stays pending until succeeded", () =>
+    Effect.gen(function* () {
+      const response = controlled<number>();
+      const fiber = yield* Effect.forkChild(response.effect);
+      yield* Effect.yieldNow;
+      expect(fiber.pollUnsafe()).toBeUndefined();
+      expect(response.isDone()).toBe(false);
+      response.succeed(1);
+      expect(yield* Fiber.join(fiber)).toBe(1);
+      expect(response.isDone()).toBe(true);
+    }),
+  );
 
-  it("fails and dies, and the first completion wins", async () => {
-    const failing = controlled<number, "Nope">();
-    failing.fail("Nope");
-    failing.succeed(2);
-    const exit = await Effect.runPromiseExit(failing.effect);
-    expect(exit).toEqual(Exit.fail("Nope"));
+  it.effect("fails and dies, and the first completion wins", () =>
+    Effect.gen(function* () {
+      const failing = controlled<number, "Nope">();
+      failing.fail("Nope");
+      failing.succeed(2);
+      expect(yield* Effect.exit(failing.effect)).toEqual(Exit.fail("Nope"));
 
-    const dying = controlled<number>();
-    dying.die("boom");
-    const died = await Effect.runPromiseExit(dying.effect);
-    expect(Exit.isFailure(died) && Cause.hasDies(died.cause)).toBe(true);
-  });
+      const dying = controlled<number>();
+      dying.die("boom");
+      const died = yield* Effect.exit(dying.effect);
+      expect(Exit.isFailure(died) && Cause.hasDies(died.cause)).toBe(true);
+    }),
+  );
 });
 
 describe("testQueryClientLayer", () => {
@@ -150,16 +155,14 @@ describe("testQueryClientLayer", () => {
     expect(defaults.staleTime).toBe("1 minute");
   });
 
-  it("lets options override a test default", async () => {
-    const layer = testQueryClientLayer({ defaultOptions: { queries: { retry: 2 } } });
-    const defaults = await Effect.runPromise(
-      Effect.flatMap(QueryClient.QueryClient, (c) => c.getQueryDefaults(["any"])).pipe(
-        Effect.provide(layer),
-      ),
-    );
-    expect(defaults.retry).toBe(2);
-    expect(defaults.refetchOnWindowFocus).toBe(false);
-  });
+  it.effect("lets options override a test default", () =>
+    Effect.gen(function* () {
+      const client = yield* QueryClient.QueryClient;
+      const defaults = yield* client.getQueryDefaults(["any"]);
+      expect(defaults.retry).toBe(2);
+      expect(defaults.refetchOnWindowFocus).toBe(false);
+    }).pipe(Effect.provide(testQueryClientLayer({ defaultOptions: { queries: { retry: 2 } } }))),
+  );
 });
 
 describe("makeTestHarness", () => {
@@ -195,7 +198,7 @@ describe("makeTestHarness", () => {
     expect(
       await h.run(Effect.flatMap(QueryClient.QueryClient, (c) => c.fetchQuery(todosQuery))),
     ).toEqual(["a"]);
-    expect(Option.getOrThrow(Effect.runSync(h.client.getQueryData(todosQuery)))).toEqual(["a"]);
+    expect(await h.run(h.client.getQueryData(todosQuery))).toEqual(Option.some(["a"]));
   });
 
   it("can be disposed before the tree unmounts", async () => {
