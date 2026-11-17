@@ -90,6 +90,44 @@ describe("QueryPersister", () => {
     }).pipe(Effect.provide(KeyValueStore.layerMemory)),
   );
 
+  it.effect("skips only the queries it cannot encode, and keeps the others", () =>
+    Effect.gen(function* () {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      // Rejects numbers when encoding: the query's data does not fit its schema.
+      const rejected = Query.single({
+        key: ["rejected"],
+        run: Effect.succeed(1 as unknown as string),
+        persist: { schema: Schema.String },
+      });
+      // A key JSON cannot hold.
+      const unserialisable = Query.single({
+        key: [
+          "unserialisable",
+          {
+            toJSON: () => {
+              throw new Error("no JSON");
+            },
+          },
+        ],
+        run: Effect.succeed("x"),
+        persist: { schema: Schema.String },
+      });
+      const a = yield* persistedClient();
+      a.registry.mount(todosQuery(counter()));
+      a.registry.mount(rejected);
+      a.registry.mount(unserialisable);
+      yield* settle;
+      yield* TestClock.adjust("1 second"); // throttle
+      yield* settle;
+      const store = yield* KeyValueStore.KeyValueStore;
+      const raw = Option.getOrThrow(Option.fromNullishOr(yield* store.get("effect-atom-query")));
+      const queries = JSON.parse(raw).queries as ReadonlyArray<{ readonly key: string }>;
+      expect(queries.map((q) => q.key)).toEqual([JSON.stringify(["todos", { page: 1 }])]);
+      expect(warn).not.toHaveBeenCalled(); // rejected data is expected, not a defect
+      warn.mockRestore();
+    }).pipe(Effect.provide(KeyValueStore.layerMemory)),
+  );
+
   it.effect("discards snapshots with another buster or older than maxAge", () =>
     Effect.gen(function* () {
       const store = yield* KeyValueStore.KeyValueStore;

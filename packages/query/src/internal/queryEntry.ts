@@ -12,12 +12,14 @@ import {
   Exit,
   Fiber,
   Option,
+  Result,
   Schedule,
 } from "effect";
 import { AsyncResult, type Reactivity } from "effect/reactivity";
 import type * as FocusManager from "../FocusManager.ts";
 import type * as OnlineManager from "../OnlineManager.ts";
 import * as QueryKey from "../QueryKey.ts";
+import { jsonKey, type PersistCodec } from "./persistCodec.ts";
 import type * as QueryResult from "../QueryResult.ts";
 import { replaceEqualDeep } from "./structuralSharing.ts";
 
@@ -181,15 +183,6 @@ export interface QueryDescriptor<A, E, R> {
   readonly behavior?: ((context: BehaviorContext<A>) => Effect.Effect<A, E, R>) | undefined;
   /** Present when the query opted into persistence. */
   readonly persist?: PersistCodec<A> | undefined;
-}
-
-/**
- * JSON codec of a persisted query's data (derived from its `Schema`).
- * @internal
- */
-export interface PersistCodec<A> {
-  readonly encode: (data: A) => unknown;
-  readonly decode: (json: unknown) => A;
 }
 
 /** A persisted query waiting to be claimed by its query atom. @internal */
@@ -420,18 +413,20 @@ export class QueryEntry<A, E> {
     if (Option.isSome(this.state.data) && !this.showsInitialData) {
       return;
     }
-    const jsonKey = QueryKey.toJsonKey(this.key);
-    const preloaded = this.runtime.preloaded.get(jsonKey);
+    const key = jsonKey(this.key);
+    if (Result.isFailure(key)) {
+      return; // Never persisted, so nothing to claim.
+    }
+    const preloaded = this.runtime.preloaded.get(key.success);
     if (preloaded === undefined) {
       return;
     }
-    this.runtime.preloaded.delete(jsonKey);
-    let data: A;
-    try {
-      data = codec.decode(preloaded.data);
-    } catch {
+    this.runtime.preloaded.delete(key.success);
+    const decoded = codec.decode(preloaded.data);
+    if (Result.isFailure(decoded)) {
       return;
     }
+    const data = decoded.success;
     this.showsInitialData = false;
     this.setState((s) => ({
       ...s,

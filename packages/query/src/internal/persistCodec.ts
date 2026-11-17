@@ -1,5 +1,5 @@
-import { Schema } from "effect";
-import type { PersistCodec } from "./queryEntry.ts";
+import { Result, Schema } from "effect";
+import * as QueryKey from "../QueryKey.ts";
 
 /**
  * A [Standard Schema v1](https://standardschema.dev) validator producing `A`,
@@ -25,13 +25,81 @@ export type StandardSchemaResult<A> =
 /** An Effect Schema codec, or a Standard Schema validator for JSON-compatible data. */
 export type PersistSchema<A> = Schema.Codec<A, any> | StandardSchema<A>;
 
+/**
+ * Why a value could not be encoded or decoded. @internal
+ *
+ * - `Invalid`: the schema rejected the value (expected, e.g. after a schema
+ *   change): the value is skipped.
+ * - `Unsupported`: the schema cannot be used synchronously (an asynchronous
+ *   Standard Schema validator).
+ * - `Defect`: the schema threw (a bug in a transform or validator). Reported
+ *   once per schema with `console.warn`, then skipped like the others.
+ */
+export type PersistCodecError =
+  | { readonly _tag: "Invalid"; readonly message: string }
+  | { readonly _tag: "Unsupported"; readonly message: string }
+  | { readonly _tag: "Defect"; readonly cause: unknown };
+
+/**
+ * JSON codec of persisted data (derived from its schema). Never throws:
+ * failures are returned as values. @internal
+ */
+export interface PersistCodec<A> {
+  readonly encode: (data: A) => Result.Result<unknown, PersistCodecError>;
+  readonly decode: (json: unknown) => Result.Result<A, PersistCodecError>;
+}
+
+const invalid = (message: string): Result.Result<never, PersistCodecError> =>
+  Result.fail({ _tag: "Invalid", message });
+
+/**
+ * The single boundary where exceptions from user schemas become values: a
+ * throwing transform or validator is a `Defect`, reported once per codec.
+ */
+const guard = <I, A>(
+  label: string,
+  f: (input: I) => Result.Result<A, PersistCodecError>,
+): ((input: I) => Result.Result<A, PersistCodecError>) => {
+  let warned = false;
+  return (input) => {
+    try {
+      return f(input);
+    } catch (cause) {
+      if (!warned) {
+        warned = true;
+        console.warn(
+          `effect-atom-query: a persist schema threw while ${label} persisted data; ` +
+            `the value was skipped.`,
+          cause,
+        );
+      }
+      return Result.fail({ _tag: "Defect", cause });
+    }
+  };
+};
+
+/**
+ * `QueryKey.toJsonKey` as a value: `JSON.stringify` throws on keys JSON cannot
+ * hold (cycles, a throwing `toJSON`), which are then simply not persisted. @internal
+ */
+export const jsonKey = (key: ReadonlyArray<unknown>): Result.Result<string, unknown> =>
+  Result.try(() => QueryKey.toJsonKey(key));
+
 const cache = new WeakMap<object, PersistCodec<any>>();
 
 const effectCodec = <A>(schema: Schema.Codec<A, any>): PersistCodec<A> => {
   const json = Schema.toCodecJson(schema);
+  // Schema issues are returned as `Result.fail`; defects still throw, which
+  // `guard` turns into `Defect`.
+  const encode = Schema.encodeResult(json);
+  const decode = Schema.decodeUnknownResult(json);
   return {
-    encode: Schema.encodeSync(json),
-    decode: Schema.decodeUnknownSync(json),
+    encode: guard("encoding", (data: A) =>
+      Result.mapError(encode(data), (issue) => ({ _tag: "Invalid", message: String(issue) })),
+    ),
+    decode: guard("decoding", (input: unknown) =>
+      Result.mapError(decode(input), (issue) => ({ _tag: "Invalid", message: String(issue) })),
+    ),
   } as PersistCodec<A>;
 };
 
@@ -46,8 +114,8 @@ const isPromiseLike = (u: unknown): u is PromiseLike<unknown> =>
 const standardCodec = <A>(schema: StandardSchema<A>): PersistCodec<A> => {
   let warned = false;
   return {
-    encode: (data) => data,
-    decode: (json) => {
+    encode: (data) => Result.succeed(data),
+    decode: guard("decoding", (json: unknown): Result.Result<A, PersistCodecError> => {
       const result = schema["~standard"].validate(json);
       if (isPromiseLike(result)) {
         if (!warned) {
@@ -58,15 +126,18 @@ const standardCodec = <A>(schema: StandardSchema<A>): PersistCodec<A> => {
               `synchronous validator: avoid async refinements in persisted schemas.`,
           );
         }
-        throw new Error("Asynchronous Standard Schema validators are not supported");
+        return Result.fail({
+          _tag: "Unsupported",
+          message: "Asynchronous Standard Schema validators are not supported",
+        });
       }
       if (result.issues !== undefined) {
-        throw new Error(
+        return invalid(
           `Persisted data is invalid: ${result.issues.map((i) => i.message).join("; ")}`,
         );
       }
-      return result.value;
-    },
+      return Result.succeed(result.value);
+    }),
   };
 };
 
@@ -94,10 +165,11 @@ export const infiniteCodec = <Page, Param>(
   readonly pages: ReadonlyArray<Page>;
   readonly pageParams: ReadonlyArray<Param>;
 }> => ({
-  encode: (data) => ({
-    pages: data.pages.map(page.encode),
-    pageParams: data.pageParams.map(pageParam.encode),
-  }),
+  encode: (data) =>
+    Result.all({
+      pages: Result.all(data.pages.map((p) => page.encode(p))),
+      pageParams: Result.all(data.pageParams.map((p) => pageParam.encode(p))),
+    }),
   decode: (json) => {
     const value = json as { readonly pages?: unknown; readonly pageParams?: unknown } | null;
     if (
@@ -107,11 +179,11 @@ export const infiniteCodec = <Page, Param>(
       !Array.isArray(value.pageParams) ||
       value.pages.length !== value.pageParams.length
     ) {
-      throw new Error("Persisted infinite query data is invalid");
+      return invalid("Persisted infinite query data is invalid");
     }
-    return {
-      pages: value.pages.map(page.decode),
-      pageParams: value.pageParams.map(pageParam.decode),
-    };
+    return Result.all({
+      pages: Result.all(value.pages.map((p) => page.decode(p))),
+      pageParams: Result.all(value.pageParams.map((p) => pageParam.decode(p))),
+    });
   },
 });

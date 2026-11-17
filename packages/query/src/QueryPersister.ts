@@ -28,9 +28,9 @@
  *
  * @since 0.1.0
  */
-import { Duration, Effect, Fiber, Layer, Option, Schema } from "effect";
+import { Duration, Effect, Fiber, Layer, Option, Result, Schema } from "effect";
 import { KeyValueStore } from "effect/persistence";
-import { persistCodec } from "./internal/persistCodec.ts";
+import { jsonKey, persistCodec } from "./internal/persistCodec.ts";
 import type * as Mutation from "./Mutation.ts";
 import * as QueryClient from "./QueryClient.ts";
 import * as QueryKey from "./QueryKey.ts";
@@ -144,18 +144,22 @@ const snapshot = (client: QueryClient.Service, options: Resolved): PersistedClie
     if (!options.shouldPersistQuery({ key: entry.key, result: entry.toResult() })) {
       continue;
     }
-    try {
-      const key = QueryKey.toJsonKey(entry.key);
-      queries.push({
-        key,
-        queryKey: JSON.parse(key) as Schema.Json,
-        data: codec.encode(entry.state.data.value) as Schema.Json,
-        dataUpdatedAt: entry.state.dataUpdatedAt,
-      });
-      seen.add(key);
-    } catch {
-      // Not encodable (e.g. a non-JSON key): skip this query.
+    // Not encodable (a non-JSON key, or data the schema rejects): skip this query.
+    const key = jsonKey(entry.key);
+    if (Result.isFailure(key)) {
+      continue;
     }
+    const data = codec.encode(entry.state.data.value);
+    if (Result.isFailure(data)) {
+      continue;
+    }
+    queries.push({
+      key: key.success,
+      queryKey: JSON.parse(key.success) as Schema.Json,
+      data: data.success as Schema.Json,
+      dataUpdatedAt: entry.state.dataUpdatedAt,
+    });
+    seen.add(key.success);
   }
   // Restored data no atom has claimed yet is kept, not lost, until it is
   // older than `maxAge` (each write would otherwise renew it indefinitely).
@@ -185,15 +189,20 @@ const snapshot = (client: QueryClient.Service, options: Resolved): PersistedClie
     if (state.status !== "pending" || !state.isPaused || Option.isNone(state.variables)) {
       continue;
     }
-    try {
-      mutations.push({
-        mutationKey: JSON.parse(QueryKey.toJsonKey(entry.key)) as Schema.Json,
-        variables: persistCodec(persist.variables).encode(state.variables.value) as Schema.Json,
-        submittedAt: state.submittedAt,
-      });
-    } catch {
-      // Not encodable: skip.
+    // Not encodable: skip.
+    const key = jsonKey(entry.key);
+    if (Result.isFailure(key)) {
+      continue;
     }
+    const variables = persistCodec(persist.variables).encode(state.variables.value);
+    if (Result.isFailure(variables)) {
+      continue;
+    }
+    mutations.push({
+      mutationKey: JSON.parse(key.success) as Schema.Json,
+      variables: variables.success as Schema.Json,
+      submittedAt: state.submittedAt,
+    });
   }
   return { buster: options.buster, timestamp: now, queries, mutations };
 };
@@ -225,13 +234,11 @@ export const hydrate = (
       if (defaults.run === undefined || defaults.persist === undefined) {
         continue;
       }
-      let variables: unknown;
-      try {
-        variables = persistCodec(defaults.persist.variables).decode(mutation.variables);
-      } catch {
+      const variables = persistCodec(defaults.persist.variables).decode(mutation.variables);
+      if (Result.isFailure(variables)) {
         continue;
       }
-      client.mutationCache.restore(key, variables, mutation.submittedAt);
+      client.mutationCache.restore(key, variables.success, mutation.submittedAt);
     }
   });
 

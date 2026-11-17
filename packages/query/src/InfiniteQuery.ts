@@ -22,8 +22,13 @@
  */
 import { Effect, Option } from "effect";
 import { Atom } from "effect/reactivity";
-import type { BehaviorContext, PersistCodec, QueryEntry } from "./internal/queryEntry.ts";
-import { infiniteCodec, persistCodec, type PersistSchema } from "./internal/persistCodec.ts";
+import type { BehaviorContext, QueryEntry } from "./internal/queryEntry.ts";
+import {
+  infiniteCodec,
+  type PersistCodec,
+  persistCodec,
+  type PersistSchema,
+} from "./internal/persistCodec.ts";
 import * as Query from "./Query.ts";
 import type * as QueryKey from "./QueryKey.ts";
 import type * as QueryResult from "./QueryResult.ts";
