@@ -366,6 +366,8 @@ export const make: (options?: Options) => Effect.Effect<Service, never, Scope.Sc
         Effect.runForkWith(extra === undefined ? context : Context.merge(context, extra))(
           effect as Effect.Effect<any, any, never>,
         ),
+      runPromiseExit: (effect, options) =>
+        Effect.runPromiseExitWith(context)(effect as Effect.Effect<any, any, never>, options),
       remove: (entry) => cache.remove(entry),
       onChange: () => cache.notifyChange(),
       focus,

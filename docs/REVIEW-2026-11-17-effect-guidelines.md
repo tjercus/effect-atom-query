@@ -51,11 +51,11 @@ Status column: **fixed** means fixed in the change that added this document.
 
 ### Effect style
 
-| #   | Finding                                                                                                                                                                                                                              |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 16  | Functions that only wrap and return `Effect.gen`; use `Effect.fnUntraced`: `QueryPersister.ts` (`readSnapshot`, `restore`, `persist`), `Mutation.ts:310-342`, `InfiniteQuery.ts:281`, `test/utils.ts:21`, `test/triggers.test.ts:7`. |
-| 17  | `QueryPersister.ts:342`: `Effect.sync(() => client.runtime.runFork(...))` leaves the runtime from inside an Effect; `Effect.forkDetach` would work, or document why the client's context is needed.                                  |
-| 18  | `react/src/useRunEffect.ts:79`: hand-built `new Promise` around `runFork`; an internal `runPromiseExit` on `ClientRuntime` would replace it.                                                                                         |
+| #   | Finding                                                                                                                                                                                                                                                                                                            |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 16  | **Fixed** (top-level ones marked `/* @__PURE__ */` so they still tree-shake). Functions that only wrap and return `Effect.gen`; use `Effect.fnUntraced`: `QueryPersister.ts` (`readSnapshot`, `restore`, `persist`), `Mutation.ts:310-342`, `InfiniteQuery.ts:281`, `test/utils.ts:21`, `test/triggers.test.ts:7`. |
+| 17  | **Fixed** (`Effect.forkDetach`: `resumePausedMutations` needs no context, the mutations run in the client's). `QueryPersister.ts:342`: `Effect.sync(() => client.runtime.runFork(...))` leaves the runtime from inside an Effect; `Effect.forkDetach` would work, or document why the client's context is needed.  |
+| 18  | **Fixed** (internal `ClientRuntime.runPromiseExit`; the already-aborted check stays, since Effect's runner would run the synchronous part first). `react/src/useRunEffect.ts:79`: hand-built `new Promise` around `runFork`; an internal `runPromiseExit` on `ClientRuntime` would replace it.                     |
 
 ### `LLMS.md` rules
 

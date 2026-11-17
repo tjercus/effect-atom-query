@@ -242,12 +242,14 @@ export const hydrate = (
     }
   });
 
-const readSnapshot = (
+// `@__PURE__`: a top-level call is kept by bundlers unless marked, which would
+// pull persistence into every bundle that imports the package.
+const readSnapshot: (
   client: QueryClient.Service,
   store: KeyValueStore.KeyValueStore,
   options: Resolved,
-): Effect.Effect<Option.Option<PersistedClient>> =>
-  Effect.gen(function* () {
+) => Effect.Effect<Option.Option<PersistedClient>> = /* @__PURE__ */ Effect.fnUntraced(
+  function* (client: QueryClient.Service, store: KeyValueStore.KeyValueStore, options: Resolved) {
     const raw = yield* store.get(options.storageKey);
     if (raw === undefined) {
       return Option.none();
@@ -263,15 +265,15 @@ const readSnapshot = (
       yield* store.remove(options.storageKey);
     }
     return valid;
-  }).pipe(
-    // Unreadable storage restores nothing, but says why.
-    Effect.catch((error) =>
-      Effect.as(
-        Effect.logWarning("effect-atom-query: the persisted snapshot could not be read", error),
-        Option.none<PersistedClient>(),
-      ),
+  },
+  // Unreadable storage restores nothing, but says why.
+  Effect.catch((error) =>
+    Effect.as(
+      Effect.logWarning("effect-atom-query: the persisted snapshot could not be read", error),
+      Option.none<PersistedClient>(),
     ),
-  );
+  ),
+);
 
 /**
  * Restore the client from storage once.
@@ -279,10 +281,10 @@ const readSnapshot = (
  * @since 0.1.0
  * @category persisting
  */
-export const restore = (
+export const restore: (
   options?: Options,
-): Effect.Effect<void, never, QueryClient.QueryClient | KeyValueStore.KeyValueStore> =>
-  Effect.gen(function* () {
+) => Effect.Effect<void, never, QueryClient.QueryClient | KeyValueStore.KeyValueStore> =
+  /* @__PURE__ */ Effect.fnUntraced(function* (options?: Options) {
     const client = yield* QueryClient.QueryClient;
     const store = yield* KeyValueStore.KeyValueStore;
     const resolved = resolve(options);
@@ -298,35 +300,31 @@ export const restore = (
  * @since 0.1.0
  * @category persisting
  */
-export const persist = (
+export const persist: (
   options?: Options,
-): Effect.Effect<
+) => Effect.Effect<
   void,
   KeyValueStore.KeyValueStoreError,
   QueryClient.QueryClient | KeyValueStore.KeyValueStore
-> =>
-  Effect.gen(function* () {
-    const client = yield* QueryClient.QueryClient;
-    const store = yield* KeyValueStore.KeyValueStore;
-    const resolved = resolve(options);
-    // Codecs only emit JSON, so this should not fail. If it does, the write is
-    // skipped with a warning instead of dying (which would stop persisting).
-    const encoded = yield* encodeSnapshot(snapshot(client, resolved)).pipe(
-      Effect.map(Option.some),
-      Effect.catchTag("SchemaError", (error) =>
-        Effect.as(
-          Effect.logWarning(
-            "effect-atom-query: the persisted snapshot could not be encoded",
-            error,
-          ),
-          Option.none<string>(),
-        ),
+> = /* @__PURE__ */ Effect.fnUntraced(function* (options?: Options) {
+  const client = yield* QueryClient.QueryClient;
+  const store = yield* KeyValueStore.KeyValueStore;
+  const resolved = resolve(options);
+  // Codecs only emit JSON, so this should not fail. If it does, the write is
+  // skipped with a warning instead of dying (which would stop persisting).
+  const encoded = yield* encodeSnapshot(snapshot(client, resolved)).pipe(
+    Effect.map(Option.some),
+    Effect.catchTag("SchemaError", (error) =>
+      Effect.as(
+        Effect.logWarning("effect-atom-query: the persisted snapshot could not be encoded", error),
+        Option.none<string>(),
       ),
-    );
-    if (Option.isSome(encoded)) {
-      yield* store.set(resolved.storageKey, encoded.value);
-    }
-  });
+    ),
+  );
+  if (Option.isSome(encoded)) {
+    yield* store.set(resolved.storageKey, encoded.value);
+  }
+});
 
 /**
  * Remove the stored snapshot (e.g. on logout).
@@ -362,8 +360,10 @@ export const layer = (
         }
       }
 
+      // Detached: resuming must not hold up the restore, nor stop with this
+      // layer (the mutations themselves run in the client's context).
       const afterRestore = resolved.resumePausedMutations
-        ? Effect.sync(() => client.runtime.runFork(client.resumePausedMutations))
+        ? Effect.forkDetach(client.resumePausedMutations)
         : Effect.void;
       const restoring = client.runtime.restoring;
       restoring.start();

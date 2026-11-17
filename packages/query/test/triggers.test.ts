@@ -4,12 +4,13 @@ import { TestClock } from "effect/testing";
 import { Query, QueryObserver } from "../src/index.ts";
 import { counter, settle, setup } from "./utils.ts";
 
-const refocus = (focus: { setFocused: (f: boolean | undefined) => void }) =>
-  Effect.gen(function* () {
-    focus.setFocused(false);
-    focus.setFocused(true);
-    yield* settle;
-  });
+const refocus = Effect.fnUntraced(function* (focus: {
+  setFocused: (f: boolean | undefined) => void;
+}) {
+  focus.setFocused(false);
+  focus.setFocused(true);
+  yield* settle;
+});
 
 describe("refetchOnWindowFocus", () => {
   it.effect("refetches active stale queries when focus returns", () =>

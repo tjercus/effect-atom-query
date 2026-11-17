@@ -264,6 +264,11 @@ export interface ClientRuntime {
     effect: Effect.Effect<A, E, any>,
     context?: Context.Context<any>,
   ) => Fiber.Fiber<A, E>;
+  /** Run in the client's context; aborting `signal` interrupts the fiber. */
+  readonly runPromiseExit: <A, E>(
+    effect: Effect.Effect<A, E, any>,
+    options?: { readonly signal?: AbortSignal | undefined },
+  ) => Promise<Exit.Exit<A, E>>;
   readonly remove: (entry: QueryEntry<any, any>) => void;
   /** Cache-wide change notification (batched by the cache). */
   readonly onChange: () => void;

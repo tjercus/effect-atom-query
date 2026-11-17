@@ -76,23 +76,15 @@ const makeRunner = (client: QueryClient.Service): EffectRunner<any> => {
     effect: Effect.Effect<A, E, any>,
     options?: RunEffectOptions,
   ): Promise<Exit.Exit<A, E>> =>
-    new Promise((resolve) => {
-      const signal = options?.signal;
-      // Already aborted: interrupt without starting the Effect.
-      const program: Effect.Effect<A, E, any> = signal?.aborted
+    // Already aborted: interrupt without starting the Effect (Effect's own
+    // runners would run its synchronous part first). Otherwise the client's
+    // context: the services of the layer it was built in.
+    client.runtime.runPromiseExit(
+      options?.signal?.aborted
         ? Effect.interrupt
-        : Effect.provideService(effect, QueryClient.QueryClient, client);
-      // The client's context: the services of the layer it was built in.
-      const fiber = client.runtime.runFork(program);
-      const onAbort = () => {
-        fiber.interruptUnsafe();
-      };
-      signal?.addEventListener("abort", onAbort, { once: true });
-      fiber.addObserver((exit) => {
-        signal?.removeEventListener("abort", onAbort);
-        resolve(exit);
-      });
-    });
+        : Effect.provideService(effect, QueryClient.QueryClient, client),
+      options,
+    );
   const promise = <A, E>(effect: Effect.Effect<A, E, any>, options?: RunEffectOptions) =>
     promiseExit(effect, options).then((exit) =>
       Exit.isSuccess(exit) ? exit.value : Promise.reject(Cause.squash(exit.cause)),
