@@ -51,11 +51,15 @@ export class QueryCache {
 
   /** @internal */
   notifyChange(): void {
-    if (this.notifyScheduled || this.listeners.size === 0) return;
+    if (this.notifyScheduled || this.listeners.size === 0) {
+      return;
+    }
     this.notifyScheduled = true;
     queueMicrotask(() => {
       this.notifyScheduled = false;
-      for (const listener of Array.from(this.listeners)) listener();
+      for (const listener of Array.from(this.listeners)) {
+        listener();
+      }
     });
   }
 
@@ -93,7 +97,9 @@ export class QueryCache {
   }
 
   clear(): void {
-    for (const entry of this.all()) this.remove(entry);
+    for (const entry of this.all()) {
+      this.remove(entry);
+    }
   }
 
   private disposed = false;
@@ -113,13 +119,21 @@ export class QueryCache {
 export const matchQuery = (filters: QueryFilters, entry: QueryEntry<any, any>): boolean => {
   const { queryKey, exact, type = "all", stale, fetchStatus, predicate } = filters;
   if (queryKey !== undefined) {
-    if (exact ? !QueryKey.equals(entry.key, queryKey) : !QueryKey.matches(entry.key, queryKey))
+    if (exact ? !QueryKey.equals(entry.key, queryKey) : !QueryKey.matches(entry.key, queryKey)) {
       return false;
+    }
   }
-  if (type !== "all" && (type === "active") !== entry.isActive) return false;
-  if (stale !== undefined && stale !== entry.isStale()) return false;
-  if (fetchStatus !== undefined && fetchStatus !== entry.state.fetchStatus) return false;
-  if (predicate !== undefined && !predicate({ key: entry.key, result: entry.toResult() }))
+  if (type !== "all" && (type === "active") !== entry.isActive) {
     return false;
+  }
+  if (stale !== undefined && stale !== entry.isStale()) {
+    return false;
+  }
+  if (fetchStatus !== undefined && fetchStatus !== entry.state.fetchStatus) {
+    return false;
+  }
+  if (predicate !== undefined && !predicate({ key: entry.key, result: entry.toResult() })) {
+    return false;
+  }
   return true;
 };

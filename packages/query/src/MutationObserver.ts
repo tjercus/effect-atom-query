@@ -78,16 +78,22 @@ export class MutationObserver<I, A, E, R, C> {
 
   subscribe(listener: () => void): () => void {
     this.listeners.add(listener);
-    if (this.listeners.size === 1 && this.entry !== undefined) this.attach(this.entry);
+    if (this.listeners.size === 1 && this.entry !== undefined) {
+      this.attach(this.entry);
+    }
     return () => {
       this.listeners.delete(listener);
-      if (this.listeners.size === 0) this.detach();
+      if (this.listeners.size === 0) {
+        this.detach();
+      }
     };
   }
 
   private notify(): void {
     this.version++;
-    for (const listener of Array.from(this.listeners)) listener();
+    for (const listener of Array.from(this.listeners)) {
+      listener();
+    }
   }
 
   private attach(entry: MutationEntry<I, A, E, C>): void {
@@ -108,24 +114,38 @@ export class MutationObserver<I, A, E, R, C> {
   private start(input: I, callbacks?: Callbacks<A, E, I>): MutationEntry<I, A, E, C> {
     const entry = this.client.mutationCache.build<I, A, E, C>(this.mutation.options, this.mutation);
     this.entry = entry;
-    if (this.listeners.size > 0) this.attach(entry);
-    else this.detach();
+    if (this.listeners.size > 0) {
+      this.attach(entry);
+    } else {
+      this.detach();
+    }
     // Fire UI callbacks once this execution settles, if it is still ours.
     const stop = entry.subscribe(() => {
-      if (!entry.isSettled) return;
+      if (!entry.isSettled) {
+        return;
+      }
       stop();
-      if (this.entry !== entry || this.listeners.size === 0) return;
+      if (this.entry !== entry || this.listeners.size === 0) {
+        return;
+      }
       // Interrupted (back to idle): cancellations run no callbacks.
-      if (entry.state.status !== "success" && entry.state.status !== "error") return;
+      if (entry.state.status !== "success" && entry.state.status !== "error") {
+        return;
+      }
       const exit: Exit.Exit<A, E> =
         entry.state.status === "success"
           ? Exit.succeed(Option.getOrThrow(entry.state.data))
           : Exit.failCause(Option.getOrThrow(entry.state.cause));
       const error = Exit.isFailure(exit) ? Cause.findErrorOption(exit.cause) : Option.none();
       for (const cb of [this.callbacks, callbacks]) {
-        if (cb === undefined) continue;
-        if (Exit.isSuccess(exit)) cb.onSuccess?.(exit.value, input);
-        else cb.onError?.(exit.cause, input, error);
+        if (cb === undefined) {
+          continue;
+        }
+        if (Exit.isSuccess(exit)) {
+          cb.onSuccess?.(exit.value, input);
+        } else {
+          cb.onError?.(exit.cause, input, error);
+        }
         cb.onSettled?.(exit, input);
       }
     });
@@ -152,7 +172,9 @@ export class MutationObserver<I, A, E, R, C> {
 
   getCurrentResult(): MutationResult.MutationResult<A, E, I, C> {
     const state = this.entry?.state;
-    if (this.memo !== undefined && this.memo.state === state) return this.memo.result;
+    if (this.memo !== undefined && this.memo.state === state) {
+      return this.memo.result;
+    }
     const result =
       state === undefined ? MutationResult.idle<A, E, I, C>() : MutationResult.project(state);
     this.memo = { state, result };

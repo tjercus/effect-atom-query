@@ -25,7 +25,9 @@ const setup = (options?: Parameters<typeof makeClient>[0]) => {
 };
 afterEach(async () => {
   vi.restoreAllMocks();
-  for (const dispose of disposers.splice(0)) await dispose();
+  for (const dispose of disposers.splice(0)) {
+    await dispose();
+  }
 });
 
 describe("QueryClientProvider", () => {

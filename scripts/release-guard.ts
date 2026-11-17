@@ -96,8 +96,12 @@ const readVersions = (): Record<string, string> =>
 /** Public package metadata from the npm registry (no credentials sent). */
 const fetchRegistry = async (name: string): Promise<RegistryInfo | undefined> => {
   const response = await fetch(`https://registry.npmjs.org/${name.replace("/", "%2f")}`);
-  if (response.status === 404) return undefined;
-  if (!response.ok) throw new Error(`Registry lookup for ${name} failed: ${response.status}`);
+  if (response.status === 404) {
+    return undefined;
+  }
+  if (!response.ok) {
+    throw new Error(`Registry lookup for ${name} failed: ${response.status}`);
+  }
   const body = (await response.json()) as {
     readonly "dist-tags"?: Record<string, string>;
     readonly time?: Record<string, string>;
@@ -122,7 +126,9 @@ const main = async (): Promise<void> => {
     now: Date.now(),
   });
   if (problems.length > 0) {
-    for (const problem of problems) console.error(`✗ ${problem}`);
+    for (const problem of problems) {
+      console.error(`✗ ${problem}`);
+    }
     process.exit(1);
   }
   console.log(`✓ ${Object.values(versions)[0]} may be published to "${tag}"`);

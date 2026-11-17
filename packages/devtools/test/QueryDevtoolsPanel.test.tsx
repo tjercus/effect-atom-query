@@ -18,7 +18,9 @@ const makeClient = () => {
 };
 afterEach(async () => {
   vi.restoreAllMocks();
-  for (const runtime of runtimes.splice(0)) await runtime.dispose();
+  for (const runtime of runtimes.splice(0)) {
+    await runtime.dispose();
+  }
 });
 
 const details = () => screen.getByLabelText("query details");
@@ -222,7 +224,9 @@ describe("error handling", () => {
       get: (target, prop, receiver) =>
         prop === "all"
           ? () => {
-              if (state.fail !== undefined) throw state.fail;
+              if (state.fail !== undefined) {
+                throw state.fail;
+              }
               return target.all();
             }
           : Reflect.get(target, prop, receiver),

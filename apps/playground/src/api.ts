@@ -99,7 +99,9 @@ const makeApi = (): Api["Service"] => {
     if (l === undefined) {
       try {
         const stored = localStorage.getItem(storageKey(name));
-        if (stored !== null) l = JSON.parse(stored) as Array<Todo>;
+        if (stored !== null) {
+          l = JSON.parse(stored) as Array<Todo>;
+        }
       } catch {
         // ignore
       }
@@ -199,7 +201,9 @@ const makeApi = (): Api["Service"] => {
     character: (id) =>
       request(800, () => {
         const c = characters.find((c) => c.id === id);
-        if (c === undefined) throw new Error(`no character ${id}`);
+        if (c === undefined) {
+          throw new Error(`no character ${id}`);
+        }
         return c;
       }),
     failNext: Effect.sync(() => {

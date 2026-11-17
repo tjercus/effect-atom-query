@@ -113,31 +113,43 @@ export class QueryObserver<A, E, B = A> {
 
   subscribe(listener: () => void): () => void {
     this.listeners.add(listener);
-    if (this.listeners.size === 1) this.attach();
+    if (this.listeners.size === 1) {
+      this.attach();
+    }
     return () => {
       this.listeners.delete(listener);
-      if (this.listeners.size === 0) this.detach();
+      if (this.listeners.size === 0) {
+        this.detach();
+      }
     };
   }
 
   private notify(): void {
     this.version++;
-    for (const listener of Array.from(this.listeners)) listener();
+    for (const listener of Array.from(this.listeners)) {
+      listener();
+    }
   }
 
   private attach(): void {
-    if (!Query.isQueryAtom(this.query)) return;
+    if (!Query.isQueryAtom(this.query)) {
+      return;
+    }
     const entry = this.client.cache.build<A, E>(this.query);
     this.entry = entry;
     this.fetchedAtMount = entry.fetchCount;
     const unsubscribe = entry.subscribe(() => {
-      if (Option.isSome(entry.state.data)) this.previousData = entry.state.data;
+      if (Option.isSome(entry.state.data)) {
+        this.previousData = entry.state.data;
+      }
       this.scheduleStaleTimer();
       if (entry.isRemoved) {
         // Removed from the cache while observed: start over on a fresh entry,
         // unless the client is shutting down.
         this.detach();
-        if (this.listeners.size > 0 && !this.client.cache.isDisposed) this.attach();
+        if (this.listeners.size > 0 && !this.client.cache.isDisposed) {
+          this.attach();
+        }
       }
       this.notify();
     });
@@ -175,11 +187,15 @@ export class QueryObserver<A, E, B = A> {
     const millis = Duration.toMillis(staleTime);
     const updatedAt = entry.state.dataUpdatedAt;
     const current = this.staleTimerFor;
-    if (current !== undefined && current[0] === updatedAt && current[1] === millis) return;
+    if (current !== undefined && current[0] === updatedAt && current[1] === millis) {
+      return;
+    }
     this.cancelStaleTimer();
     const runtime = this.client.runtime;
     const remaining = updatedAt + millis - runtime.now();
-    if (remaining <= 0) return;
+    if (remaining <= 0) {
+      return;
+    }
     this.staleTimerFor = [updatedAt, millis];
     this.staleFiber = runtime.runFork(
       Effect.sleep(remaining).pipe(
@@ -218,14 +234,18 @@ export class QueryObserver<A, E, B = A> {
     const wasEnabled = this.isEnabled();
     this.query = query;
     this.options = options;
-    if (this.listeners.size === 0) return;
+    if (this.listeners.size === 0) {
+      return;
+    }
     if (previousQuery !== query && !sameKey(previousQuery, query)) {
       this.detach();
       this.attach();
       this.notify();
     } else {
       // Same atom, or a new atom for the same key: update in place.
-      if (previousQuery !== query && Query.isQueryAtom(query)) this.client.cache.build<A, E>(query);
+      if (previousQuery !== query && Query.isQueryAtom(query)) {
+        this.client.cache.build<A, E>(query);
+      }
       this.handle?.update(observeOptions(options));
       this.scheduleStaleTimer();
       if (
@@ -239,7 +259,9 @@ export class QueryObserver<A, E, B = A> {
   }
 
   private isEnabled(): boolean {
-    if (!Query.isQueryAtom(this.query)) return false;
+    if (!Query.isQueryAtom(this.query)) {
+      return false;
+    }
     return this.options.enabled ?? this.query.options.enabled ?? true;
   }
 
@@ -286,7 +308,9 @@ export class QueryObserver<A, E, B = A> {
       ],
       () => {
         const raw = entry.toResult({ fetchedAtMount, optimisticFetch, enabled, staleTime });
-        if (Option.isSome(raw.data)) this.previousData = raw.data;
+        if (Option.isSome(raw.data)) {
+          this.previousData = raw.data;
+        }
         return this.applyPlaceholderAndSelect(raw, options);
       },
     );
@@ -300,22 +324,32 @@ export class QueryObserver<A, E, B = A> {
     query: Observable<A, E>,
     options: Options<A, B> = {},
   ): Fiber.Fiber<A, E> | undefined {
-    if (!Query.isQueryAtom(query)) return undefined;
+    if (!Query.isQueryAtom(query)) {
+      return undefined;
+    }
     const entry = this.client.cache.build<A, E>(query);
-    if (entry.state.fetchStatus !== "idle") return entry.fetch();
-    if (!entry.shouldFetchOnMount(observeOptions(options))) return undefined;
+    if (entry.state.fetchStatus !== "idle") {
+      return entry.fetch();
+    }
+    if (!entry.shouldFetchOnMount(observeOptions(options))) {
+      return undefined;
+    }
     return entry.fetch();
   }
 
   /** The cache entry of `query`, if any (for derived state such as paging). */
   entryOf(query: Observable<A, E>): QueryEntry<A, E> | undefined {
-    if (!Query.isQueryAtom(query)) return undefined;
+    if (!Query.isQueryAtom(query)) {
+      return undefined;
+    }
     return Option.getOrUndefined(this.client.cache.get<A, E>(query.key));
   }
 
   /** Infinite queries: load the next / previous page (supersedes a running fetch). */
   fetchPage(direction: "forward" | "backward"): void {
-    if (!Query.isQueryAtom(this.query)) return;
+    if (!Query.isQueryAtom(this.query)) {
+      return;
+    }
     (this.entry ?? this.client.cache.build<A, E>(this.query)).fetch({
       direction,
       cancelRefetch: true,
@@ -324,7 +358,9 @@ export class QueryObserver<A, E, B = A> {
 
   /** Force a refetch (joins nothing; supersedes a running fetch when data exists). */
   refetch(): void {
-    if (!Query.isQueryAtom(this.query)) return;
+    if (!Query.isQueryAtom(this.query)) {
+      return;
+    }
     (this.entry ?? this.client.cache.build<A, E>(this.query)).fetch({ cancelRefetch: true });
   }
 
@@ -357,16 +393,22 @@ export class QueryObserver<A, E, B = A> {
               this.previousData,
             )
           : Option.some(options.placeholderData);
-      if (Option.isSome(placeholder)) result = asPlaceholder(raw, placeholder.value);
+      if (Option.isSome(placeholder)) {
+        result = asPlaceholder(raw, placeholder.value);
+      }
     }
     const select = options.select;
-    if (select === undefined) return result as unknown as QueryResult.QueryResult<B, E>;
+    if (select === undefined) {
+      return result as unknown as QueryResult.QueryResult<B, E>;
+    }
     return QueryResult.map(result, (a) => this.select(select, a));
   }
 
   private select(fn: (a: A) => B, input: A): B {
     const memo = this.selectMemo;
-    if (memo !== undefined && memo.fn === fn && memo.input === input) return memo.output;
+    if (memo !== undefined && memo.fn === fn && memo.input === input) {
+      return memo.output;
+    }
     const next = fn(input);
     const output = memo === undefined ? next : replaceEqualDeep(memo.output, next);
     this.selectMemo = { fn, input, output };
@@ -454,7 +496,9 @@ export class QueriesObserver {
 
   private readonly onChange = () => {
     this.version++;
-    for (const listener of Array.from(this.listeners)) listener();
+    for (const listener of Array.from(this.listeners)) {
+      listener();
+    }
   };
 
   private ensure(inputs: ReadonlyArray<QueriesInput>): void {
@@ -472,7 +516,9 @@ export class QueriesObserver {
     return () => {
       this.listeners.delete(listener);
       if (this.listeners.size === 0) {
-        for (const unsubscribe of this.subscriptions) unsubscribe();
+        for (const unsubscribe of this.subscriptions) {
+          unsubscribe();
+        }
         this.subscriptions = [];
       }
     };
@@ -482,7 +528,9 @@ export class QueriesObserver {
   setQueries(inputs: ReadonlyArray<QueriesInput>): void {
     const active = this.listeners.size > 0;
     const previousLength = this.observers.length;
-    for (let i = inputs.length; i < this.observers.length; i++) this.subscriptions[i]?.();
+    for (let i = inputs.length; i < this.observers.length; i++) {
+      this.subscriptions[i]?.();
+    }
     this.observers = this.observers.slice(0, inputs.length);
     this.subscriptions = this.subscriptions.slice(0, inputs.length);
     this.ensure(inputs);
@@ -493,7 +541,9 @@ export class QueriesObserver {
       }
       observer.setOptions(input.query, input.options);
     });
-    if (previousLength !== inputs.length) this.onChange();
+    if (previousLength !== inputs.length) {
+      this.onChange();
+    }
   }
 
   /** Results as if `inputs` were applied; safe during render. */

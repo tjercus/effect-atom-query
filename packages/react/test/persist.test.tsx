@@ -16,7 +16,9 @@ import { counter } from "./utils.tsx";
 
 const runtimes: Array<ManagedRuntime.ManagedRuntime<any, any>> = [];
 afterEach(async () => {
-  for (const runtime of runtimes.splice(0)) await runtime.dispose();
+  for (const runtime of runtimes.splice(0)) {
+    await runtime.dispose();
+  }
   localStorage.clear();
 });
 

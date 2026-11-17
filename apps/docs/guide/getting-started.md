@@ -102,8 +102,12 @@ import { useQuery } from "@effect-atom-query/react";
 
 function Todo({ id }: { id: string }) {
   const todo = useQuery(todoQuery(id));
-  if (todo.isPending) return <p>Loading…</p>;
-  if (todo.isError) return <p>Failed</p>;
+  if (todo.isPending) {
+    return <p>Loading…</p>;
+  }
+  if (todo.isError) {
+    return <p>Failed</p>;
+  }
   return <h1>{todo.data.value.title}</h1>;
 }
 ```

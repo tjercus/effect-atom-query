@@ -32,8 +32,9 @@ export interface Options {
 }
 
 const browserSetup = (setOnline: (online: boolean) => void): (() => void) => {
-  if (typeof window === "undefined" || typeof window.addEventListener !== "function")
+  if (typeof window === "undefined" || typeof window.addEventListener !== "function") {
     return () => {};
+  }
   const online = () => setOnline(true);
   const offline = () => setOnline(false);
   window.addEventListener("online", online, false);
@@ -55,15 +56,21 @@ export const make = (options: Options = {}): Service => {
   let cleanup: (() => void) | undefined;
 
   const setOnline = (next: boolean) => {
-    if (next === online) return;
+    if (next === online) {
+      return;
+    }
     online = next;
-    for (const listener of Array.from(listeners)) listener(online);
+    for (const listener of Array.from(listeners)) {
+      listener(online);
+    }
   };
 
   return {
     isOnline: () => online,
     subscribe: (listener) => {
-      if (listeners.size === 0) cleanup = setup(setOnline);
+      if (listeners.size === 0) {
+        cleanup = setup(setOnline);
+      }
       listeners.add(listener);
       return () => {
         listeners.delete(listener);

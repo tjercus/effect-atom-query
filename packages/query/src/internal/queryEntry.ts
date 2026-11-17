@@ -12,12 +12,14 @@ import {
   Exit,
   Fiber,
   Option,
+  Result,
   Schedule,
 } from "effect";
 import { AsyncResult, type Reactivity } from "effect/reactivity";
 import type * as FocusManager from "../FocusManager.ts";
 import type * as OnlineManager from "../OnlineManager.ts";
 import * as QueryKey from "../QueryKey.ts";
+import { jsonKey, type PersistCodec } from "./persistCodec.ts";
 import type * as QueryResult from "../QueryResult.ts";
 import { replaceEqualDeep } from "./structuralSharing.ts";
 
@@ -121,10 +123,15 @@ export const defaultRetryDelay: Schedule.Schedule<Duration.Duration> = Schedule.
 export const resolveRetry = <E>(
   retry: RetryOption<E>,
 ): Option.Option<Schedule.Schedule<unknown, E>> => {
-  if (retry === false || retry === 0) return Option.none();
-  if (retry === true) return Option.some(defaultRetryDelay);
-  if (typeof retry === "number")
+  if (retry === false || retry === 0) {
+    return Option.none();
+  }
+  if (retry === true) {
+    return Option.some(defaultRetryDelay);
+  }
+  if (typeof retry === "number") {
     return Option.some(defaultRetryDelay.pipe(Schedule.upTo({ times: retry })));
+  }
   return Option.some(retry);
 };
 
@@ -176,15 +183,6 @@ export interface QueryDescriptor<A, E, R> {
   readonly behavior?: ((context: BehaviorContext<A>) => Effect.Effect<A, E, R>) | undefined;
   /** Present when the query opted into persistence. */
   readonly persist?: PersistCodec<A> | undefined;
-}
-
-/**
- * JSON codec of a persisted query's data (derived from its `Schema`).
- * @internal
- */
-export interface PersistCodec<A> {
-  readonly encode: (data: A) => unknown;
-  readonly decode: (json: unknown) => A;
 }
 
 /** A persisted query waiting to be claimed by its query atom. @internal */
@@ -391,11 +389,15 @@ export class QueryEntry<A, E> {
 
   /** Latest definition wins (it may close over newer values). */
   setDescriptor(descriptor: QueryDescriptor<A, E, any>): void {
-    if (descriptor === this.descriptor) return;
+    if (descriptor === this.descriptor) {
+      return;
+    }
     this.descriptor = descriptor;
     this.refreshOptions();
     this.claimPersisted();
-    if (this.unregisterReactivity === undefined) this.registerReactivity();
+    if (this.unregisterReactivity === undefined) {
+      this.registerReactivity();
+    }
   }
 
   /**
@@ -405,18 +407,26 @@ export class QueryEntry<A, E> {
    */
   claimPersisted(): void {
     const codec = this.descriptor.persist;
-    if (codec === undefined) return;
-    if (Option.isSome(this.state.data) && !this.showsInitialData) return;
-    const jsonKey = QueryKey.toJsonKey(this.key);
-    const preloaded = this.runtime.preloaded.get(jsonKey);
-    if (preloaded === undefined) return;
-    this.runtime.preloaded.delete(jsonKey);
-    let data: A;
-    try {
-      data = codec.decode(preloaded.data);
-    } catch {
+    if (codec === undefined) {
       return;
     }
+    if (Option.isSome(this.state.data) && !this.showsInitialData) {
+      return;
+    }
+    const key = jsonKey(this.key);
+    if (Result.isFailure(key)) {
+      return; // Never persisted, so nothing to claim.
+    }
+    const preloaded = this.runtime.preloaded.get(key.success);
+    if (preloaded === undefined) {
+      return;
+    }
+    this.runtime.preloaded.delete(key.success);
+    const decoded = codec.decode(preloaded.data);
+    if (Result.isFailure(decoded)) {
+      return;
+    }
+    const data = decoded.success;
     this.showsInitialData = false;
     this.setState((s) => ({
       ...s,
@@ -431,7 +441,9 @@ export class QueryEntry<A, E> {
   /** Restoring finished: claim data, then do the mount fetches that were held back. */
   onRestored(): void {
     this.claimPersisted();
-    if (this.state.fetchStatus !== "idle") return;
+    if (this.state.fetchStatus !== "idle") {
+      return;
+    }
     for (const record of this.records) {
       if (this.shouldFetchOnMount(record.options)) {
         this.fetch();
@@ -447,7 +459,9 @@ export class QueryEntry<A, E> {
 
   private initialStateOf(descriptor: QueryDescriptor<A, E, any>): QueryState<A, E> {
     this.showsInitialData = descriptor.initialData !== undefined;
-    if (descriptor.initialData === undefined) return initialState;
+    if (descriptor.initialData === undefined) {
+      return initialState;
+    }
     return {
       ...initialState,
       status: "success",
@@ -462,7 +476,9 @@ export class QueryEntry<A, E> {
   private registerReactivity(): void {
     const keys = this.descriptor.options.reactivityKeys;
     const reactivity = this.runtime.reactivity;
-    if (keys === undefined || reactivity === undefined) return;
+    if (keys === undefined || reactivity === undefined) {
+      return;
+    }
     this.unregisterReactivity = reactivity.registerUnsafe(keys, () => {
       this.invalidate();
       if (this.isActive && !this.isDisabled && this.options.staleTime !== "static") {
@@ -475,7 +491,9 @@ export class QueryEntry<A, E> {
 
   /** Mark stale regardless of `staleTime` (except `"static"`). */
   invalidate(): void {
-    if (this.state.isInvalidated) return;
+    if (this.state.isInvalidated) {
+      return;
+    }
     this.cancelStaleTimer();
     this.setState((s) => ({ ...s, isInvalidated: true }));
   }
@@ -508,8 +526,12 @@ export class QueryEntry<A, E> {
     this.cancelStaleTimer();
     this.setState(() => this.initialStateOf(this.descriptor));
     // The dropped fetch's exit is ignored, so do here what it would have done.
-    for (const record of this.records) this.scheduleInterval(record);
-    if (this.records.size === 0) this.scheduleGc();
+    for (const record of this.records) {
+      this.scheduleInterval(record);
+    }
+    if (this.records.size === 0) {
+      this.scheduleGc();
+    }
   }
 
   /**
@@ -517,7 +539,9 @@ export class QueryEntry<A, E> {
    * without, the query never fetched (nothing to refetch).
    */
   get isDisabled(): boolean {
-    if (this.records.size > 0) return !this.isActive;
+    if (this.records.size > 0) {
+      return !this.isActive;
+    }
     return this.fetchCount === 0 && this.state.dataUpdatedAt === 0;
   }
 
@@ -528,12 +552,16 @@ export class QueryEntry<A, E> {
     this.scheduleStaleTimer();
     return () => {
       this.listeners.delete(listener);
-      if (this.listeners.size === 0) this.cancelStaleTimer();
+      if (this.listeners.size === 0) {
+        this.cancelStaleTimer();
+      }
     };
   }
 
   private notify(): void {
-    for (const listener of Array.from(this.listeners)) listener();
+    for (const listener of Array.from(this.listeners)) {
+      listener();
+    }
     this.runtime.onChange();
   }
 
@@ -550,7 +578,11 @@ export class QueryEntry<A, E> {
 
   /** Has at least one enabled observer. */
   get isActive(): boolean {
-    for (const record of this.records) if (this.isEnabledFor(record.options)) return true;
+    for (const record of this.records) {
+      if (this.isEnabledFor(record.options)) {
+        return true;
+      }
+    }
     return false;
   }
 
@@ -559,12 +591,16 @@ export class QueryEntry<A, E> {
     const record: ObserverRecord = { options, intervalFiber: undefined };
     this.records.add(record);
     this.cancelGc();
-    if (this.shouldFetchOnMount(options)) this.fetch();
+    if (this.shouldFetchOnMount(options)) {
+      this.fetch();
+    }
     this.scheduleInterval(record);
     let released = false;
     return {
       update: (next) => {
-        if (released) return;
+        if (released) {
+          return;
+        }
         const before = record.options;
         record.options = next;
         if (
@@ -576,11 +612,15 @@ export class QueryEntry<A, E> {
         }
       },
       release: () => {
-        if (released) return;
+        if (released) {
+          return;
+        }
         released = true;
         this.clearInterval(record);
         this.records.delete(record);
-        if (this.records.size === 0) this.scheduleGc();
+        if (this.records.size === 0) {
+          this.scheduleGc();
+        }
       },
     };
   }
@@ -592,22 +632,30 @@ export class QueryEntry<A, E> {
   /** `true` / `"always"` / `false` trigger semantics shared by mount, focus and reconnect. */
   private shouldRefetchOn(mode: boolean | "always", observer: ObserveOptions = {}): boolean {
     const staleTime = this.staleTimeFor(observer);
-    if (staleTime === "static") return false;
+    if (staleTime === "static") {
+      return false;
+    }
     return mode === "always" || (mode && this.isStale(staleTime));
   }
 
   /** An observer's `staleTime` override, resolved. */
   staleTimeFor(observer: ObserveOptions): Duration.Duration | "static" {
     const staleTime = observer.staleTime;
-    if (staleTime === undefined) return this.options.staleTime;
+    if (staleTime === undefined) {
+      return this.options.staleTime;
+    }
     return staleTime === "static" ? "static" : Duration.fromInputUnsafe(staleTime);
   }
 
   /** The window regained focus: refetch if any enabled observer asks for it. */
   onWindowFocus(): void {
-    if (this.state.fetchStatus !== "idle") return;
+    if (this.state.fetchStatus !== "idle") {
+      return;
+    }
     for (const record of this.records) {
-      if (!this.isEnabledFor(record.options)) continue;
+      if (!this.isEnabledFor(record.options)) {
+        continue;
+      }
       const mode = record.options.refetchOnWindowFocus ?? this.options.refetchOnWindowFocus;
       if (this.shouldRefetchOn(mode, record.options)) {
         this.fetch();
@@ -618,9 +666,13 @@ export class QueryEntry<A, E> {
 
   /** The network came back. Paused fetches continue by themselves; this refetches stale data. */
   onReconnect(): void {
-    if (this.state.fetchStatus !== "idle") return;
+    if (this.state.fetchStatus !== "idle") {
+      return;
+    }
     for (const record of this.records) {
-      if (!this.isEnabledFor(record.options)) continue;
+      if (!this.isEnabledFor(record.options)) {
+        continue;
+      }
       const mode = record.options.refetchOnReconnect ?? this.options.refetchOnReconnect;
       if (this.shouldRefetchOn(mode, record.options)) {
         this.fetch();
@@ -633,12 +685,18 @@ export class QueryEntry<A, E> {
 
   private scheduleInterval(record: ObserverRecord): void {
     this.clearInterval(record);
-    if (this.removed || !this.isEnabledFor(record.options)) return;
+    if (this.removed || !this.isEnabledFor(record.options)) {
+      return;
+    }
     const option = record.options.refetchInterval ?? this.options.refetchInterval;
     const input = typeof option === "function" ? option(this.toResult()) : option;
-    if (input === false) return;
+    if (input === false) {
+      return;
+    }
     const interval = Duration.fromInputUnsafe(input);
-    if (!Duration.isFinite(interval) || Duration.toMillis(interval) <= 0) return;
+    if (!Duration.isFinite(interval) || Duration.toMillis(interval) <= 0) {
+      return;
+    }
     const inBackground =
       record.options.refetchIntervalInBackground ?? this.options.refetchIntervalInBackground;
     record.intervalFiber = this.runtime.runFork(
@@ -646,7 +704,9 @@ export class QueryEntry<A, E> {
         Effect.andThen(
           Effect.sync(() => {
             record.intervalFiber = undefined;
-            if (!this.records.has(record)) return;
+            if (!this.records.has(record)) {
+              return;
+            }
             if (inBackground || this.runtime.focus.isFocused()) {
               // The fetch's exit reschedules every observer's interval.
               this.fetch();
@@ -666,9 +726,15 @@ export class QueryEntry<A, E> {
 
   /** Whether an observer mounting now would start a fetch. */
   shouldFetchOnMount(options: ObserveOptions = {}): boolean {
-    if (!this.isEnabledFor(options)) return false;
-    if (this.runtime.restoring.isRestoring()) return false;
-    if (this.state.fetchStatus !== "idle") return false;
+    if (!this.isEnabledFor(options)) {
+      return false;
+    }
+    if (this.runtime.restoring.isRestoring()) {
+      return false;
+    }
+    if (this.state.fetchStatus !== "idle") {
+      return false;
+    }
     if (Option.isNone(this.state.data)) {
       const retryOnMount = options.retryOnMount ?? this.options.retryOnMount;
       return !(this.state.status === "error" && !retryOnMount);
@@ -684,19 +750,33 @@ export class QueryEntry<A, E> {
   // -- staleness ------------------------------------------------------------
 
   isStale(staleTime: Duration.Duration | "static" = this.options.staleTime): boolean {
-    if (Option.isNone(this.state.data)) return true;
-    if (staleTime === "static") return false;
-    if (this.state.isInvalidated) return true;
-    if (!Duration.isFinite(staleTime)) return false;
+    if (Option.isNone(this.state.data)) {
+      return true;
+    }
+    if (staleTime === "static") {
+      return false;
+    }
+    if (this.state.isInvalidated) {
+      return true;
+    }
+    if (!Duration.isFinite(staleTime)) {
+      return false;
+    }
     return this.runtime.now() >= this.state.dataUpdatedAt + Duration.toMillis(staleTime);
   }
 
   private scheduleStaleTimer(): void {
-    if (this.staleFiber || this.listeners.size === 0 || Option.isNone(this.state.data)) return;
+    if (this.staleFiber || this.listeners.size === 0 || Option.isNone(this.state.data)) {
+      return;
+    }
     const { staleTime } = this.options;
-    if (staleTime === "static" || !Duration.isFinite(staleTime) || this.state.isInvalidated) return;
+    if (staleTime === "static" || !Duration.isFinite(staleTime) || this.state.isInvalidated) {
+      return;
+    }
     const remaining = this.state.dataUpdatedAt + Duration.toMillis(staleTime) - this.runtime.now();
-    if (remaining <= 0) return;
+    if (remaining <= 0) {
+      return;
+    }
     this.staleFiber = this.runtime.runFork(
       Effect.sleep(remaining).pipe(
         Effect.andThen(
@@ -727,10 +807,14 @@ export class QueryEntry<A, E> {
    * paused queries immediately, so invalidation never hangs offline).
    */
   awaitUnlessPaused(fiber: Fiber.Fiber<A, E>): Effect.Effect<void> {
-    if (this.state.fetchStatus === "paused") return Effect.void;
+    if (this.state.fetchStatus === "paused") {
+      return Effect.void;
+    }
     const paused = Effect.callback<void>((resume) => {
       const unsubscribe = this.subscribe(() => {
-        if (this.state.fetchStatus !== "paused") return;
+        if (this.state.fetchStatus !== "paused") {
+          return;
+        }
         unsubscribe();
         resume(Effect.void);
       });
@@ -747,25 +831,33 @@ export class QueryEntry<A, E> {
   /** Interrupt the running fetch, if any. Resolves once it has stopped. */
   cancel(options?: CancelOptions): Fiber.Fiber<A, E> | undefined {
     const fiber = this.fetchFiber;
-    if (fiber === undefined) return undefined;
+    if (fiber === undefined) {
+      return undefined;
+    }
     this.revertOnInterrupt = options?.revert ?? true;
     fiber.interruptUnsafe();
     return fiber;
   }
 
   private setFetchStatus(id: number, fetchStatus: QueryResult.FetchStatus): void {
-    if (id !== this.fetchId || this.state.fetchStatus === fetchStatus) return;
+    if (id !== this.fetchId || this.state.fetchStatus === fetchStatus) {
+      return;
+    }
     this.setState((s) => ({ ...s, fetchStatus }));
   }
 
   /** Waits until online, showing `fetchStatus: "paused"` meanwhile. */
   private pauseWhileOffline(id: number): Effect.Effect<void> {
     return Effect.suspend(() => {
-      if (this.runtime.online.isOnline()) return Effect.void;
+      if (this.runtime.online.isOnline()) {
+        return Effect.void;
+      }
       this.setFetchStatus(id, "paused");
       return Effect.callback<void>((resume) => {
         const unsubscribe = this.runtime.online.subscribe((online) => {
-          if (!online) return;
+          if (!online) {
+            return;
+          }
           unsubscribe();
           resume(Effect.void);
         });
@@ -781,7 +873,9 @@ export class QueryEntry<A, E> {
   fetch(options?: FetchOptions<E>): Fiber.Fiber<A, E> {
     let superseded: Fiber.Fiber<A, E> | undefined;
     if (this.fetchFiber !== undefined) {
-      if (!options?.cancelRefetch || Option.isNone(this.state.data)) return this.fetchFiber;
+      if (!options?.cancelRefetch || Option.isNone(this.state.data)) {
+        return this.fetchFiber;
+      }
       // Superseded: the new fetch takes over. Bump the id before interrupting,
       // since the old fiber's exit handler runs synchronously and must be ignored.
       superseded = this.fetchFiber;
@@ -817,7 +911,9 @@ export class QueryEntry<A, E> {
     }).pipe(
       Effect.tapError((error) =>
         Effect.sync(() => {
-          if (id !== this.fetchId) return;
+          if (id !== this.fetchId) {
+            return;
+          }
           this.setState((s) => ({
             ...s,
             failureCount: s.failureCount + 1,
@@ -840,12 +936,16 @@ export class QueryEntry<A, E> {
       superseded.interruptUnsafe();
     }
     // A synchronous `run` may already have settled inside runFork.
-    if (id === this.fetchId && this.state.fetchStatus !== "idle") this.fetchFiber = fiber;
+    if (id === this.fetchId && this.state.fetchStatus !== "idle") {
+      this.fetchFiber = fiber;
+    }
     return fiber;
   }
 
   private onFetchExit(id: number, exit: Exit.Exit<A, E>): void {
-    if (id !== this.fetchId || this.removed) return;
+    if (id !== this.fetchId || this.removed) {
+      return;
+    }
     this.fetchFiber = undefined;
     const now = this.runtime.now();
 
@@ -883,19 +983,29 @@ export class QueryEntry<A, E> {
 
     this.revertState = undefined;
     this.revertOnInterrupt = false;
-    for (const record of this.records) this.scheduleInterval(record);
-    if (this.records.size === 0) this.scheduleGc();
+    for (const record of this.records) {
+      this.scheduleInterval(record);
+    }
+    if (this.records.size === 0) {
+      this.scheduleGc();
+    }
   }
 
   /** Structural sharing: unchanged data keeps its references, so subscribers can skip work. */
   private shareData(previous: Option.Option<A>, next: A): Option.Option<A> {
-    if (Option.isNone(previous)) return Option.some(next);
+    if (Option.isNone(previous)) {
+      return Option.some(next);
+    }
     const { structuralSharing } = this.options;
-    if (structuralSharing === false) return Option.some(next);
+    if (structuralSharing === false) {
+      return Option.some(next);
+    }
     if (typeof structuralSharing === "function") {
       return Option.some(structuralSharing(previous.value, next) as A);
     }
-    if (Equal.equals(previous.value, next)) return previous;
+    if (Equal.equals(previous.value, next)) {
+      return previous;
+    }
     const shared = replaceEqualDeep(previous.value, next);
     return shared === previous.value ? previous : Option.some(shared);
   }
@@ -904,13 +1014,17 @@ export class QueryEntry<A, E> {
 
   private scheduleGc(): void {
     this.cancelGc();
-    if (this.removed || !Duration.isFinite(this.options.gcTime)) return;
+    if (this.removed || !Duration.isFinite(this.options.gcTime)) {
+      return;
+    }
     this.gcFiber = this.runtime.runFork(
       Effect.sleep(this.options.gcTime).pipe(
         Effect.andThen(
           Effect.sync(() => {
             this.gcFiber = undefined;
-            if (this.records.size === 0 && this.fetchFiber === undefined) this.runtime.remove(this);
+            if (this.records.size === 0 && this.fetchFiber === undefined) {
+              this.runtime.remove(this);
+            }
           }),
         ),
       ),
@@ -928,11 +1042,15 @@ export class QueryEntry<A, E> {
 
   /** Called by the cache when the entry is removed. Listeners are told so they can re-attach. */
   dispose(): void {
-    if (this.removed) return;
+    if (this.removed) {
+      return;
+    }
     this.removed = true;
     this.cancelGc();
     this.cancelStaleTimer();
-    for (const record of this.records) this.clearInterval(record);
+    for (const record of this.records) {
+      this.clearInterval(record);
+    }
     this.unregisterReactivity?.();
     this.unregisterReactivity = undefined;
     this.fetchFiber?.interruptUnsafe();

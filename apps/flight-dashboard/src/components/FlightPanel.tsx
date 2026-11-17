@@ -24,7 +24,9 @@ export function FlightPanel({ flightNo, onLookup }: FlightPanelProps) {
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            if (draft.trim() !== "") onLookup(draft.trim().toUpperCase());
+            if (draft.trim() !== "") {
+              onLookup(draft.trim().toUpperCase());
+            }
           }}
         >
           <input

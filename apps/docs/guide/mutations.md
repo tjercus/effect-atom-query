@@ -48,7 +48,9 @@ boundary, and fires no UI callbacks. An Effect waiting on it through
 ```ts
 add.mutate(title, {
   onError: (_cause, _title, error) => {
-    if (Option.isSome(error)) showToast(error.value.message);
+    if (Option.isSome(error)) {
+      showToast(error.value.message);
+    }
   },
 });
 ```

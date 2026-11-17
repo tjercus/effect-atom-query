@@ -28,9 +28,9 @@
  *
  * @since 0.1.0
  */
-import { Duration, Effect, Fiber, Layer, Option, Schema } from "effect";
+import { Duration, Effect, Fiber, Layer, Option, Result, Schema } from "effect";
 import { KeyValueStore } from "effect/persistence";
-import { persistCodec } from "./internal/persistCodec.ts";
+import { jsonKey, persistCodec } from "./internal/persistCodec.ts";
 import type * as Mutation from "./Mutation.ts";
 import * as QueryClient from "./QueryClient.ts";
 import * as QueryKey from "./QueryKey.ts";
@@ -138,20 +138,28 @@ const snapshot = (client: QueryClient.Service, options: Resolved): PersistedClie
   const seen = new Set<string>();
   for (const entry of client.cache.all()) {
     const codec = entry.descriptor.persist;
-    if (codec === undefined || Option.isNone(entry.state.data)) continue;
-    if (!options.shouldPersistQuery({ key: entry.key, result: entry.toResult() })) continue;
-    try {
-      const key = QueryKey.toJsonKey(entry.key);
-      queries.push({
-        key,
-        queryKey: JSON.parse(key) as Schema.Json,
-        data: codec.encode(entry.state.data.value) as Schema.Json,
-        dataUpdatedAt: entry.state.dataUpdatedAt,
-      });
-      seen.add(key);
-    } catch {
-      // Not encodable (e.g. a non-JSON key): skip this query.
+    if (codec === undefined || Option.isNone(entry.state.data)) {
+      continue;
     }
+    if (!options.shouldPersistQuery({ key: entry.key, result: entry.toResult() })) {
+      continue;
+    }
+    // Not encodable (a non-JSON key, or data the schema rejects): skip this query.
+    const key = jsonKey(entry.key);
+    if (Result.isFailure(key)) {
+      continue;
+    }
+    const data = codec.encode(entry.state.data.value);
+    if (Result.isFailure(data)) {
+      continue;
+    }
+    queries.push({
+      key: key.success,
+      queryKey: JSON.parse(key.success) as Schema.Json,
+      data: data.success as Schema.Json,
+      dataUpdatedAt: entry.state.dataUpdatedAt,
+    });
+    seen.add(key.success);
   }
   // Restored data no atom has claimed yet is kept, not lost, until it is
   // older than `maxAge` (each write would otherwise renew it indefinitely).
@@ -160,7 +168,9 @@ const snapshot = (client: QueryClient.Service, options: Resolved): PersistedClie
       client.runtime.preloaded.delete(key);
       continue;
     }
-    if (seen.has(key)) continue;
+    if (seen.has(key)) {
+      continue;
+    }
     queries.push({
       key,
       queryKey: preloaded.queryKey as Schema.Json,
@@ -173,17 +183,26 @@ const snapshot = (client: QueryClient.Service, options: Resolved): PersistedClie
   for (const entry of client.mutationCache.all()) {
     const persist = entry.options.persist;
     const state = entry.state;
-    if (persist === undefined || entry.key === undefined) continue;
-    if (state.status !== "pending" || !state.isPaused || Option.isNone(state.variables)) continue;
-    try {
-      mutations.push({
-        mutationKey: JSON.parse(QueryKey.toJsonKey(entry.key)) as Schema.Json,
-        variables: persistCodec(persist.variables).encode(state.variables.value) as Schema.Json,
-        submittedAt: state.submittedAt,
-      });
-    } catch {
-      // Not encodable: skip.
+    if (persist === undefined || entry.key === undefined) {
+      continue;
     }
+    if (state.status !== "pending" || !state.isPaused || Option.isNone(state.variables)) {
+      continue;
+    }
+    // Not encodable: skip.
+    const key = jsonKey(entry.key);
+    if (Result.isFailure(key)) {
+      continue;
+    }
+    const variables = persistCodec(persist.variables).encode(state.variables.value);
+    if (Result.isFailure(variables)) {
+      continue;
+    }
+    mutations.push({
+      mutationKey: JSON.parse(key.success) as Schema.Json,
+      variables: variables.success as Schema.Json,
+      submittedAt: state.submittedAt,
+    });
   }
   return { buster: options.buster, timestamp: now, queries, mutations };
 };
@@ -212,14 +231,14 @@ export const hydrate = (
     for (const mutation of persisted.mutations) {
       const key = mutation.mutationKey as ReadonlyArray<unknown>;
       const defaults = client.mutationCache.defaultsFor(key);
-      if (defaults.run === undefined || defaults.persist === undefined) continue;
-      let variables: unknown;
-      try {
-        variables = persistCodec(defaults.persist.variables).decode(mutation.variables);
-      } catch {
+      if (defaults.run === undefined || defaults.persist === undefined) {
         continue;
       }
-      client.mutationCache.restore(key, variables, mutation.submittedAt);
+      const variables = persistCodec(defaults.persist.variables).decode(mutation.variables);
+      if (Result.isFailure(variables)) {
+        continue;
+      }
+      client.mutationCache.restore(key, variables.success, mutation.submittedAt);
     }
   });
 
@@ -230,7 +249,9 @@ const readSnapshot = (
 ): Effect.Effect<Option.Option<PersistedClient>> =>
   Effect.gen(function* () {
     const raw = yield* store.get(options.storageKey);
-    if (raw === undefined) return Option.none();
+    if (raw === undefined) {
+      return Option.none();
+    }
     const decoded = decodeSnapshot(raw);
     const valid = Option.filter(
       decoded,
@@ -238,7 +259,9 @@ const readSnapshot = (
         snapshot.buster === options.buster &&
         client.runtime.now() - snapshot.timestamp <= options.maxAge,
     );
-    if (Option.isNone(valid)) yield* store.remove(options.storageKey);
+    if (Option.isNone(valid)) {
+      yield* store.remove(options.storageKey);
+    }
     return valid;
   }).pipe(Effect.catch(() => Effect.succeed(Option.none<PersistedClient>())));
 
@@ -256,7 +279,9 @@ export const restore = (
     const store = yield* KeyValueStore.KeyValueStore;
     const resolved = resolve(options);
     const persisted = yield* readSnapshot(client, store, resolved);
-    if (Option.isSome(persisted)) yield* hydrate(client, persisted.value);
+    if (Option.isSome(persisted)) {
+      yield* hydrate(client, persisted.value);
+    }
   });
 
 /**
@@ -308,8 +333,9 @@ export const layer = (
       >();
       const resolved = resolve(options);
       for (const mutation of resolved.mutations) {
-        if (mutation.key !== undefined)
+        if (mutation.key !== undefined) {
           yield* client.setMutationDefaults(mutation.key, mutation.options);
+        }
       }
 
       const afterRestore = resolved.resumePausedMutations
@@ -333,7 +359,9 @@ export const layer = (
       );
       let pending: Fiber.Fiber<void> | undefined;
       const schedule = () => {
-        if (pending !== undefined || restoring.isRestoring()) return;
+        if (pending !== undefined || restoring.isRestoring()) {
+          return;
+        }
         pending = client.runtime.runFork(
           Effect.sleep(resolved.throttle).pipe(
             Effect.andThen(Effect.sync(() => (pending = undefined))),

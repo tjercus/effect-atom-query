@@ -42,8 +42,9 @@ const browserIsFocused = (): boolean =>
   typeof document === "undefined" || document.visibilityState !== "hidden";
 
 const browserSetup = (onFocus: (focused?: boolean) => void): (() => void) => {
-  if (typeof window === "undefined" || typeof window.addEventListener !== "function")
+  if (typeof window === "undefined" || typeof window.addEventListener !== "function") {
     return () => {};
+  }
   const listener = () => onFocus();
   window.addEventListener("visibilitychange", listener, false);
   return () => window.removeEventListener("visibilitychange", listener);
@@ -64,9 +65,13 @@ export const make = (options: Options = {}): Service => {
   const isFocused = () => explicit ?? environment();
   const emit = () => {
     const focused = isFocused();
-    if (focused === last) return;
+    if (focused === last) {
+      return;
+    }
     last = focused;
-    for (const listener of Array.from(listeners)) listener(focused);
+    for (const listener of Array.from(listeners)) {
+      listener(focused);
+    }
   };
 
   return {
@@ -75,7 +80,9 @@ export const make = (options: Options = {}): Service => {
       if (listeners.size === 0) {
         last = isFocused();
         cleanup = setup((focused) => {
-          if (focused !== undefined) explicit = focused;
+          if (focused !== undefined) {
+            explicit = focused;
+          }
           emit();
         });
       }

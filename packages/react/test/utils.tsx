@@ -58,7 +58,9 @@ export class RetryBoundary extends React.Component<
     return { error };
   }
   override render() {
-    if (this.state.error === undefined) return this.props.children;
+    if (this.state.error === undefined) {
+      return this.props.children;
+    }
     return (
       <div>
         <p>

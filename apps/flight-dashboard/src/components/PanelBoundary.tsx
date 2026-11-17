@@ -31,7 +31,9 @@ class ErrorBoundary extends Component<BoundaryProps, BoundaryState> {
   };
 
   override render() {
-    if (this.state.error === undefined) return this.props.children;
+    if (this.state.error === undefined) {
+      return this.props.children;
+    }
     const message = this.state.error instanceof Error ? this.state.error.message : "Unknown defect";
     const fallback = (
       <>
@@ -45,7 +47,9 @@ class ErrorBoundary extends Component<BoundaryProps, BoundaryState> {
         <button onClick={this.retry}>Try again</button>
       </>
     );
-    if (this.props.inline === true) return fallback;
+    if (this.props.inline === true) {
+      return fallback;
+    }
     return (
       <section className="panel">
         <h2>{this.props.title}</h2>

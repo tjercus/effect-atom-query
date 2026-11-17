@@ -95,9 +95,13 @@ const measure = async (entry: Entry, index: number): Promise<number> => {
   const outputs = Array.isArray(output) ? output : [output];
   let size = 0;
   for (const out of outputs) {
-    if (!("output" in out)) continue;
+    if (!("output" in out)) {
+      continue;
+    }
     for (const chunk of out.output) {
-      if (chunk.type === "chunk") size += gzipSync(chunk.code, { level: 9 }).length;
+      if (chunk.type === "chunk") {
+        size += gzipSync(chunk.code, { level: 9 }).length;
+      }
     }
   }
   return size;
@@ -116,7 +120,9 @@ for (const [index, entry] of entries.entries()) {
   const budget = budgets[entry.name];
   next[entry.name] = Math.max(256, Math.ceil((size * 1.1) / 64) * 64);
   const over = budget !== undefined && size > budget;
-  if (over || (!update && budget === undefined)) failed = true;
+  if (over || (!update && budget === undefined)) {
+    failed = true;
+  }
   const status = update ? "updated" : budget === undefined ? "NO BUDGET" : over ? "OVER" : "ok";
   console.log(
     `${status.padEnd(9)} ${entry.name.padEnd(52)} ${kb(size).padStart(10)}${budget === undefined ? "" : ` / ${kb(budget)}`}`,

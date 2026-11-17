@@ -67,7 +67,9 @@ export function RetryIndicator({
 }: {
   readonly result: QueryResult.QueryResult<unknown, FlightApiError>;
 }) {
-  if (!result.isFetching || result.failureCount === 0) return null;
+  if (!result.isFetching || result.failureCount === 0) {
+    return null;
+  }
   return (
     <div className="retry" role="status">
       Retry {result.failureCount} of {MAX_RETRIES}

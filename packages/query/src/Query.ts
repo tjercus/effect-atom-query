@@ -360,8 +360,11 @@ export const makeAtom = <A, E, R, W = never, Extra extends object = {}>(
       // The entry was removed from the cache: rebuild against a fresh one,
       // unless the client is shutting down (the cache removes every entry).
       if (entry.isRemoved) {
-        if (client.cache.isDisposed) get.setSelf(entry.toResult({ fetchedAtMount }));
-        else get.refreshSelf();
+        if (client.cache.isDisposed) {
+          get.setSelf(entry.toResult({ fetchedAtMount }));
+        } else {
+          get.refreshSelf();
+        }
       } else {
         get.setSelf(entry.toResult({ fetchedAtMount }));
       }
