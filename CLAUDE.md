@@ -1,3 +1,7 @@
+# Agent Instructions
+
+Read and follow [AGENTS.md](./AGENTS.md) for project agent guidelines, including the Effect source reference in `docs/repos/effect`.
+
 <!--VITE PLUS START-->
 
 # Using Vite+, the Unified Toolchain for the Web

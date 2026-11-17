@@ -36,3 +36,6 @@ dist-ssr
 # VitePress
 apps/docs/.vitepress/dist
 apps/docs/.vitepress/cache
+
+# Reference checkouts of upstream repos (see AGENTS.md)
+docs/repos/

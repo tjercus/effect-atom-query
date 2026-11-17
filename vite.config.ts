@@ -18,6 +18,10 @@ export default defineConfig({
     },
     options: { typeAware: true, typeCheck: true },
   },
+  test: {
+    // Keep vitest defaults and skip upstream reference checkouts (see AGENTS.md).
+    exclude: ["**/node_modules/**", "**/.git/**", "docs/repos/**"],
+  },
   run: {
     cache: true,
   },
