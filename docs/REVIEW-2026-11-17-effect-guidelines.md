@@ -59,13 +59,13 @@ Status column: **fixed** means fixed in the change that added this document.
 
 ### `LLMS.md` rules
 
-| #   | Finding                                                                                                                                               |
-| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 19  | **Fixed.** `internal/persistCodec.ts:106`: own `isPromiseLike` instead of `Predicate.isPromiseLike` ("NEVER write your own helper functions").        |
-| 20  | `internal/persistCodec.ts:173`: checks the infinite-query JSON shape by hand instead of with a `Schema` ("AVOID using predicates or manual parsing"). |
-| 21  | `apps/playground/src/api.ts:11-44`: domain types are plain interfaces instead of `Schema`s.                                                           |
-| 22  | `apps/flight-dashboard/src/api/layers.ts:40`: `Number(retry-after header)` gives `NaN` on bad input; decode with `Schema.NumberFromString`.           |
-| 23  | `apps/playground/src/api.ts:152`: `new Date().toLocaleTimeString()`; use `DateTime`.                                                                  |
+| #   | Finding                                                                                                                                                                                                                                             |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 19  | **Fixed.** `internal/persistCodec.ts:106`: own `isPromiseLike` instead of `Predicate.isPromiseLike` ("NEVER write your own helper functions").                                                                                                      |
+| 20  | **Fixed** (`Schema.is` on the stored shape; the equal-length check stays a plain comparison). `internal/persistCodec.ts:173`: checks the infinite-query JSON shape by hand instead of with a `Schema` ("AVOID using predicates or manual parsing"). |
+| 21  | **Fixed.** `apps/playground/src/api.ts:11-44`: domain types are plain interfaces instead of `Schema`s.                                                                                                                                              |
+| 22  | **Fixed** (`Schema.FiniteFromString`, at least 0, default 1 second; reproduced with a test). `apps/flight-dashboard/src/api/layers.ts:40`: `Number(retry-after header)` gives `NaN` on bad input; decode with `Schema.NumberFromString`.            |
+| 23  | **Fixed** (`DateTime.now` and `DateTime.formatLocal`). `apps/playground/src/api.ts:152`: `new Date().toLocaleTimeString()`; use `DateTime`.                                                                                                         |
 
 ### API types
 

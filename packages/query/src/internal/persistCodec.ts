@@ -151,6 +151,11 @@ export const persistCodec = <A>(schema: PersistSchema<A>): PersistCodec<A> => {
   return codec;
 };
 
+/** The stored shape of infinite query data, before its pages are decoded. */
+const isInfiniteJson = /* @__PURE__ */ Schema.is(
+  Schema.Struct({ pages: Schema.Array(Schema.Unknown), pageParams: Schema.Array(Schema.Unknown) }),
+);
+
 /** The codec of infinite query data, from codecs for pages and page params. @internal */
 export const infiniteCodec = <Page, Param>(
   page: PersistCodec<Page>,
@@ -164,20 +169,11 @@ export const infiniteCodec = <Page, Param>(
       pages: Result.all(data.pages.map((p) => page.encode(p))),
       pageParams: Result.all(data.pageParams.map((p) => pageParam.encode(p))),
     }),
-  decode: (json) => {
-    const value = json as { readonly pages?: unknown; readonly pageParams?: unknown } | null;
-    if (
-      typeof value !== "object" ||
-      value === null ||
-      !Array.isArray(value.pages) ||
-      !Array.isArray(value.pageParams) ||
-      value.pages.length !== value.pageParams.length
-    ) {
-      return invalid("Persisted infinite query data is invalid");
-    }
-    return Result.all({
-      pages: Result.all(value.pages.map((p) => page.decode(p))),
-      pageParams: Result.all(value.pageParams.map((p) => pageParam.decode(p))),
-    });
-  },
+  decode: (json) =>
+    isInfiniteJson(json) && json.pages.length === json.pageParams.length
+      ? Result.all({
+          pages: Result.all(json.pages.map((p) => page.decode(p))),
+          pageParams: Result.all(json.pageParams.map((p) => pageParam.decode(p))),
+        })
+      : invalid("Persisted infinite query data is invalid"),
 });

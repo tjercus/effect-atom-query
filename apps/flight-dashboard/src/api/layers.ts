@@ -30,6 +30,11 @@ import { departuresAt, flightAt, searchAt } from "./flightData.ts";
 
 const Flights = Schema.Array(Flight);
 
+/** `Retry-After` in seconds; a missing or unreadable header means 1 second. */
+const decodeRetryAfter = Schema.decodeUnknownOption(
+  Schema.FiniteFromString.check(Schema.isGreaterThanOrEqualTo(0)),
+);
+
 /** Maps a response to the domain: 2xx is decoded, everything else is a typed error. */
 const decode =
   <A>(schema: Schema.Codec<A, unknown>) =>
@@ -37,7 +42,7 @@ const decode =
     response: HttpClientResponse.HttpClientResponse,
   ): Effect.Effect<A, TransientError | BadResponse> => {
     if (response.status === 429) {
-      const seconds = Number(response.headers["retry-after"] ?? "1");
+      const seconds = Option.getOrElse(decodeRetryAfter(response.headers["retry-after"]), () => 1);
       return Effect.fail(new RateLimited({ retryAfterMs: seconds * 1000 }));
     }
     if (response.status >= 500) {

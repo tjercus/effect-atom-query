@@ -2,28 +2,24 @@
  * A fake backend as an Effect service, so examples run offline with realistic
  * latency and failures. Queries depend on `Api`; the runtime provides it.
  */
-import { Context, Effect, Layer, Option, Result, Schema } from "effect";
+import { Context, DateTime, Effect, Layer, Option, Result, Schema } from "effect";
 
 export class ApiError extends Schema.TaggedError<ApiError>()("ApiError", {
   message: Schema.String,
 }) {}
 
-export interface Post {
-  readonly id: number;
-  readonly title: string;
-  readonly body: string;
-}
+export const Post = Schema.Struct({ id: Schema.Number, title: Schema.String, body: Schema.String });
+export type Post = typeof Post.Type;
 
-export interface Project {
-  readonly id: number;
-  readonly name: string;
-}
+export const Project = Schema.Struct({ id: Schema.Number, name: Schema.String });
+export type Project = typeof Project.Type;
 
-export interface FeedPage {
-  readonly items: ReadonlyArray<{ readonly id: number; readonly text: string }>;
-  readonly previous: Option.Option<number>;
-  readonly next: Option.Option<number>;
-}
+export const FeedPage = Schema.Struct({
+  items: Schema.Array(Schema.Struct({ id: Schema.Number, text: Schema.String })),
+  previous: Schema.Option(Schema.Number),
+  next: Schema.Option(Schema.Number),
+});
+export type FeedPage = typeof FeedPage.Type;
 
 export const Todo = Schema.Struct({ id: Schema.Number, text: Schema.String });
 export type Todo = typeof Todo.Type;
@@ -31,18 +27,16 @@ export type Todo = typeof Todo.Type;
 /** A stored todo list: JSON, validated when read back. */
 const decodeStoredTodos = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Array(Todo)));
 
-export interface User {
-  readonly id: number;
-  readonly email: string;
-  readonly name: string;
-}
+export const User = Schema.Struct({ id: Schema.Number, email: Schema.String, name: Schema.String });
+export type User = typeof User.Type;
 
-export interface Character {
-  readonly id: number;
-  readonly name: string;
-  readonly species: string;
-  readonly homeworld: string;
-}
+export const Character = Schema.Struct({
+  id: Schema.Number,
+  name: Schema.String,
+  species: Schema.String,
+  homeworld: Schema.String,
+});
+export type Character = typeof Character.Type;
 
 export class Api extends Context.Service<
   Api,
@@ -161,11 +155,14 @@ const makeApi = (): Api["Service"] => {
       })),
     ),
     post: (id) =>
-      request(400, () => ({
-        id,
-        title: `Post ${id}: notes on ${names[(id - 1) % names.length]}`,
-        body: `This is the full body of post ${id}, fetched at ${new Date().toLocaleTimeString()}.`,
-      })),
+      request(400, () => undefined).pipe(
+        Effect.andThen(DateTime.now),
+        Effect.map((fetchedAt) => ({
+          id,
+          title: `Post ${id}: notes on ${names[(id - 1) % names.length]}`,
+          body: `This is the full body of post ${id}, fetched at ${DateTime.formatLocal(fetchedAt, { timeStyle: "medium" })}.`,
+        })),
+      ),
     projects: (page) =>
       request(600, () => ({
         projects: Array.from({ length: 5 }, (_, i) => ({
