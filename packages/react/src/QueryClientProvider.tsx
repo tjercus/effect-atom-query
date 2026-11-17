@@ -187,27 +187,32 @@ const useRegistryBinding = (
           return;
         }
         bindings.delete(registry);
+        // The app disposed (or reset) the registry before this ran: in tests,
+        // `afterEach` usually disposes before testing-library unmounts. The
+        // binding went with the registry's nodes, and a disposed registry
+        // throws when accessed, so there is nothing to unbind.
+        if (!registry.getNodes().has(QueryClient.current)) {
+          return;
+        }
         const unbound = Result.try(() => {
           if (boundClient(registry) === client) {
             registry.set(QueryClient.current, Option.none());
           }
         });
-        // The app may have disposed the registry before this ran (in tests,
-        // `afterEach` usually disposes before testing-library unmounts). A
-        // disposed registry needs no unbind, and `AtomRegistry` has no
-        // `isDisposed`, so only its "registry is disposed" error is expected.
-        // Anything else (e.g. a subscriber throwing) is rethrown, not hidden.
-        if (Result.isFailure(unbound) && !isRegistryDisposed(unbound.failure)) {
+        // Query atoms still mounted by code outside this provider recompute
+        // without a client and fail with `MissingQueryClientError`: that is
+        // what unbinding means for them, and the binding is cleared all the
+        // same. Anything else (e.g. a subscriber throwing) is rethrown.
+        if (
+          Result.isFailure(unbound) &&
+          !(unbound.failure instanceof QueryClient.MissingQueryClientError)
+        ) {
           throw unbound.failure;
         }
       }, 0);
     };
   }, [registry, client, token]);
 };
-
-/** The error `AtomRegistry` throws when a disposed registry is accessed. */
-const isRegistryDisposed = (error: unknown): boolean =>
-  error instanceof Error && error.message.endsWith("registry is disposed");
 
 /**
  * @since 0.1.0
@@ -219,6 +224,17 @@ export class MissingQueryClientProviderError extends Error {
     this.name = "MissingQueryClientProviderError";
   }
 }
+
+/**
+ * The client of the nearest {@link QueryClientProvider}, or `None` outside
+ * one. For components that also work without a provider, such as devtools
+ * that take the client as a prop.
+ *
+ * @since 1.4.0
+ * @category hooks
+ */
+export const useQueryClientOption = (): Option.Option<QueryClient.Service> =>
+  Option.fromNullOr(React.useContext(QueryClientContext));
 
 /**
  * The client of the nearest {@link QueryClientProvider}.

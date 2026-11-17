@@ -32,7 +32,7 @@ const runtime = ManagedRuntime.make(QueryClient.layer().pipe(Layer.provideMerge(
 Hooks: `useQuery`, `useSuspenseQuery`, `useQueries`, `useSuspenseQueries`,
 `useInfiniteQuery`, `useSuspenseInfiniteQuery`, `usePrefetchQuery`,
 `useMutation`, `useMutationState`, `useIsFetching`, `useIsMutating`,
-`useIsRestoring`, `useQueryClient`, `useRunEffect` (the Promise boundary for
+`useIsRestoring`, `useQueryClient`, `useQueryClientOption`, `useRunEffect` (the Promise boundary for
 form libraries and callbacks), and `QueryErrorResetBoundary`.
 
 Test utilities live in a separate entry point that does not depend on a test

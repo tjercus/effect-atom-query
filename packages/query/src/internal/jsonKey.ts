@@ -13,8 +13,11 @@ export const jsonKey = (key: ReadonlyArray<unknown>): Result.Result<string, unkn
  * best-effort rendering when it has none. Never throws. @internal
  */
 export const keyLabel = (key: ReadonlyArray<unknown>): string =>
+  Result.getOrElse(jsonKey(key), () => `[${key.map(partLabel).join(",")}]`);
+
+/** `String(part)` throws too, for an object without a usable `toString`. */
+const partLabel = (part: unknown): string =>
   Result.getOrElse(
-    jsonKey(key),
-    () =>
-      `[${key.map((part) => (typeof part === "bigint" ? `${part}n` : String(part))).join(",")}]`,
+    Result.try(() => (typeof part === "bigint" ? `${part}n` : String(part))),
+    () => "?",
   );

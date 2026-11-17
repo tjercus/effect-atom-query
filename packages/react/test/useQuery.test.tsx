@@ -14,6 +14,7 @@ import {
   useQueries,
   useQuery,
   useQueryClient,
+  useQueryClientOption,
 } from "../src/index.ts";
 import { counter, ErrorBoundary, makeClient, wrapper } from "./utils.tsx";
 
@@ -46,6 +47,13 @@ describe("QueryClientProvider", () => {
       </QueryClientProvider>,
     );
     expect(await screen.findByText("via atom")).toBeTruthy();
+  });
+
+  it("useQueryClientOption is None outside a provider and Some inside", () => {
+    const { client } = setup();
+    expect(renderHook(() => useQueryClientOption()).result.current).toEqual(Option.none());
+    const inside = renderHook(() => useQueryClientOption(), { wrapper: wrapper(client) });
+    expect(inside.result.current).toEqual(Option.some(client));
   });
 
   it("accepts a ManagedRuntime", async () => {
@@ -130,6 +138,24 @@ describe("QueryClientProvider", () => {
         registry.dispose();
         unmount();
         expect(() => vi.runAllTimers()).not.toThrow();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("unbinds without an uncaught error while a query atom is still mounted", () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      try {
+        const { client } = setup();
+        const registry = AtomRegistry.make();
+        const q = Query.single({ key: ["outlives-provider"], run: Effect.never });
+        const { unmount } = render(<QueryClientProvider client={client} registry={registry} />);
+        // Mounted by code outside the provider, e.g. a route loader.
+        const release = registry.mount(q);
+        unmount();
+        expect(() => vi.runAllTimers()).not.toThrow();
+        expect(registry.get(QueryClient.current)).toEqual(Option.none());
+        release();
       } finally {
         vi.useRealTimers();
       }

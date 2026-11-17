@@ -48,14 +48,9 @@ describe("persistCodec", () => {
     warn.mockRestore();
   });
 
-  it("returns Invalid when encoding Standard Schema data that is not JSON", () => {
+  it("does not encode Standard Schema data: the persister checks it is JSON", () => {
     const codec = persistCodec(standard((value) => ({ value })));
-    assert.strictEqual(tagOf(codec.encode({ n: 1n })), "Invalid");
-    assert.strictEqual(tagOf(codec.encode(new Date())), "Invalid");
-    assert.deepStrictEqual(
-      codec.encode({ n: [1, "a", null] }),
-      Result.succeed({ n: [1, "a", null] }),
-    );
+    assert.deepStrictEqual(codec.encode({ n: 1n }), Result.succeed({ n: 1n }));
   });
 
   it("returns Defect when a Standard Schema validator throws", () => {

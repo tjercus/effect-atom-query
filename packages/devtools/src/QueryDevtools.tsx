@@ -1,6 +1,6 @@
 import { type QueryClient, QueryInspector } from "@effect-atom-query/query";
-import { MissingQueryClientProviderError, useQueryClient } from "@effect-atom-query/react";
-import { Option, Result } from "effect";
+import { useQueryClientOption } from "@effect-atom-query/react";
+import { Option } from "effect";
 import * as React from "react";
 import {
   formatAgo,
@@ -316,7 +316,7 @@ class MissingDevtoolsClientError extends Error {
  * @category components
  */
 export const QueryDevtoolsPanelImpl = (props: QueryDevtoolsPanelProps) => {
-  const contextClient = useOptionalQueryClient();
+  const contextClient = Option.getOrUndefined(useQueryClientOption());
   const client = props.client ?? contextClient;
   if (client === undefined) {
     throw new MissingDevtoolsClientError();
@@ -559,19 +559,6 @@ const Panel = ({
       </div>
     </div>
   );
-};
-
-/** The provider's client, or `undefined` outside a provider. */
-const useOptionalQueryClient = (): QueryClient.Service | undefined => {
-  const client = Result.try(useQueryClient);
-  if (Result.isSuccess(client)) {
-    return client.success;
-  }
-  // Only "no provider" means there is no client; anything else is a bug.
-  if (client.failure instanceof MissingQueryClientProviderError) {
-    return undefined;
-  }
-  throw client.failure;
 };
 
 const corner = (position: NonNullable<QueryDevtoolsProps["position"]>): React.CSSProperties => {

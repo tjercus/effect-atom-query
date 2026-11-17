@@ -221,6 +221,31 @@ describe("QueryPersister", () => {
     }).pipe(Effect.provide(KeyValueStore.layerMemory)),
   );
 
+  it.effect("has resumed restored mutations by the time a blocking restore is done", () =>
+    Effect.gen(function* () {
+      const started: Array<string> = [];
+      const addTodo = Mutation.make({
+        key: ["todos", "add-slow"],
+        run: (title: string) =>
+          Effect.andThen(
+            Effect.sync(() => started.push(title)),
+            Effect.never,
+          ),
+        persist: { variables: Schema.String },
+      });
+      const offline = OnlineManager.make({ setup: () => () => {}, initialOnline: false });
+      const a = yield* persistedClient({ mutations: [addTodo] }, offline);
+      a.registry.mount(addTodo);
+      a.registry.set(addTodo, "written offline");
+      yield* settle;
+      yield* a.close;
+
+      // No `settle`: the layer is built, so the mutation is already running.
+      yield* persistedClient({ mutations: [addTodo] });
+      assert.deepStrictEqual(started, ["written offline"]);
+    }).pipe(Effect.provide(KeyValueStore.layerMemory)),
+  );
+
   it.effect("persists infinite queries with page schemas", () =>
     Effect.gen(function* () {
       const feed = InfiniteQuery.make({
@@ -481,6 +506,58 @@ describe("QueryPersister with Standard Schema validators", () => {
         [JSON.stringify(["notes"])],
       );
       yield* a.close; // the final write must not die either
+    }).pipe(Effect.provide(KeyValueStore.layerMemory)),
+  );
+
+  it.effect("skips data no JSON can hold whatever the schema, and still persists the rest", () =>
+    Effect.gen(function* () {
+      // `Schema.Any` passes values through, so its codec does not catch the bigint.
+      const notJson = Query.single({
+        key: ["not-json-any"],
+        run: Effect.succeed({ n: 1n }),
+        persist: { schema: Schema.Any },
+      });
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const a = yield* persistedClient();
+      a.registry.mount(notesQuery(counter()));
+      a.registry.mount(notJson);
+      yield* settle;
+      yield* TestClock.adjust("1 second"); // throttle
+      yield* settle;
+      const store = yield* KeyValueStore.KeyValueStore;
+      const raw = Option.getOrThrow(Option.fromNullishOr(yield* store.get("effect-atom-query")));
+      const queries = JSON.parse(raw).queries as ReadonlyArray<{ readonly key: string }>;
+      assert.deepStrictEqual(
+        queries.map((q) => q.key),
+        [JSON.stringify(["notes"])],
+      );
+      yield* a.close;
+      // Says which query was skipped, once (not on every write).
+      assert.strictEqual(warn.mock.calls.length, 1);
+      assert.include(String(warn.mock.calls[0]?.[0]), '["not-json-any"]');
+      warn.mockRestore();
+    }).pipe(Effect.provide(KeyValueStore.layerMemory)),
+  );
+
+  it.effect("persists Standard Schema data as JSON.stringify would write it", () =>
+    Effect.gen(function* () {
+      // An `undefined` field is not a JSON value, but stringify just drops it.
+      const optional = Query.single({
+        key: ["optional-field"],
+        run: Effect.succeed({ id: 1, note: undefined }),
+        persist: { schema: standard((u: unknown): u is { id: number } => typeof u === "object") },
+      });
+      const a = yield* persistedClient();
+      a.registry.mount(optional);
+      yield* settle;
+      yield* a.close;
+      const store = yield* KeyValueStore.KeyValueStore;
+      const raw = Option.getOrThrow(Option.fromNullishOr(yield* store.get("effect-atom-query")));
+      const queries = JSON.parse(raw).queries as ReadonlyArray<{ readonly data: unknown }>;
+      assert.deepStrictEqual(
+        queries.map((q) => q.data),
+        [{ id: 1 }],
+      );
     }).pipe(Effect.provide(KeyValueStore.layerMemory)),
   );
 

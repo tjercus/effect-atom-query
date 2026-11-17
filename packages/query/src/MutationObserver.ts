@@ -133,14 +133,15 @@ export class MutationObserver<I, A, E, R, C> {
         return;
       }
       // A settled execution always has data (success) or a cause (error).
-      const settled: Option.Option<Exit.Exit<A, E>> =
-        entry.state.status === "success"
-          ? Option.map(entry.state.data, Exit.succeed)
-          : Option.map(entry.state.cause, Exit.failCause);
-      if (Option.isNone(settled)) {
-        return;
-      }
-      const exit = settled.value;
+      // Without them the state is broken: the callbacks get a defect, so it
+      // is not mistaken for a mutation that never settled.
+      const { data, cause } = entry.state;
+      const exit: Exit.Exit<A, E> =
+        entry.state.status === "success" && Option.isSome(data)
+          ? Exit.succeed(data.value)
+          : Exit.failCause(
+              Option.getOrElse(cause, () => Cause.die("mutation settled without data or a cause")),
+            );
       const error = Exit.isFailure(exit) ? Cause.findErrorOption(exit.cause) : Option.none();
       for (const cb of [this.callbacks, callbacks]) {
         if (cb === undefined) {

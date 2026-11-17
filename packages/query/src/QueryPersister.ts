@@ -30,7 +30,7 @@
  */
 import { Duration, Effect, Fiber, Layer, Option, Result, Schema } from "effect";
 import { KeyValueStore } from "effect/persistence";
-import { jsonKey } from "./internal/jsonKey.ts";
+import { jsonKey, keyLabel } from "./internal/jsonKey.ts";
 import { persistCodec } from "./internal/persistCodec.ts";
 import type * as Mutation from "./Mutation.ts";
 import * as QueryClient from "./QueryClient.ts";
@@ -104,7 +104,28 @@ export type PersistedClient = typeof PersistedClient.Type;
 
 const PersistedClientJson = Schema.fromJsonString(PersistedClient);
 const decodeSnapshot = Schema.decodeUnknownOption(PersistedClientJson);
-const encodeSnapshot = Schema.encodeEffect(PersistedClientJson);
+
+/**
+ * A codec's output as `JSON.stringify` writes it, or a failure for what it
+ * cannot write (a bigint, a cycle). Codecs are not trusted to emit JSON: a
+ * Standard Schema does not encode, and `Schema.Any` passes values through.
+ * One value that is not JSON would otherwise make every write fail.
+ */
+const toJson = (value: unknown): Result.Result<Schema.Json, unknown> =>
+  Result.try(() => JSON.parse(JSON.stringify(value)) as Schema.Json);
+
+/** Entries already reported by `notJson`: a snapshot is taken on every write. */
+const reported = new WeakSet<object>();
+
+const notJson = (entry: object, what: string, key: ReadonlyArray<unknown>, cause: unknown) => {
+  if (!reported.has(entry)) {
+    reported.add(entry);
+    console.warn(
+      `effect-atom-query: ${what} ${keyLabel(key)} was not persisted, because JSON cannot hold it.`,
+      cause,
+    );
+  }
+};
 
 const resolve = (options: Options = {}) => ({
   storageKey: options.storageKey ?? "effect-atom-query",
@@ -150,14 +171,19 @@ const snapshot = (client: QueryClient.Service, options: Resolved): PersistedClie
     if (Result.isFailure(key)) {
       continue;
     }
-    const data = codec.encode(entry.state.data.value);
+    const encoded = codec.encode(entry.state.data.value);
+    if (Result.isFailure(encoded)) {
+      continue;
+    }
+    const data = toJson(encoded.success);
     if (Result.isFailure(data)) {
+      notJson(entry, "the data of query", entry.key, data.failure);
       continue;
     }
     queries.push({
       key: key.success,
       queryKey: JSON.parse(key.success) as Schema.Json,
-      data: data.success as Schema.Json,
+      data: data.success,
       dataUpdatedAt: entry.state.dataUpdatedAt,
     });
     seen.add(key.success);
@@ -195,13 +221,18 @@ const snapshot = (client: QueryClient.Service, options: Resolved): PersistedClie
     if (Result.isFailure(key)) {
       continue;
     }
-    const variables = persistCodec(persist.variables).encode(state.variables.value);
+    const encoded = persistCodec(persist.variables).encode(state.variables.value);
+    if (Result.isFailure(encoded)) {
+      continue;
+    }
+    const variables = toJson(encoded.success);
     if (Result.isFailure(variables)) {
+      notJson(entry, "the variables of mutation", entry.key, variables.failure);
       continue;
     }
     mutations.push({
       mutationKey: JSON.parse(key.success) as Schema.Json,
-      variables: variables.success as Schema.Json,
+      variables: variables.success,
       submittedAt: state.submittedAt,
     });
   }
@@ -310,20 +341,9 @@ export const persist: (
   const client = yield* QueryClient.QueryClient;
   const store = yield* KeyValueStore.KeyValueStore;
   const resolved = resolve(options);
-  // Codecs only emit JSON, so this should not fail. If it does, the write is
-  // skipped with a warning instead of dying (which would stop persisting).
-  const encoded = yield* encodeSnapshot(snapshot(client, resolved)).pipe(
-    Effect.map(Option.some),
-    Effect.catchTag("SchemaError", (error) =>
-      Effect.as(
-        Effect.logWarning("effect-atom-query: the persisted snapshot could not be encoded", error),
-        Option.none<string>(),
-      ),
-    ),
-  );
-  if (Option.isSome(encoded)) {
-    yield* store.set(resolved.storageKey, encoded.value);
-  }
+  // `snapshot` holds JSON values only (see `toJson`), and the stored form of
+  // `PersistedClient` is the value itself, so this is a plain stringify.
+  yield* store.set(resolved.storageKey, JSON.stringify(snapshot(client, resolved)));
 });
 
 /**
@@ -363,7 +383,7 @@ export const layer = (
       // Detached: resuming must not hold up the restore, nor stop with this
       // layer (the mutations themselves run in the client's context).
       const afterRestore = resolved.resumePausedMutations
-        ? Effect.forkDetach(client.resumePausedMutations)
+        ? Effect.forkDetach(client.resumePausedMutations, { startImmediately: true })
         : Effect.void;
       const restoring = client.runtime.restoring;
       restoring.start();

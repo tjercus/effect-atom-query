@@ -95,20 +95,16 @@ const effectCodec = <A>(schema: Schema.Codec<A, any>): PersistCodec<A> => {
   } as PersistCodec<A>;
 };
 
-const isJson = Schema.is(Schema.Json);
-
 /**
- * Standard Schema validates but does not encode: the data is stored as is
- * (it must be JSON-compatible, or it is skipped) and validated when restored. Restoring is
- * synchronous, so an asynchronous validator cannot be used.
+ * Standard Schema validates but does not encode: the data is stored as
+ * `JSON.stringify` writes it (the persister skips what that cannot write) and
+ * validated when restored. Restoring is synchronous, so an asynchronous
+ * validator cannot be used.
  */
 const standardCodec = <A>(schema: StandardSchema<A>): PersistCodec<A> => {
   let warned = false;
   return {
-    // Stored as is, so it must already be JSON (a bigint, `Date` or class
-    // instance is not); otherwise the whole snapshot would fail to encode.
-    encode: (data) =>
-      isJson(data) ? Result.succeed(data) : invalid("Persisted data is not a JSON value"),
+    encode: (data) => Result.succeed(data),
     decode: guard("decoding", (json: unknown): Result.Result<A, PersistCodecError> => {
       const result = schema["~standard"].validate(json);
       if (Predicate.isPromiseLike(result)) {

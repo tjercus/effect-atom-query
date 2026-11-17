@@ -121,6 +121,17 @@ export const project = <I, A, E, C>(
   };
   const flags = { isIdle: false, isPending: false, isSuccess: false, isError: false } as const;
   const none = Option.none();
+  const failure = (cause: Cause.Cause<E>): MutationResult<A, E, I, C> => ({
+    ...base,
+    ...flags,
+    status: "error",
+    isError: true,
+    result: AsyncResult.failure(cause),
+    variables: state.variables as Option.Some<I>,
+    data: none as Option.None<A>,
+    error: Cause.findErrorOption(cause),
+    cause,
+  });
   switch (state.status) {
     case "idle":
       return {
@@ -144,33 +155,22 @@ export const project = <I, A, E, C>(
         error: none as Option.None<E>,
       };
     case "success":
-      return {
-        ...base,
-        ...flags,
-        status: "success",
-        isSuccess: true,
-        result: AsyncResult.success((state.data as Option.Some<A>).value),
-        variables: state.variables as Option.Some<I>,
-        data: state.data as Option.Some<A>,
-        error: none as Option.None<E>,
-      };
-    case "error": {
-      const cause = Option.getOrElse(
-        state.cause,
-        () => Cause.die("unknown mutation failure") as Cause.Cause<E>,
-      );
-      return {
-        ...base,
-        ...flags,
-        status: "error",
-        isError: true,
-        result: AsyncResult.failure(cause),
-        variables: state.variables as Option.Some<I>,
-        data: none as Option.None<A>,
-        error: Cause.findErrorOption(cause),
-        cause,
-      };
-    }
+      // A success always has data; without it the state is broken, which is
+      // shown as a defect rather than as a success holding `undefined`.
+      return Option.isSome(state.data)
+        ? {
+            ...base,
+            ...flags,
+            status: "success",
+            isSuccess: true,
+            result: AsyncResult.success(state.data.value),
+            variables: state.variables as Option.Some<I>,
+            data: state.data,
+            error: none as Option.None<E>,
+          }
+        : failure(Cause.die("mutation succeeded without data"));
+    case "error":
+      return failure(Option.getOrElse(state.cause, () => Cause.die("unknown mutation failure")));
   }
 };
 

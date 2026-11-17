@@ -23,6 +23,12 @@ describe("jsonKey", () => {
     assert.strictEqual(keyLabel(["a", unserialisable]), "[a,unserialisable]");
   });
 
+  it("labels a key whose parts cannot be turned into a string", () => {
+    const bare: Record<string, unknown> = Object.create(null);
+    bare.self = bare; // not JSON (a cycle), and `String(bare)` throws
+    assert.strictEqual(keyLabel(["k", bare]), "[k,?]");
+  });
+
   it.effect("lets mutations and the inspector use such keys", () =>
     Effect.gen(function* () {
       assert.doesNotThrow(() => Mutation.make({ key: [unserialisable], run: () => Effect.void }));

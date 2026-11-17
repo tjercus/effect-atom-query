@@ -81,6 +81,28 @@ Status column: **fixed** means fixed in the change that added this document.
 | 26  | **Fixed.** `react/test/testing.test.tsx:83-148`: pure-Effect tests run effects by hand in async `it`; use `it.effect`.                                                                                                                                      |
 | 27  | **Fixed** (read through the harness or runner, compared with `Option.some`). `Effect.runSync(getQueryData)` in final assertions: `react/test/useRunEffect.test.tsx:118`, `react/test/testing.test.tsx:184`.                                                 |
 
+## 3b. Corrections after code review
+
+A code review of the fixes above found ten problems in them. All are fixed:
+
+- **#1:** the JSON check only covered Standard Schema data, and was stricter
+  than `JSON.stringify` (an `undefined` field skipped the query, silently). The
+  persister now stores every codec's output as `JSON.stringify` writes it and
+  warns once for what it cannot write. `Date` and `Map` values are stored the
+  way `JSON.stringify` converts them, so schemas that validate on restore
+  decide whether they come back.
+- **#2:** rethrowing from the deferred unbind made `MissingQueryClientError`
+  uncaught when a query atom outlives the provider. It is now expected, and a
+  disposed registry is detected with `getNodes()` instead of by error message.
+- **#3 and #14:** the react package exports `useQueryClientOption`, so the
+  devtools no longer catch an exception to find out there is no provider.
+- **#10:** `MutationResult.project` used a cast and `MutationObserver` returned
+  silently for a state without data or cause. Both narrow now and report the
+  broken state as a defect.
+- **#11:** `keyLabel` could still throw on a part without a usable `toString`.
+- **#17:** `Effect.forkDetach` started the resume a tick late; it now passes
+  `startImmediately: true`.
+
 ## 4. Checked and OK
 
 - React: throwing a Promise for Suspense and throwing to error boundaries
