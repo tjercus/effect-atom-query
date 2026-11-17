@@ -18,6 +18,7 @@
 import { type Cause, Effect, type Exit, Option } from "effect";
 import { Atom } from "effect/reactivity";
 import type { MutationEntry, MutationKey, MutationOptions } from "./internal/mutationEntry.ts";
+import { keyLabel } from "./internal/jsonKey.ts";
 import type { ReactivityKeys } from "./internal/queryEntry.ts";
 import * as Query from "./Query.ts";
 import * as QueryClient from "./QueryClient.ts";
@@ -156,7 +157,7 @@ export const make = <I = void, A = void, E = never, R = never, C = never>(
 ): MutationAtom<I, A, E, R, C> => {
   const options = definition as MutationOptions<I, A, E, R, C>;
   const latest = Atom.make(Option.none<MutationEntry<I, A, E, C>>()).pipe(
-    Atom.withLabel(`Mutation.latest(${QueryKey.toJsonKey(definition.key ?? [])})`),
+    Atom.withLabel(`Mutation.latest(${keyLabel(definition.key ?? [])})`),
   );
   const self: MutationAtom<I, A, E, R, C> = Object.assign(
     Atom.writable<MutationResult.MutationResult<A, E, I, C>, I | Atom.Reset>(

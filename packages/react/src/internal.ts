@@ -71,8 +71,9 @@ export const suspendOn = (fiber: Fiber.Fiber<any, any>): Promise<void> => {
   return promise;
 };
 
+/** The typed error, or the squashed cause of a defect (which has no typed error). */
 const defectOrError = <B, E>(result: QueryResult.Failure<B, E>): unknown =>
-  QueryResult.isDefect(result) ? Cause.squash(result.cause) : Option.getOrThrow(result.error);
+  Option.getOrElse(result.error, (): unknown => Cause.squash(result.cause));
 
 const restored = new WeakMap<object, Promise<void>>();
 
@@ -110,13 +111,14 @@ export const shouldThrow = <B, E>(
   if (result.status !== "error" || result.isFetching || boundary.isReset()) {
     return false;
   }
-  if (QueryResult.isDefect(result)) {
+  // No typed error: a defect.
+  if (Option.isNone(result.error)) {
     return true;
   }
   if (options.suspense && Option.isNone(result.data)) {
     return true;
   }
-  const error = Option.getOrThrow(result.error);
+  const error = result.error.value;
   const { throwOnError } = options;
   return typeof throwOnError === "function" ? throwOnError(error) : throwOnError === true;
 };
@@ -143,10 +145,11 @@ const wouldThrowCached = <A, E, B>(
   if (cached === undefined || cached.status !== "error") {
     return false;
   }
-  if (QueryResult.isDefect(cached)) {
+  // No typed error: a defect.
+  if (Option.isNone(cached.error)) {
     return true;
   }
-  return throwOnError(Option.getOrThrow(cached.error));
+  return throwOnError(cached.error.value);
 };
 
 /**

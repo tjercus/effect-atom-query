@@ -30,24 +30,24 @@ Status column: **fixed** means fixed in the change that added this document.
 
 ## 2. Medium
 
-| #   | Finding                                                                                                                                                       |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 7   | `apps/flight-dashboard/src/api/layers.ts:221,233`: `Date.now()`, which `LLMS.md` forbids; ignores `TestClock`. Use `Clock.currentTimeMillis`.                 |
-| 8   | `packages/devtools/src/QueryDevtools.tsx:143`: `Date.now()` for "ago" labels, while snapshot times come from `client.runtime.now()`; use the latter.          |
-| 9   | `apps/playground/src/examples/OptimisticCache.tsx:17`: a demo callback that only wraps and returns `Effect.gen`; should be `Effect.fn`. Users copy the demos. |
+| #   | Finding                                                                                                                                                                                                                                                                                                  |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 7   | **Fixed.** `apps/flight-dashboard/src/api/layers.ts:221,233`: `Date.now()`, which `LLMS.md` forbids; ignores `TestClock`. Use `Clock.currentTimeMillis`.                                                                                                                                                 |
+| 8   | **Fixed.** `packages/devtools/src/QueryDevtools.tsx:143`: `Date.now()` for "ago" labels, while snapshot times come from `client.runtime.now()`; use the latter.                                                                                                                                          |
+| 9   | **No change:** `Effect.fn` defeats `Mutation.make`'s inference of the context type `C` (the plain arrow is what lets TypeScript infer it). `apps/playground/src/examples/OptimisticCache.tsx:17`: a demo callback that only wraps and returns `Effect.gen`; should be `Effect.fn`. Users copy the demos. |
 
 ## 3. Low
 
 ### Throwing and catching
 
-| #   | Finding                                                                                                                                                                                                               |
-| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 10  | `Option.getOrThrow` right after a check that already rules out `None`; narrow instead: `MutationResult.ts:152`, `MutationObserver.ts:137`, `QueryPersister.ts:226`, `react/src/internal.ts:75,119,149`.               |
-| 11  | Key formatting with `toJsonKey` that can throw while building a label or error message: `Mutation.ts:159`, `QueryClient.ts:287` (also built eagerly), `internal/mutationEntry.ts:255`. Use `jsonKey` with a fallback. |
-| 12  | `QueryPersister.ts:266`: `Effect.catch(() => …)` swallows every `KeyValueStoreError` without logging it.                                                                                                              |
-| 13  | `devtools/src/format.ts:77`: `catch {}` falls back to `String(key)` and drops the reason.                                                                                                                             |
-| 14  | `devtools/src/QueryDevtools.tsx:311`: throws an untyped `new Error` where `MissingQueryClientProviderError` already exists.                                                                                           |
-| 15  | `apps/flight-dashboard/src/api/layers.ts:102`: `Duration.fromInputUnsafe` inside `Layer.sync`; use `Duration.fromInput` with a default.                                                                               |
+| #   | Finding                                                                                                                                                                                                                                                                                    |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 10  | **Fixed.** `Option.getOrThrow` right after a check that already rules out `None`; narrow instead: `MutationResult.ts:152`, `MutationObserver.ts:137`, `QueryPersister.ts:226`, `react/src/internal.ts:75,119,149`.                                                                         |
+| 11  | **Fixed** (new `internal/jsonKey.ts` with `jsonKey` and `keyLabel`). Key formatting with `toJsonKey` that can throw while building a label or error message: `Mutation.ts:159`, `QueryClient.ts:287` (also built eagerly), `internal/mutationEntry.ts:255`. Use `jsonKey` with a fallback. |
+| 12  | **Fixed** (logs a warning). `QueryPersister.ts:266`: `Effect.catch(() => …)` swallows every `KeyValueStoreError` without logging it.                                                                                                                                                       |
+| 13  | **Fixed** (`Result.try`; the plain-string fallback is kept, since it is only a label). `devtools/src/format.ts:77`: `catch {}` falls back to `String(key)` and drops the reason.                                                                                                           |
+| 14  | **Fixed** (a named, documented error; the message is unchanged). `devtools/src/QueryDevtools.tsx:311`: throws an untyped `new Error` where `MissingQueryClientProviderError` already exists.                                                                                               |
+| 15  | **No change:** the option is typed `Duration.Input`, so bad input is a programmer error, as accepted for the query package in section 4. `apps/flight-dashboard/src/api/layers.ts:102`: `Duration.fromInputUnsafe` inside `Layer.sync`; use `Duration.fromInput` with a default.           |
 
 ### Effect style
 
@@ -61,7 +61,7 @@ Status column: **fixed** means fixed in the change that added this document.
 
 | #   | Finding                                                                                                                                               |
 | --- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 19  | `internal/persistCodec.ts:106`: own `isPromiseLike` instead of `Predicate.isPromiseLike` ("NEVER write your own helper functions").                   |
+| 19  | **Fixed.** `internal/persistCodec.ts:106`: own `isPromiseLike` instead of `Predicate.isPromiseLike` ("NEVER write your own helper functions").        |
 | 20  | `internal/persistCodec.ts:173`: checks the infinite-query JSON shape by hand instead of with a `Schema` ("AVOID using predicates or manual parsing"). |
 | 21  | `apps/playground/src/api.ts:11-44`: domain types are plain interfaces instead of `Schema`s.                                                           |
 | 22  | `apps/flight-dashboard/src/api/layers.ts:40`: `Number(retry-after header)` gives `NaN` on bad input; decode with `Schema.NumberFromString`.           |

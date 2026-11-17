@@ -1,4 +1,5 @@
 /** Value formatting for the devtools explorer. */
+import { Result } from "effect";
 import type { QueryInspector } from "@effect-atom-query/query";
 
 const MAX_LENGTH = 50_000;
@@ -71,13 +72,12 @@ export const formatValue = (value: unknown): string => {
 };
 
 /** Compact one-line form of a key; never throws. */
-export const formatKey = (key: ReadonlyArray<unknown>): string => {
-  try {
-    return JSON.stringify(toJsonSafe(key, new Set(), 0));
-  } catch {
-    return String(key);
-  }
-};
+export const formatKey = (key: ReadonlyArray<unknown>): string =>
+  Result.getOrElse(
+    Result.try(() => JSON.stringify(toJsonSafe(key, new Set(), 0))),
+    // A key label only: the plain string form is the readable fallback.
+    () => String(key),
+  );
 
 /** "3s ago", "2m ago", … */
 export const formatAgo = (epochMillis: number, now: number): string => {

@@ -1,5 +1,4 @@
 import { Predicate, Result, Schema } from "effect";
-import * as QueryKey from "../QueryKey.ts";
 
 /**
  * A [Standard Schema v1](https://standardschema.dev) validator producing `A`,
@@ -77,13 +76,6 @@ const guard = <I, A>(
     }
   };
 };
-
-/**
- * `QueryKey.toJsonKey` as a value: `JSON.stringify` throws on keys JSON cannot
- * hold (cycles, a throwing `toJSON`), which are then simply not persisted. @internal
- */
-export const jsonKey = (key: ReadonlyArray<unknown>): Result.Result<string, unknown> =>
-  Result.try(() => QueryKey.toJsonKey(key));
 
 const cache = new WeakMap<object, PersistCodec<any>>();
 

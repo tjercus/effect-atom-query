@@ -216,12 +216,12 @@ export const layerRequestLog = (
         <A, E extends { readonly _tag: string }>(
           effect: Effect.Effect<A, E>,
         ): Effect.Effect<A, E> =>
-          Effect.suspend(() => {
+          Effect.gen(function* () {
             const id = nextId++;
-            const startedAt = Date.now();
-            return effect.pipe(
+            const startedAt = yield* Clock.currentTimeMillis;
+            return yield* effect.pipe(
               Effect.onExit((exit) =>
-                Effect.sync(() => {
+                Effect.map(Clock.currentTimeMillis, (endedAt) => {
                   const outcome: RequestOutcome = Exit.isSuccess(exit)
                     ? { _tag: "Ok" }
                     : Exit.hasInterrupts(exit)
@@ -230,7 +230,7 @@ export const layerRequestLog = (
                           onNone: () => ({ _tag: "Defect" }) as const,
                           onSome: (error) => ({ _tag: "Failed", error: error._tag }) as const,
                         });
-                  record({ id, request, startedAt, millis: Date.now() - startedAt, outcome });
+                  record({ id, request, startedAt, millis: endedAt - startedAt, outcome });
                 }),
               ),
             );

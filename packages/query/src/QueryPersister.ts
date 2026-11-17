@@ -30,7 +30,8 @@
  */
 import { Duration, Effect, Fiber, Layer, Option, Result, Schema } from "effect";
 import { KeyValueStore } from "effect/persistence";
-import { jsonKey, persistCodec } from "./internal/persistCodec.ts";
+import { jsonKey } from "./internal/jsonKey.ts";
+import { persistCodec } from "./internal/persistCodec.ts";
 import type * as Mutation from "./Mutation.ts";
 import * as QueryClient from "./QueryClient.ts";
 import * as QueryKey from "./QueryKey.ts";
@@ -220,12 +221,11 @@ export const hydrate = (
 ): Effect.Effect<void> =>
   Effect.sync(() => {
     for (const query of persisted.queries) {
-      if (Option.isSome(client.cache.get(query.queryKey as QueryKey.QueryKey))) {
-        // An entry exists already: let it claim the data if it is still empty.
-        client.runtime.preloaded.set(query.key, query);
-        Option.getOrThrow(client.cache.get(query.queryKey as QueryKey.QueryKey)).claimPersisted();
-      } else {
-        client.runtime.preloaded.set(query.key, query);
+      client.runtime.preloaded.set(query.key, query);
+      // An entry exists already: let it claim the data if it is still empty.
+      const entry = client.cache.get(query.queryKey as QueryKey.QueryKey);
+      if (Option.isSome(entry)) {
+        entry.value.claimPersisted();
       }
     }
     for (const mutation of persisted.mutations) {
@@ -263,7 +263,15 @@ const readSnapshot = (
       yield* store.remove(options.storageKey);
     }
     return valid;
-  }).pipe(Effect.catch(() => Effect.succeed(Option.none<PersistedClient>())));
+  }).pipe(
+    // Unreadable storage restores nothing, but says why.
+    Effect.catch((error) =>
+      Effect.as(
+        Effect.logWarning("effect-atom-query: the persisted snapshot could not be read", error),
+        Option.none<PersistedClient>(),
+      ),
+    ),
+  );
 
 /**
  * Restore the client from storage once.

@@ -19,7 +19,8 @@ import { AsyncResult, type Reactivity } from "effect/reactivity";
 import type * as FocusManager from "../FocusManager.ts";
 import type * as OnlineManager from "../OnlineManager.ts";
 import * as QueryKey from "../QueryKey.ts";
-import { jsonKey, type PersistCodec } from "./persistCodec.ts";
+import { jsonKey } from "./jsonKey.ts";
+import type { PersistCodec } from "./persistCodec.ts";
 import type * as QueryResult from "../QueryResult.ts";
 import { replaceEqualDeep } from "./structuralSharing.ts";
 

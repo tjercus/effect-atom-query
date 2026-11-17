@@ -149,7 +149,7 @@ export const project = <I, A, E, C>(
         ...flags,
         status: "success",
         isSuccess: true,
-        result: AsyncResult.success(Option.getOrThrow(state.data)),
+        result: AsyncResult.success((state.data as Option.Some<A>).value),
         variables: state.variables as Option.Some<I>,
         data: state.data as Option.Some<A>,
         error: none as Option.None<E>,
