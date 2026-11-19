@@ -105,6 +105,61 @@ QueryClient.layer({ defaultOptions: { queries: { staleTime: "10 seconds" } } });
 client.setQueryDefaults(["todos"], { gcTime: "1 hour" });
 ```
 
+## Request options without a new key
+
+The key is the cache identity. To change how a request is made without
+creating a new cache entry, do not put the option in the key.
+
+**Per attempt.** `Query.FetchAttempt` tells `run` which attempt is running:
+`0` on the first try, then `1`, `2`, … on retries. For example, bypass an HTTP
+cache when retrying:
+
+```ts
+const todosQuery = Query.single({
+  key: ["todos"],
+  run: Effect.gen(function* () {
+    const { attempt } = yield* Query.FetchAttempt;
+    return yield* TodoApi.use((api) => api.list({ noCache: attempt > 0 }));
+  }),
+});
+```
+
+**Per request.** Request options are services. Declare one with a default, so
+reading it adds nothing to the query's `R`, and provide it where you refetch:
+
+```ts
+const BypassCache = Context.Reference<boolean>("app/BypassCache", {
+  defaultValue: () => false,
+});
+
+const todosQuery = Query.single({
+  key: ["todos"],
+  run: Effect.gen(function* () {
+    const noCache = yield* BypassCache;
+    return yield* TodoApi.use((api) => api.list({ noCache }));
+  }),
+});
+
+// Same key, same cache entry, different request:
+client
+  .refetchQueries({ queryKey: todosQuery.key, exact: true })
+  .pipe(Effect.provideService(BypassCache, true));
+```
+
+`refetchQueries`, `invalidateQueries`, `resetQueries` and `fetchQuery` run the
+fetches they start with the caller's services. So does a mutation's
+`invalidates`: its refetches get the services of the `mutate` call.
+
+Everything else uses only the client's services, so `BypassCache` is `false`
+there: fetches on mount, focus, reconnect and polling, and the hooks'
+`refetch()`, `fetchNextPage()` and `fetchPreviousPage()`. From a component,
+run the client's methods through
+[`useRunEffect`](./react#waiting-for-a-refetch) instead.
+
+A refetch that joins a fetch already running keeps that fetch's services.
+That happens during a first load (no data yet), and with
+`cancelRefetch: false`.
+
 ## Disabling queries
 
 Pass `Query.skipToken` instead of the argument to get a disabled query with the

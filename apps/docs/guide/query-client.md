@@ -43,6 +43,11 @@ also work without one.
 | `mutate(mutation, input)`                                              | run a mutation                              |
 | `resumePausedMutations`                                                | run mutations restored from storage         |
 
+The fetches that `fetchQuery`, `refetchQueries`, `invalidateQueries` and
+`resetQueries` start run with the caller's services, merged over the
+client's. Provide request options as services there; see
+[Request options without a new key](./queries#request-options-without-a-new-key).
+
 Filters are TanStack's: `queryKey` (prefix match unless `exact`), `type`
 (`"active" | "inactive" | "all"`), `stale`, `fetchStatus`, `predicate`.
 

@@ -137,3 +137,31 @@ const client = useQueryClient()
 
 Hook results also carry `refetch()` (and `fetchNextPage()` / `fetchPreviousPage()`
 on infinite queries) as fire-and-forget conveniences.
+
+### Waiting for a refetch
+
+`refetch()` returns nothing, which suits a button. To do something after the
+refetch has finished, run the client's Effect through `useRunEffect`:
+
+```tsx
+const client = useQueryClient();
+const run = useRunEffect();
+
+const reload = async () => {
+  // Completes when the refetch has settled; refetch failures are not raised.
+  await run.promise(client.refetchQueries({ queryKey: todosQuery.key, exact: true }));
+  setLastReload(new Date());
+};
+```
+
+To get the outcome too, fetch instead: `fetchQuery` with `staleTime: 0`
+fetches (or joins a fetch already running), updates the same cache entry the
+hooks read, and fails with the query's typed error. Unlike the hooks, it does
+not retry unless you pass `retry`:
+
+```tsx
+const exit = await run.promiseExit(client.fetchQuery(todosQuery, { staleTime: 0 }));
+```
+
+Both run with the caller's services, which is how to pass
+[request options](./queries#request-options-without-a-new-key) to a refetch.
