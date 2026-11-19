@@ -1,7 +1,8 @@
-import { Query, useQuery } from "@effect-atom-query/react";
+import { Query, QueryResult, useQuery } from "@effect-atom-query/react";
+import { Option } from "effect";
 import { useState } from "react";
-import { Api } from "../api.ts";
-import { errorMessage, type Example } from "../ui.tsx";
+import { Api, type Post as PostData } from "../api.ts";
+import { errorMessage, type Example, StaleDataError } from "../ui.tsx";
 
 const postsQuery = Query.single({
   key: ["posts"],
@@ -15,39 +16,57 @@ const postQuery = Query.make({
 
 function Posts({ onSelect }: { readonly onSelect: (id: number) => void }) {
   const posts = useQuery(postsQuery);
+  const view = (list: ReadonlyArray<PostData>) => (
+    <>
+      <ul>
+        {list.map((post) => (
+          <li key={post.id}>
+            <a
+              href="#basic"
+              onClick={(e) => {
+                e.preventDefault();
+                onSelect(post.id);
+              }}
+            >
+              {post.title}
+            </a>
+          </li>
+        ))}
+      </ul>
+      <div>{posts.isFetching ? "Background Updating..." : " "}</div>
+    </>
+  );
   return (
     <div>
       <h3>Posts</h3>
-      {posts.isPending ? (
-        "Loading..."
-      ) : posts.isError ? (
-        <span>Error: {errorMessage(posts)}</span>
-      ) : (
-        <>
-          <ul>
-            {posts.data.value.map((post) => (
-              <li key={post.id}>
-                <a
-                  href="#basic"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    onSelect(post.id);
-                  }}
-                >
-                  {post.title}
-                </a>
-              </li>
-            ))}
-          </ul>
-          <div>{posts.isFetching ? "Background Updating..." : " "}</div>
-        </>
-      )}
+      {QueryResult.match(posts, {
+        onPending: () => "Loading...",
+        // A failed refetch keeps the posts it already has.
+        onFailure: (failure) =>
+          Option.match(failure.data, {
+            onNone: () => <span>Error: {errorMessage(failure)}</span>,
+            onSome: (list) => (
+              <>
+                {view(list)}
+                <StaleDataError failure={failure} />
+              </>
+            ),
+          }),
+        onSuccess: (success) => view(success.data.value),
+      })}
     </div>
   );
 }
 
 function Post({ id, onBack }: { readonly id: number; readonly onBack: () => void }) {
   const post = useQuery(postQuery(id));
+  const view = ({ title, body }: PostData) => (
+    <>
+      <h3>{title}</h3>
+      <p>{body}</p>
+      <div>{post.isFetching ? "Background Updating..." : " "}</div>
+    </>
+  );
   return (
     <div>
       <a
@@ -59,17 +78,20 @@ function Post({ id, onBack }: { readonly id: number; readonly onBack: () => void
       >
         ← Back
       </a>
-      {post.isPending ? (
-        <p>Loading...</p>
-      ) : post.isError ? (
-        <p>Error: {errorMessage(post)}</p>
-      ) : (
-        <>
-          <h3>{post.data.value.title}</h3>
-          <p>{post.data.value.body}</p>
-          <div>{post.isFetching ? "Background Updating..." : " "}</div>
-        </>
-      )}
+      {QueryResult.match(post, {
+        onPending: () => <p>Loading...</p>,
+        onFailure: (failure) =>
+          Option.match(failure.data, {
+            onNone: () => <p>Error: {errorMessage(failure)}</p>,
+            onSome: (data) => (
+              <>
+                {view(data)}
+                <StaleDataError failure={failure} />
+              </>
+            ),
+          }),
+        onSuccess: (success) => view(success.data.value),
+      })}
     </div>
   );
 }

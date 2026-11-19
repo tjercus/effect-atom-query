@@ -1,7 +1,8 @@
-import { InfiniteQuery, useInfiniteQuery } from "@effect-atom-query/react";
+import { InfiniteQuery, QueryResult, useInfiniteQuery } from "@effect-atom-query/react";
+import { Option } from "effect";
 import { Fragment, useEffect, useRef } from "react";
-import { Api } from "../api.ts";
-import { errorMessage, type Example } from "../ui.tsx";
+import { Api, type FeedPage } from "../api.ts";
+import { errorMessage, type Example, StaleDataError } from "../ui.tsx";
 
 const feedQuery = InfiniteQuery.make({
   key: () => ["feed", "scroll"],
@@ -38,20 +39,19 @@ const useInView = (onVisible: () => void, deps: ReadonlyArray<unknown>) => {
 
 function InfiniteScroll() {
   const feed = useInfiniteQuery(feedQuery());
-  const pages = feed.isSuccess ? feed.data.value.pages.length : 0;
+  // Pages still on screen, also after a failed fetch.
+  const pages = Option.match(feed.data, {
+    onNone: () => 0,
+    onSome: (data) => data.pages.length,
+  });
   const sentinel = useInView(() => {
-    if (feed.hasNextPage && !feed.isFetching) {
+    // After a failed next page, wait for "Retry" instead of looping.
+    if (feed.hasNextPage && !feed.isFetching && !feed.isFetchNextPageError) {
       feed.fetchNextPage();
     }
   }, [pages, feed.isFetching]);
 
-  if (feed.isPending) {
-    return <p>Loading...</p>;
-  }
-  if (feed.isError) {
-    return <p>Error: {errorMessage(feed)}</p>;
-  }
-  return (
+  const view = (data: InfiniteQuery.InfiniteData<FeedPage, number>) => (
     <div>
       <button
         onClick={feed.fetchPreviousPage}
@@ -66,8 +66,8 @@ function InfiniteScroll() {
       <div
         style={{ maxHeight: 260, overflow: "auto", border: "1px solid #e2e8f0", margin: "8px 0" }}
       >
-        {feed.data.value.pages.map((page, i) => (
-          <Fragment key={feed.data.value.pageParams[i]}>
+        {data.pages.map((page, i) => (
+          <Fragment key={data.pageParams[i]}>
             {page.items.map((item) => (
               <p
                 key={item.id}
@@ -89,6 +89,34 @@ function InfiniteScroll() {
       <div>{feed.isFetching && !feed.isFetchingNextPage ? "Background Updating..." : null}</div>
     </div>
   );
+
+  return QueryResult.match(feed, {
+    onPending: () => <p>Loading...</p>,
+    // A failed page (or refetch) keeps the pages already loaded.
+    onFailure: (failure) =>
+      Option.match(failure.data, {
+        onNone: () => <p>Error: {errorMessage(failure)}</p>,
+        onSome: (data) => (
+          <>
+            {view(data)}
+            <StaleDataError failure={failure} />
+            <button
+              onClick={
+                // Retry what failed: a page in either direction, or the refetch.
+                feed.isFetchPreviousPageError
+                  ? feed.fetchPreviousPage
+                  : feed.isFetchNextPageError
+                    ? feed.fetchNextPage
+                    : feed.refetch
+              }
+            >
+              Retry
+            </button>
+          </>
+        ),
+      }),
+    onSuccess: (success) => view(success.data.value),
+  });
 }
 
 export const example: Example = {

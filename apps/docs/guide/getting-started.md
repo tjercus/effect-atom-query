@@ -98,22 +98,21 @@ outside components. If your project uses that rule, write
 ## Use it
 
 ```tsx
-import { useQuery } from "@effect-atom-query/react";
+import { QueryResult, useQuery } from "@effect-atom-query/react";
 
 function Todo({ id }: { id: string }) {
   const todo = useQuery(todoQuery(id));
-  if (todo.isPending) {
-    return <p>Loading…</p>;
-  }
-  if (todo.isError) {
-    return <p>Failed</p>;
-  }
-  return <h1>{todo.data.value.title}</h1>;
+  return QueryResult.match(todo, {
+    onPending: () => <p>Loading…</p>,
+    onFailure: () => <p>Failed</p>,
+    onSuccess: (success) => <h1>{success.data.value.title}</h1>,
+  });
 }
 ```
 
-After narrowing on `isSuccess` / `isPending` / `isError`, `data` is an
-`Option.Some` (or `Option.None`), so `data.value` is typed without `!` or `?.`.
+`QueryResult.match` hands each case the narrowed result. In `onSuccess`, `data`
+is an `Option.Some`, so `data.value` is typed without `!` or `?.`. Narrowing on
+`isSuccess` / `isPending` / `isError` works too.
 
 ## Next
 

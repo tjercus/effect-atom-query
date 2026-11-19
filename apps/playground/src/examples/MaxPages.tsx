@@ -1,6 +1,7 @@
-import { InfiniteQuery, useInfiniteQuery } from "@effect-atom-query/react";
-import { Api } from "../api.ts";
-import { errorMessage, type Example } from "../ui.tsx";
+import { InfiniteQuery, QueryResult, useInfiniteQuery } from "@effect-atom-query/react";
+import { Option } from "effect";
+import { Api, type FeedPage } from "../api.ts";
+import { errorMessage, type Example, StaleDataError } from "../ui.tsx";
 
 const feedQuery = InfiniteQuery.make({
   key: () => ["feed", "max-pages"],
@@ -13,14 +14,7 @@ const feedQuery = InfiniteQuery.make({
 
 function MaxPages() {
   const feed = useInfiniteQuery(feedQuery());
-  if (feed.isPending) {
-    return <p>Loading...</p>;
-  }
-  if (feed.isError) {
-    return <p>Error: {errorMessage(feed)}</p>;
-  }
-  const { pages, pageParams } = feed.data.value;
-  return (
+  const view = ({ pages, pageParams }: InfiniteQuery.InfiniteData<FeedPage, number>) => (
     <div>
       <p>
         At most 3 pages are kept: loading a page at one end drops one at the other. Cached pages:{" "}
@@ -40,6 +34,22 @@ function MaxPages() {
       </button>
     </div>
   );
+  return QueryResult.match(feed, {
+    onPending: () => <p>Loading...</p>,
+    // A failed page (or refetch) keeps the pages already loaded; the
+    // buttons stay, so loading the page again is a retry.
+    onFailure: (failure) =>
+      Option.match(failure.data, {
+        onNone: () => <p>Error: {errorMessage(failure)}</p>,
+        onSome: (data) => (
+          <>
+            {view(data)}
+            <StaleDataError failure={failure} />
+          </>
+        ),
+      }),
+    onSuccess: (success) => view(success.data.value),
+  });
 }
 
 export const example: Example = {

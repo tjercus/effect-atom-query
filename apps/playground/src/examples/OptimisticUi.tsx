@@ -1,9 +1,9 @@
-import { Mutation, Query, useMutation } from "@effect-atom-query/react";
+import { Mutation, Query, QueryResult, useMutation } from "@effect-atom-query/react";
 import { useAtomValue } from "@effect/atom-react";
 import { Option } from "effect";
 import { useState } from "react";
 import { Api, type Todo } from "../api.ts";
-import { type Example } from "../ui.tsx";
+import { errorMessage, type Example, StaleDataError } from "../ui.tsx";
 
 const todosQuery = Query.single({
   key: ["todos", "optimistic-ui"],
@@ -24,6 +24,18 @@ const optimisticTodos = Mutation.optimistic(
   addTodo,
   (todos, text): ReadonlyArray<Todo> => [...todos, { id: -1, text }],
 );
+
+function TodoList({ todos }: { readonly todos: ReadonlyArray<Todo> }) {
+  return (
+    <ul>
+      {todos.map((todo, i) => (
+        <li key={`${todo.id}-${i}`} style={{ opacity: todo.id === -1 ? 0.5 : 1 }}>
+          {todo.text}
+        </li>
+      ))}
+    </ul>
+  );
+}
 
 function OptimisticUi() {
   const [text, setText] = useState("");
@@ -47,17 +59,21 @@ function OptimisticUi() {
         <input aria-label="todo" value={text} onChange={(e) => setText(e.target.value)} />{" "}
         <button>Create</button>
       </form>
-      {todos.isPending ? (
-        <p>Loading...</p>
-      ) : (
-        <ul>
-          {Option.getOrElse(todos.data, (): ReadonlyArray<Todo> => []).map((todo, i) => (
-            <li key={`${todo.id}-${i}`} style={{ opacity: todo.id === -1 ? 0.5 : 1 }}>
-              {todo.text}
-            </li>
-          ))}
-        </ul>
-      )}
+      {QueryResult.match(todos, {
+        onPending: () => <p>Loading...</p>,
+        // A failed refetch keeps the list; a failed first load has none to show.
+        onFailure: (failure) =>
+          Option.match(failure.data, {
+            onNone: () => <p>Error: {errorMessage(failure)}</p>,
+            onSome: (list) => (
+              <>
+                <TodoList todos={list} />
+                <StaleDataError failure={failure} />
+              </>
+            ),
+          }),
+        onSuccess: (success) => <TodoList todos={success.data.value} />,
+      })}
       {add.isError && Option.isSome(add.variables) ? (
         <p style={{ color: "#dc2626" }}>
           {Option.match(add.error, { onNone: () => "Something broke", onSome: (e) => e.message })}{" "}

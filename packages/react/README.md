@@ -9,17 +9,18 @@ pnpm add @effect-atom-query/react effect @effect/atom-react react
 ```
 
 ```tsx
-import { Query, QueryClient, QueryClientProvider, useQuery } from "@effect-atom-query/react"
+import { Query, QueryClient, QueryClientProvider, QueryResult, useQuery } from "@effect-atom-query/react"
 import { Layer, ManagedRuntime } from "effect"
 
 const todosQuery = Query.single({ key: ["todos"], run: TodoRepo.use((repo) => repo.list) })
 
 function Todos() {
   const todos = useQuery(todosQuery)
-  if (!todos.isSuccess) {
-    return <p>Loading…</p>
-  }
-  return <ul>{todos.data.value.map((t) => <li key={t.id}>{t.title}</li>)}</ul>
+  return QueryResult.match(todos, {
+    onPending: () => <p>Loading…</p>,
+    onFailure: () => <p>Failed</p>,
+    onSuccess: (success) => <ul>{success.data.value.map((t) => <li key={t.id}>{t.title}</li>)}</ul>,
+  })
 }
 
 const runtime = ManagedRuntime.make(QueryClient.layer().pipe(Layer.provideMerge(TodoRepoLive)))

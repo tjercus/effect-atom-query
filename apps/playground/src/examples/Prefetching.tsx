@@ -1,8 +1,9 @@
-import { Query, useQuery, useQueryClient } from "@effect-atom-query/react";
+import { Query, QueryResult, useQuery, useQueryClient } from "@effect-atom-query/react";
+import { Option } from "effect";
 import { useState } from "react";
-import { Api } from "../api.ts";
+import { Api, type Character as CharacterData } from "../api.ts";
 import { runtime } from "../runtime.ts";
-import { errorMessage, type Example, Status } from "../ui.tsx";
+import { errorMessage, type Example, StaleDataError, Status } from "../ui.tsx";
 
 const charactersQuery = Query.single({
   key: ["characters"],
@@ -17,22 +18,30 @@ const characterQuery = Query.make({
 
 function Character({ id }: { readonly id: number }) {
   const character = useQuery(characterQuery(id));
-  if (character.isPending) {
-    return <p>Loading... (800 ms without prefetching)</p>;
-  }
-  if (character.isError) {
-    return <p>Error: {errorMessage(character)}</p>;
-  }
-  const { name, species, homeworld } = character.data.value;
-  return (
-    <div>
+  const view = ({ name, species, homeworld }: CharacterData) => (
+    <>
       <h3>{name}</h3>
       <p>
         {species} from {homeworld}
       </p>
       <Status result={character} />
-    </div>
+    </>
   );
+  return QueryResult.match(character, {
+    onPending: () => <p>Loading... (800 ms without prefetching)</p>,
+    // A failed refetch keeps the details it already has.
+    onFailure: (failure) =>
+      Option.match(failure.data, {
+        onNone: () => <p>Error: {errorMessage(failure)}</p>,
+        onSome: (data) => (
+          <div>
+            {view(data)}
+            <StaleDataError failure={failure} />
+          </div>
+        ),
+      }),
+    onSuccess: (success) => <div>{view(success.data.value)}</div>,
+  });
 }
 
 function Prefetching() {
@@ -48,8 +57,11 @@ function Prefetching() {
       <p>Hover a name to prefetch its details; clicking then shows them instantly.</p>
       <div style={{ display: "flex", gap: 24 }}>
         <ul>
-          {characters.isSuccess
-            ? characters.data.value.map((c) => (
+          {QueryResult.match(characters, {
+            onPending: () => <li>Loading...</li>,
+            onFailure: (failure) => <li>Error: {errorMessage(failure)}</li>,
+            onSuccess: (success) =>
+              success.data.value.map((c) => (
                 <li key={c.id}>
                   <a
                     href="#prefetching"
@@ -63,8 +75,8 @@ function Prefetching() {
                     {c.name}
                   </a>
                 </li>
-              ))
-            : "Loading..."}
+              )),
+          })}
         </ul>
         {selected === undefined ? null : <Character id={selected} />}
       </div>

@@ -83,9 +83,10 @@ awaited submit handler, `useRunEffect` turns an Effect into one at that edge:
 const run = useRunEffect();
 const onSubmit = async (todo: Todo) => {
   const exit = await run.promiseExit(save.mutateEffect(todo)); // never rejects
-  if (Exit.isSuccess(exit)) {
-    navigate("/todos");
-  }
+  Exit.match(exit, {
+    onSuccess: () => navigate("/todos"),
+    onFailure: () => {}, // the hook's `error` shows it
+  });
 };
 ```
 

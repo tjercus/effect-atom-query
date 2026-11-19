@@ -20,6 +20,15 @@ export const errorMessage = (
     onSome: (e) => e.message,
   });
 
+/** Shown under data that stays on screen after a refetch failed. */
+export const StaleDataError = ({
+  failure,
+}: {
+  readonly failure: QueryResult.Failure<any, { readonly message: string }>;
+}) => (
+  <p style={{ color: "#dc2626" }}>Error: {errorMessage(failure)} (showing the last loaded data)</p>
+);
+
 export const Status = ({ result }: { readonly result: QueryResult.QueryResult<any, any> }) => (
   <small style={{ color: "#64748b" }}>
     {result.status} · {result.fetchStatus}
