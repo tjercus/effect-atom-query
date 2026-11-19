@@ -1,8 +1,9 @@
 import { Query, QueryResult, useQuery, useQueryClient } from "@effect-atom-query/react";
+import { Option } from "effect";
 import { useState } from "react";
-import { Api } from "../api.ts";
+import { Api, type Character as CharacterData } from "../api.ts";
 import { runtime } from "../runtime.ts";
-import { errorMessage, type Example, Status } from "../ui.tsx";
+import { errorMessage, type Example, StaleDataError, Status } from "../ui.tsx";
 
 const charactersQuery = Query.single({
   key: ["characters"],
@@ -17,21 +18,29 @@ const characterQuery = Query.make({
 
 function Character({ id }: { readonly id: number }) {
   const character = useQuery(characterQuery(id));
+  const view = ({ name, species, homeworld }: CharacterData) => (
+    <>
+      <h3>{name}</h3>
+      <p>
+        {species} from {homeworld}
+      </p>
+      <Status result={character} />
+    </>
+  );
   return QueryResult.match(character, {
     onPending: () => <p>Loading... (800 ms without prefetching)</p>,
-    onFailure: (failure) => <p>Error: {errorMessage(failure)}</p>,
-    onSuccess: (success) => {
-      const { name, species, homeworld } = success.data.value;
-      return (
-        <div>
-          <h3>{name}</h3>
-          <p>
-            {species} from {homeworld}
-          </p>
-          <Status result={success} />
-        </div>
-      );
-    },
+    // A failed refetch keeps the details it already has.
+    onFailure: (failure) =>
+      Option.match(failure.data, {
+        onNone: () => <p>Error: {errorMessage(failure)}</p>,
+        onSome: (data) => (
+          <div>
+            {view(data)}
+            <StaleDataError failure={failure} />
+          </div>
+        ),
+      }),
+    onSuccess: (success) => <div>{view(success.data.value)}</div>,
   });
 }
 

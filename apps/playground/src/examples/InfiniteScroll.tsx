@@ -1,7 +1,8 @@
 import { InfiniteQuery, QueryResult, useInfiniteQuery } from "@effect-atom-query/react";
+import { Option } from "effect";
 import { Fragment, useEffect, useRef } from "react";
-import { Api } from "../api.ts";
-import { errorMessage, type Example } from "../ui.tsx";
+import { Api, type FeedPage } from "../api.ts";
+import { errorMessage, type Example, StaleDataError } from "../ui.tsx";
 
 const feedQuery = InfiniteQuery.make({
   key: () => ["feed", "scroll"],
@@ -38,58 +39,83 @@ const useInView = (onVisible: () => void, deps: ReadonlyArray<unknown>) => {
 
 function InfiniteScroll() {
   const feed = useInfiniteQuery(feedQuery());
-  const pages = QueryResult.match(feed, {
-    onPending: () => 0,
-    onFailure: () => 0,
-    onSuccess: (success) => success.data.value.pages.length,
+  // Pages still on screen, also after a failed fetch.
+  const pages = Option.match(feed.data, {
+    onNone: () => 0,
+    onSome: (data) => data.pages.length,
   });
   const sentinel = useInView(() => {
-    if (feed.hasNextPage && !feed.isFetching) {
+    // After a failed next page, wait for "Retry" instead of looping.
+    if (feed.hasNextPage && !feed.isFetching && !feed.isFetchNextPageError) {
       feed.fetchNextPage();
     }
   }, [pages, feed.isFetching]);
 
+  const view = (data: InfiniteQuery.InfiniteData<FeedPage, number>) => (
+    <div>
+      <button
+        onClick={feed.fetchPreviousPage}
+        disabled={!feed.hasPreviousPage || feed.isFetchingPreviousPage}
+      >
+        {feed.isFetchingPreviousPage
+          ? "Loading more..."
+          : feed.hasPreviousPage
+            ? "Load Older"
+            : "Nothing more to load"}
+      </button>
+      <div
+        style={{ maxHeight: 260, overflow: "auto", border: "1px solid #e2e8f0", margin: "8px 0" }}
+      >
+        {data.pages.map((page, i) => (
+          <Fragment key={data.pageParams[i]}>
+            {page.items.map((item) => (
+              <p
+                key={item.id}
+                style={{ margin: 0, padding: "10px 8px", borderBottom: "1px solid #f1f5f9" }}
+              >
+                {item.text}
+              </p>
+            ))}
+          </Fragment>
+        ))}
+        <div ref={sentinel} style={{ padding: 8, color: "#64748b" }}>
+          {feed.isFetchingNextPage
+            ? "Loading more..."
+            : feed.hasNextPage
+              ? "Scroll for more"
+              : "Nothing more to load"}
+        </div>
+      </div>
+      <div>{feed.isFetching && !feed.isFetchingNextPage ? "Background Updating..." : null}</div>
+    </div>
+  );
+
   return QueryResult.match(feed, {
     onPending: () => <p>Loading...</p>,
-    onFailure: (failure) => <p>Error: {errorMessage(failure)}</p>,
-    onSuccess: (success) => (
-      <div>
-        <button
-          onClick={feed.fetchPreviousPage}
-          disabled={!feed.hasPreviousPage || feed.isFetchingPreviousPage}
-        >
-          {feed.isFetchingPreviousPage
-            ? "Loading more..."
-            : feed.hasPreviousPage
-              ? "Load Older"
-              : "Nothing more to load"}
-        </button>
-        <div
-          style={{ maxHeight: 260, overflow: "auto", border: "1px solid #e2e8f0", margin: "8px 0" }}
-        >
-          {success.data.value.pages.map((page, i) => (
-            <Fragment key={success.data.value.pageParams[i]}>
-              {page.items.map((item) => (
-                <p
-                  key={item.id}
-                  style={{ margin: 0, padding: "10px 8px", borderBottom: "1px solid #f1f5f9" }}
-                >
-                  {item.text}
-                </p>
-              ))}
-            </Fragment>
-          ))}
-          <div ref={sentinel} style={{ padding: 8, color: "#64748b" }}>
-            {feed.isFetchingNextPage
-              ? "Loading more..."
-              : feed.hasNextPage
-                ? "Scroll for more"
-                : "Nothing more to load"}
-          </div>
-        </div>
-        <div>{feed.isFetching && !feed.isFetchingNextPage ? "Background Updating..." : null}</div>
-      </div>
-    ),
+    // A failed page (or refetch) keeps the pages already loaded.
+    onFailure: (failure) =>
+      Option.match(failure.data, {
+        onNone: () => <p>Error: {errorMessage(failure)}</p>,
+        onSome: (data) => (
+          <>
+            {view(data)}
+            <StaleDataError failure={failure} />
+            <button
+              onClick={
+                // Retry what failed: a page in either direction, or the refetch.
+                feed.isFetchPreviousPageError
+                  ? feed.fetchPreviousPage
+                  : feed.isFetchNextPageError
+                    ? feed.fetchNextPage
+                    : feed.refetch
+              }
+            >
+              Retry
+            </button>
+          </>
+        ),
+      }),
+    onSuccess: (success) => view(success.data.value),
   });
 }
 

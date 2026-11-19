@@ -9,7 +9,7 @@ import {
 import { Effect, Option } from "effect";
 import { useState } from "react";
 import { Api, type Todo } from "../api.ts";
-import { errorMessage, type Example, Status } from "../ui.tsx";
+import { errorMessage, type Example, StaleDataError, Status } from "../ui.tsx";
 
 const todosQuery = Query.single({
   key: ["todos", "optimistic-cache"],
@@ -47,6 +47,15 @@ function OptimisticCache() {
   const [text, setText] = useState("");
   const todos = useQuery(todosQuery);
   const add = useMutation(addTodo, { onSuccess: () => setText("") });
+  const view = (list: ReadonlyArray<Todo>) => (
+    <ul>
+      {list.map((todo, i) => (
+        <li key={`${todo.id}-${i}`} style={{ opacity: todo.id === -1 ? 0.5 : 1 }}>
+          {todo.text}
+        </li>
+      ))}
+    </ul>
+  );
 
   return (
     <div>
@@ -67,16 +76,18 @@ function OptimisticCache() {
       </form>
       {QueryResult.match(todos, {
         onPending: () => <p>Loading...</p>,
-        onFailure: (failure) => <p>Error: {errorMessage(failure)}</p>,
-        onSuccess: (success) => (
-          <ul>
-            {success.data.value.map((todo, i) => (
-              <li key={`${todo.id}-${i}`} style={{ opacity: todo.id === -1 ? 0.5 : 1 }}>
-                {todo.text}
-              </li>
-            ))}
-          </ul>
-        ),
+        // A failed refetch keeps the list it already has.
+        onFailure: (failure) =>
+          Option.match(failure.data, {
+            onNone: () => <p>Error: {errorMessage(failure)}</p>,
+            onSome: (list) => (
+              <>
+                {view(list)}
+                <StaleDataError failure={failure} />
+              </>
+            ),
+          }),
+        onSuccess: (success) => view(success.data.value),
       })}
       {add.isError ? (
         <p style={{ color: "#dc2626" }}>
