@@ -2,7 +2,7 @@ import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vite-plus/test";
 import { example as optimisticCache } from "../src/examples/OptimisticCache.tsx";
 import { example as optimisticUi } from "../src/examples/OptimisticUi.tsx";
-import { FAILED, renderExample } from "./harness.tsx";
+import { FAILED, failRefetch, renderExample, STALE } from "./harness.tsx";
 
 /** Submits a todo the fake server rejects: it rejects texts containing "fail". */
 const addRejectedTodo = async () => {
@@ -31,6 +31,14 @@ describe("OptimisticUi", () => {
     await renderExample(optimisticUi, { failFirstRequest: true });
     expect(await screen.findByText(FAILED)).toBeTruthy();
     expect(screen.queryByRole("list")).toBeNull();
+  });
+
+  it("keeps the list and shows the error when a refetch fails", async () => {
+    const h = await renderExample(optimisticUi);
+    expect(await screen.findByText("learn Effect")).toBeTruthy();
+    await failRefetch(h, ["todos", "optimistic-ui"]);
+    expect(await screen.findByText(STALE, { exact: false })).toBeTruthy();
+    expect(screen.getByText("learn Effect")).toBeTruthy();
   });
 
   it("drops a rejected todo and offers a retry", async () => {

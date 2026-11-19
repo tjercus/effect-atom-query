@@ -3,7 +3,7 @@ import { useAtomValue } from "@effect/atom-react";
 import { Option } from "effect";
 import { useState } from "react";
 import { Api, type Todo } from "../api.ts";
-import { errorMessage, type Example } from "../ui.tsx";
+import { errorMessage, type Example, StaleDataError } from "../ui.tsx";
 
 const todosQuery = Query.single({
   key: ["todos", "optimistic-ui"],
@@ -65,7 +65,12 @@ function OptimisticUi() {
         onFailure: (failure) =>
           Option.match(failure.data, {
             onNone: () => <p>Error: {errorMessage(failure)}</p>,
-            onSome: (list) => <TodoList todos={list} />,
+            onSome: (list) => (
+              <>
+                <TodoList todos={list} />
+                <StaleDataError failure={failure} />
+              </>
+            ),
           }),
         onSuccess: (success) => <TodoList todos={success.data.value} />,
       })}
