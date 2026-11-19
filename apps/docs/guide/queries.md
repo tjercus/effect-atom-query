@@ -111,7 +111,15 @@ Pass `Query.skipToken` instead of the argument to get a disabled query with the
 same types. No `undefined` argument, no `!`:
 
 ```ts
-const projects = useQuery(projectsQuery(user.isSuccess ? user.data.value.id : Query.skipToken));
+import { Query, QueryResult, useQuery } from "@effect-atom-query/react";
+
+const projects = useQuery(
+  QueryResult.match(user, {
+    onPending: () => projectsQuery(Query.skipToken),
+    onFailure: () => projectsQuery(Query.skipToken),
+    onSuccess: (success) => projectsQuery(success.data.value.id),
+  }),
+);
 ```
 
 `enabled: false` (in the definition or as a hook option) also disables a query.

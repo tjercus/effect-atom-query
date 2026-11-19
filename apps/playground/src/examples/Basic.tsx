@@ -1,4 +1,4 @@
-import { Query, useQuery } from "@effect-atom-query/react";
+import { Query, QueryResult, useQuery } from "@effect-atom-query/react";
 import { useState } from "react";
 import { Api } from "../api.ts";
 import { errorMessage, type Example } from "../ui.tsx";
@@ -18,30 +18,30 @@ function Posts({ onSelect }: { readonly onSelect: (id: number) => void }) {
   return (
     <div>
       <h3>Posts</h3>
-      {posts.isPending ? (
-        "Loading..."
-      ) : posts.isError ? (
-        <span>Error: {errorMessage(posts)}</span>
-      ) : (
-        <>
-          <ul>
-            {posts.data.value.map((post) => (
-              <li key={post.id}>
-                <a
-                  href="#basic"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    onSelect(post.id);
-                  }}
-                >
-                  {post.title}
-                </a>
-              </li>
-            ))}
-          </ul>
-          <div>{posts.isFetching ? "Background Updating..." : " "}</div>
-        </>
-      )}
+      {QueryResult.match(posts, {
+        onPending: () => "Loading...",
+        onFailure: (failure) => <span>Error: {errorMessage(failure)}</span>,
+        onSuccess: (success) => (
+          <>
+            <ul>
+              {success.data.value.map((post) => (
+                <li key={post.id}>
+                  <a
+                    href="#basic"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      onSelect(post.id);
+                    }}
+                  >
+                    {post.title}
+                  </a>
+                </li>
+              ))}
+            </ul>
+            <div>{success.isFetching ? "Background Updating..." : " "}</div>
+          </>
+        ),
+      })}
     </div>
   );
 }
@@ -59,17 +59,17 @@ function Post({ id, onBack }: { readonly id: number; readonly onBack: () => void
       >
         ← Back
       </a>
-      {post.isPending ? (
-        <p>Loading...</p>
-      ) : post.isError ? (
-        <p>Error: {errorMessage(post)}</p>
-      ) : (
-        <>
-          <h3>{post.data.value.title}</h3>
-          <p>{post.data.value.body}</p>
-          <div>{post.isFetching ? "Background Updating..." : " "}</div>
-        </>
-      )}
+      {QueryResult.match(post, {
+        onPending: () => <p>Loading...</p>,
+        onFailure: (failure) => <p>Error: {errorMessage(failure)}</p>,
+        onSuccess: (success) => (
+          <>
+            <h3>{success.data.value.title}</h3>
+            <p>{success.data.value.body}</p>
+            <div>{success.isFetching ? "Background Updating..." : " "}</div>
+          </>
+        ),
+      })}
     </div>
   );
 }

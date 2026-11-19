@@ -296,26 +296,27 @@ Some notes on the port:
 
 ### Reading results
 
-`data` and `error` are `Option`s, not `undefined`. Check the flags first, and
-TypeScript narrows `data`:
+`data` and `error` are `Option`s, not `undefined`. Match on the result, and
+each case gets it narrowed:
 
 ```tsx
+import { QueryResult } from "@effect-atom-query/react";
+import { Option } from "effect";
+
 function PostTitle({ id }: { id: number }) {
   const post = usePostQuery(id);
-  if (post.isPending) {
-    return <p>Loading…</p>;
-  }
-  if (post.isError) {
-    return (
+  return QueryResult.match(post, {
+    onPending: () => <p>Loading…</p>,
+    onFailure: (failure) => (
       <p>
-        {Option.match(post.error, {
+        {Option.match(failure.error, {
           onNone: () => "Something went wrong",
           onSome: (e) => e.message,
         })}
       </p>
-    );
-  }
-  return <h1>{post.data.value.title}</h1>;
+    ),
+    onSuccess: (success) => <h1>{success.data.value.title}</h1>,
+  });
 }
 ```
 
@@ -359,11 +360,10 @@ const submit = async (next: Post) => {
   const exit = await run.promiseExit(
     mode === "edit" ? update.mutateEffect(next) : create.mutateEffect(next),
   );
-  if (Exit.isSuccess(exit)) {
-    onDone(exit.value);
-  } else {
-    setFormError(Cause.pretty(exit.cause));
-  }
+  Exit.match(exit, {
+    onSuccess: onDone,
+    onFailure: (cause) => setFormError(Cause.pretty(cause)),
+  });
 };
 ```
 

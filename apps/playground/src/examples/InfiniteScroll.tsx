@@ -1,4 +1,4 @@
-import { InfiniteQuery, useInfiniteQuery } from "@effect-atom-query/react";
+import { InfiniteQuery, QueryResult, useInfiniteQuery } from "@effect-atom-query/react";
 import { Fragment, useEffect, useRef } from "react";
 import { Api } from "../api.ts";
 import { errorMessage, type Example } from "../ui.tsx";
@@ -38,57 +38,59 @@ const useInView = (onVisible: () => void, deps: ReadonlyArray<unknown>) => {
 
 function InfiniteScroll() {
   const feed = useInfiniteQuery(feedQuery());
-  const pages = feed.isSuccess ? feed.data.value.pages.length : 0;
+  const pages = QueryResult.match(feed, {
+    onPending: () => 0,
+    onFailure: () => 0,
+    onSuccess: (success) => success.data.value.pages.length,
+  });
   const sentinel = useInView(() => {
     if (feed.hasNextPage && !feed.isFetching) {
       feed.fetchNextPage();
     }
   }, [pages, feed.isFetching]);
 
-  if (feed.isPending) {
-    return <p>Loading...</p>;
-  }
-  if (feed.isError) {
-    return <p>Error: {errorMessage(feed)}</p>;
-  }
-  return (
-    <div>
-      <button
-        onClick={feed.fetchPreviousPage}
-        disabled={!feed.hasPreviousPage || feed.isFetchingPreviousPage}
-      >
-        {feed.isFetchingPreviousPage
-          ? "Loading more..."
-          : feed.hasPreviousPage
-            ? "Load Older"
-            : "Nothing more to load"}
-      </button>
-      <div
-        style={{ maxHeight: 260, overflow: "auto", border: "1px solid #e2e8f0", margin: "8px 0" }}
-      >
-        {feed.data.value.pages.map((page, i) => (
-          <Fragment key={feed.data.value.pageParams[i]}>
-            {page.items.map((item) => (
-              <p
-                key={item.id}
-                style={{ margin: 0, padding: "10px 8px", borderBottom: "1px solid #f1f5f9" }}
-              >
-                {item.text}
-              </p>
-            ))}
-          </Fragment>
-        ))}
-        <div ref={sentinel} style={{ padding: 8, color: "#64748b" }}>
-          {feed.isFetchingNextPage
+  return QueryResult.match(feed, {
+    onPending: () => <p>Loading...</p>,
+    onFailure: (failure) => <p>Error: {errorMessage(failure)}</p>,
+    onSuccess: (success) => (
+      <div>
+        <button
+          onClick={feed.fetchPreviousPage}
+          disabled={!feed.hasPreviousPage || feed.isFetchingPreviousPage}
+        >
+          {feed.isFetchingPreviousPage
             ? "Loading more..."
-            : feed.hasNextPage
-              ? "Scroll for more"
+            : feed.hasPreviousPage
+              ? "Load Older"
               : "Nothing more to load"}
+        </button>
+        <div
+          style={{ maxHeight: 260, overflow: "auto", border: "1px solid #e2e8f0", margin: "8px 0" }}
+        >
+          {success.data.value.pages.map((page, i) => (
+            <Fragment key={success.data.value.pageParams[i]}>
+              {page.items.map((item) => (
+                <p
+                  key={item.id}
+                  style={{ margin: 0, padding: "10px 8px", borderBottom: "1px solid #f1f5f9" }}
+                >
+                  {item.text}
+                </p>
+              ))}
+            </Fragment>
+          ))}
+          <div ref={sentinel} style={{ padding: 8, color: "#64748b" }}>
+            {feed.isFetchingNextPage
+              ? "Loading more..."
+              : feed.hasNextPage
+                ? "Scroll for more"
+                : "Nothing more to load"}
+          </div>
         </div>
+        <div>{feed.isFetching && !feed.isFetchingNextPage ? "Background Updating..." : null}</div>
       </div>
-      <div>{feed.isFetching && !feed.isFetchingNextPage ? "Background Updating..." : null}</div>
-    </div>
-  );
+    ),
+  });
 }
 
 export const example: Example = {

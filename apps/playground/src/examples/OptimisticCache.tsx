@@ -1,8 +1,15 @@
-import { Mutation, Query, QueryClient, useMutation, useQuery } from "@effect-atom-query/react";
+import {
+  Mutation,
+  Query,
+  QueryClient,
+  QueryResult,
+  useMutation,
+  useQuery,
+} from "@effect-atom-query/react";
 import { Effect, Option } from "effect";
 import { useState } from "react";
 import { Api, type Todo } from "../api.ts";
-import { type Example, Status } from "../ui.tsx";
+import { errorMessage, type Example, Status } from "../ui.tsx";
 
 const todosQuery = Query.single({
   key: ["todos", "optimistic-cache"],
@@ -58,17 +65,19 @@ function OptimisticCache() {
         <input aria-label="todo" value={text} onChange={(e) => setText(e.target.value)} />{" "}
         <button disabled={add.isPending}>Create</button>
       </form>
-      {todos.isSuccess ? (
-        <ul>
-          {todos.data.value.map((todo, i) => (
-            <li key={`${todo.id}-${i}`} style={{ opacity: todo.id === -1 ? 0.5 : 1 }}>
-              {todo.text}
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p>Loading...</p>
-      )}
+      {QueryResult.match(todos, {
+        onPending: () => <p>Loading...</p>,
+        onFailure: (failure) => <p>Error: {errorMessage(failure)}</p>,
+        onSuccess: (success) => (
+          <ul>
+            {success.data.value.map((todo, i) => (
+              <li key={`${todo.id}-${i}`} style={{ opacity: todo.id === -1 ? 0.5 : 1 }}>
+                {todo.text}
+              </li>
+            ))}
+          </ul>
+        ),
+      })}
       {add.isError ? (
         <p style={{ color: "#dc2626" }}>
           {Option.match(add.error, { onNone: () => "Something broke", onSome: (e) => e.message })} —

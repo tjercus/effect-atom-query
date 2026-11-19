@@ -57,6 +57,7 @@ import {
   Query,
   QueryClient,
   QueryClientProvider,
+  QueryResult,
   useMutation,
   useQuery,
 } from "@effect-atom-query/react";
@@ -98,33 +99,39 @@ function TodoList() {
   const todos = useQuery(todosQuery);
   const add = useMutation(addTodo);
 
-  if (todos.isPending) {
-    return <p>Loading…</p>;
-  }
-  if (todos.isError) {
-    return (
+  return QueryResult.match(todos, {
+    onPending: () => <p>Loading…</p>,
+    onFailure: (failure) => (
       <p>
-        Failed: {Option.match(todos.error, { onNone: () => "defect", onSome: (e) => e.message })}
+        Failed: {Option.match(failure.error, { onNone: () => "defect", onSome: (e) => e.message })}
       </p>
-    );
-  }
-  return (
-    <>
-      <ul>
-        {todos.data.value.map((todo) => (
-          <li key={todo.id}>{todo.title}</li>
-        ))}
-      </ul>
-      <button disabled={add.isPending} onClick={() => add.mutate("Buy milk")}>
-        Add
-      </button>
-    </>
-  );
+    ),
+    onSuccess: (success) => (
+      <>
+        <ul>
+          {success.data.value.map((todo) => (
+            <li key={todo.id}>{todo.title}</li>
+          ))}
+        </ul>
+        <button disabled={add.isPending} onClick={() => add.mutate("Buy milk")}>
+          Add
+        </button>
+      </>
+    ),
+  });
 }
 
 function TodoTitle({ id }: { id: number }) {
   const todo = useQuery(todoQuery(id), { select: (t) => t.title });
-  return <h1>{todo.isSuccess ? todo.data.value : "…"}</h1>;
+  return (
+    <h1>
+      {QueryResult.match(todo, {
+        onPending: () => "…",
+        onFailure: () => "Failed",
+        onSuccess: (success) => success.data.value,
+      })}
+    </h1>
+  );
 }
 
 // 4. A runtime with the client and your services
