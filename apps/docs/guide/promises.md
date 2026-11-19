@@ -59,6 +59,10 @@ const exit = await run.promiseExit(
 // Exit<Post | Draft, UpdateError | CreateError>
 ```
 
+To wait for a refetch, run `client.refetchQueries(...)` or
+`client.fetchQuery(query, { staleTime: 0 })` the same way; see
+[Waiting for a refetch](./react#waiting-for-a-refetch).
+
 ### Declaring your services
 
 By default the runner accepts Effects that need only `QueryClient`. Declare

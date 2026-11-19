@@ -99,13 +99,31 @@ outside components. If your project uses that rule, write
 
 ```tsx
 import { QueryResult, useQuery } from "@effect-atom-query/react";
+import { Option } from "effect";
 
-function Todo({ id }: { id: string }) {
-  const todo = useQuery(todoQuery(id));
-  return QueryResult.match(todo, {
+function Todos() {
+  const todos = useQuery(todosQuery);
+  return QueryResult.match(todos, {
     onPending: () => <p>Loading…</p>,
-    onFailure: () => <p>Failed</p>,
-    onSuccess: (success) => <h1>{success.data.value.title}</h1>,
+    onFailure: (failure) => (
+      <p role="alert">
+        {Option.match(failure.error, {
+          onNone: () => "Something went wrong",
+          onSome: (error) => error.message, // the typed TodoError
+        })}{" "}
+        <button onClick={todos.refetch}>Retry</button>
+      </p>
+    ),
+    onSuccess: (success) =>
+      success.data.value.length === 0 ? (
+        <p>Nothing to do.</p>
+      ) : (
+        <ul>
+          {success.data.value.map((todo) => (
+            <li key={todo.id}>{todo.title}</li>
+          ))}
+        </ul>
+      ),
   });
 }
 ```
@@ -114,8 +132,56 @@ function Todo({ id }: { id: string }) {
 is an `Option.Some`, so `data.value` is typed without `!` or `?.`. Narrowing on
 `isSuccess` / `isPending` / `isError` works too.
 
+What each case means:
+
+- **Loading.** `onPending` runs until the first data or error arrives. A
+  failed attempt is retried first (3 times with backoff by default), so a
+  flaky request shows `Loading…` a little longer instead of an error;
+  `failureCount` tells you a retry is running.
+- **Typed failure.** `failure.error` is the `E` of `run`, here `TodoError`.
+  It is `None` only for a defect, which the React bindings send to the
+  nearest error boundary instead.
+- **Failure with old data.** When a refetch fails after an earlier success,
+  `failure.data` still holds that data (`isRefetchError`). The example above
+  replaces the list with the error to stay short; in an app, show the old
+  data with the error, as the
+  [playground examples](https://github.com/tjercus/effect-atom-query/tree/main/apps/playground/src/examples)
+  do.
+- **Empty result.** An empty list is a success like any other: check the data.
+- **Retry.** `refetch()` starts a new fetch from a button. To wait for it,
+  see [Waiting for a refetch](./react#waiting-for-a-refetch).
+
+## Share the registry with other code
+
+`QueryClientProvider` creates its own atom registry. When code outside React
+reads or writes atoms too (an auth store, a router), create the registry once
+and pass it in, so components, that code and the query atoms share it. See
+[One app-wide registry](./react#one-app-wide-registry).
+
+## Test it
+
+`@effect-atom-query/react/testing` renders components with your fake
+services and a test client (no retries, no refetch on focus):
+
+```tsx
+import { makeTestHarness } from "@effect-atom-query/react/testing";
+
+it("lists todos", async () => {
+  const harness = makeTestHarness({ layer: FakeTodoRepo });
+  render(<Todos />, { wrapper: harness.Wrapper });
+  expect(await screen.findByText("learn Effect")).toBeTruthy();
+  await harness.dispose();
+});
+```
+
+See [Testing](./testing) for loading states, controlled requests and mocking
+hooks, and the
+[playground tests](https://github.com/tjercus/effect-atom-query/tree/main/apps/playground/test)
+for a whole app tested this way, failures included.
+
 ## Next
 
 - [Queries](./queries): keys, options and results.
+- [Testing](./testing): the harness, controlled requests and hook mocks.
 - [React hooks](./react): every hook and its options.
 - [Coming from TanStack Query](./from-tanstack): what is the same and what changed.

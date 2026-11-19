@@ -1,5 +1,14 @@
 # @effect-atom-query/devtools
 
+## 1.4.0-next.2
+
+### Patch Changes
+
+- Updated dependencies [9b117f4]
+- Updated dependencies [e3785cb]
+  - @effect-atom-query/react@1.4.0-next.2
+  - @effect-atom-query/query@1.4.0-next.2
+
 ## 1.4.0-next.1
 
 ### Patch Changes

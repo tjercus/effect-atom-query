@@ -27,7 +27,11 @@ export interface UseQueryOptions<A, E, B = A> extends QueryObserver.Options<A, B
  * @category models
  */
 export type UseQueryResult<B, E> = QueryResult.QueryResult<B, E> & {
-  /** Fire-and-forget refetch. Use `QueryClient` methods for an `Effect`. */
+  /**
+   * Fire-and-forget refetch. To wait for it, run
+   * `client.refetchQueries({ queryKey, exact: true })` (or `fetchQuery` with
+   * `staleTime: 0`, to get the outcome) through `useRunEffect`.
+   */
   readonly refetch: () => void;
 };
 

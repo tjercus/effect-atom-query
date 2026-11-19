@@ -14,13 +14,14 @@
  *
  * @since 0.1.0
  */
-import { type Effect, Option } from "effect";
+import { type Context, type Effect, Option } from "effect";
 import { AsyncResult, Atom } from "effect/reactivity";
-import type {
-  InitialData,
-  QueryDescriptor,
-  QueryEntry,
-  QueryOptions as InternalQueryOptions,
+import {
+  FetchAttempt as InternalFetchAttempt,
+  type InitialData,
+  type QueryDescriptor,
+  type QueryEntry,
+  type QueryOptions as InternalQueryOptions,
 } from "./internal/queryEntry.ts";
 import {
   persistCodec,
@@ -42,6 +43,34 @@ export const TypeId: TypeId = "~@effect-atom-query/query/Query";
  * @category symbols
  */
 export type TypeId = "~@effect-atom-query/query/Query";
+
+/**
+ * Which attempt of the current fetch is running, for a query's `run`:
+ * `attempt` is `0` on the first try and counts up on each retry. Use it to
+ * change how the request is made without changing the query key, for example
+ * to bypass an HTTP cache when retrying:
+ *
+ * ```ts
+ * const todosQuery = Query.single({
+ *   key: ["todos"],
+ *   run: Effect.gen(function* () {
+ *     const { attempt } = yield* Query.FetchAttempt
+ *     return yield* TodoRepo.use((repo) => repo.list({ noCache: attempt > 0 }))
+ *   }),
+ * })
+ * ```
+ *
+ * It is a `Context.Reference`, so reading it adds nothing to the query's `R`.
+ * Outside a fetch it reads `{ attempt: 0 }`.
+ *
+ * For options chosen by the caller of a refetch, provide your own services to
+ * `QueryClient.refetchQueries` (or `fetchQuery`, `invalidateQueries`,
+ * `resetQueries`): the fetches they start run with the caller's services.
+ *
+ * @since 1.4.0
+ * @category services
+ */
+export const FetchAttempt: Context.Reference<{ readonly attempt: number }> = InternalFetchAttempt;
 
 /**
  * Per-query options. Unset options fall back to the client's
