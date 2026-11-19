@@ -1,5 +1,11 @@
 # @effect-atom-query/query
 
+## 1.4.0-next.2
+
+### Minor Changes
+
+- e3785cb: Request options without a new query key. `Query.FetchAttempt` tells a query's `run` which attempt is running (`0`, then `1`, `2`, … on retries), for example to bypass an HTTP cache when retrying. `refetchQueries`, `invalidateQueries` and `resetQueries` now run the fetches they start with the caller's services, as `fetchQuery` already did, so request options can be provided as services (`Effect.provideService`) while the cache entry stays the same. A mutation's `invalidates` refetches with the services of its `mutate` call.
+
 ## 1.4.0-next.1
 
 No changes in this release.
