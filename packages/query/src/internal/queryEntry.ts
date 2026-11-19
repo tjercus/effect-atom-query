@@ -4,7 +4,7 @@
  */
 import {
   Cause,
-  type Context,
+  Context,
   DateTime,
   Duration,
   Effect,
@@ -251,6 +251,15 @@ interface ObserverRecord {
   options: ObserveOptions;
   intervalFiber: Fiber.Fiber<void> | undefined;
 }
+
+/**
+ * Which attempt of a fetch is running: provided to a query's `run` on every
+ * attempt. Public as `Query.FetchAttempt`.
+ * @internal
+ */
+export const FetchAttempt: Context.Reference<{ readonly attempt: number }> = Context.Reference<{
+  readonly attempt: number;
+}>("@effect-atom-query/query/FetchAttempt", { defaultValue: () => ({ attempt: 0 }) });
 
 /**
  * What an entry needs from its client.
@@ -913,7 +922,8 @@ export class QueryEntry<A, E> {
     const attempt = Effect.suspend(() => {
       const n = attemptNumber++;
       const pause = networkMode === "online" || (networkMode === "offlineFirst" && n > 0);
-      return pause ? Effect.andThen(this.pauseWhileOffline(id), run) : run;
+      const thisAttempt = Effect.provideService(run, FetchAttempt, { attempt: n });
+      return pause ? Effect.andThen(this.pauseWhileOffline(id), thisAttempt) : thisAttempt;
     }).pipe(
       Effect.tapError((error) =>
         Effect.sync(() => {

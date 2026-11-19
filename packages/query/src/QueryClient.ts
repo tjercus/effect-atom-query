@@ -8,8 +8,9 @@
  * The client captures the context it was built in: query `run` effects that
  * are started by atoms (on mount, focus, polling…) run with those services,
  * plus the `QueryClient` itself, so mutation callbacks can `yield* QueryClient`.
- * Effects started through `fetchQuery`, `mutate` and friends additionally get
- * the caller's services, so their `R` is checked statically.
+ * Effects started through `fetchQuery`, `mutate`, `refetchQueries` and friends
+ * additionally get the caller's services, so their `R` is checked statically
+ * and callers can pass request options as services.
  *
  * @since 0.1.0
  */
@@ -195,17 +196,35 @@ export interface Service {
   /**
    * Mark matching queries stale and refetch the active ones (by default).
    * Completes when those refetches have settled; their failures are ignored.
+   * The refetches run with the caller's services (see `refetchQueries`).
    */
   readonly invalidateQueries: (
     filters?: QueryFilters,
     options?: InvalidateOptions,
   ) => Effect.Effect<void>;
-  /** Refetch matching (enabled, non-static) queries. Completes when they settle. */
+  /**
+   * Refetch matching (enabled, non-static) queries. Completes when they settle.
+   *
+   * The fetches started here run with the caller's services, merged over the
+   * client's, so request options can be passed without changing the key:
+   *
+   * ```ts
+   * client.refetchQueries({ queryKey: ["todos"], exact: true })
+   *   .pipe(Effect.provideService(BypassCache, true))
+   * ```
+   *
+   * A fetch that is already running and is joined keeps the services it
+   * started with: during a first load (no data yet), or with
+   * `cancelRefetch: false`.
+   */
   readonly refetchQueries: (
     filters?: QueryFilters,
     options?: RefetchOptions,
   ) => Effect.Effect<void>;
-  /** Reset matching queries to their initial state, then refetch the active ones. */
+  /**
+   * Reset matching queries to their initial state, then refetch the active
+   * ones, with the caller's services (see `refetchQueries`).
+   */
   readonly resetQueries: (filters?: QueryFilters, options?: RefetchOptions) => Effect.Effect<void>;
   /**
    * Interrupt the fetches of matching queries. By default each query goes
@@ -442,6 +461,8 @@ export const make: (options?: Options) => Effect.Effect<Service, never, Scope.Sc
     const refetchEntries = (
       entries: ReadonlyArray<QueryEntry<any, any>>,
       cancelRefetch: boolean,
+      // The caller's services: the fetches started here run with them.
+      context: Context.Context<never>,
       // A reset leaves a `"static"` query without data: it has to load again.
       staticWithoutData = false,
     ): Effect.Effect<void> =>
@@ -453,7 +474,13 @@ export const make: (options?: Options) => Effect.Effect<Service, never, Scope.Sc
               (entry.options.staleTime !== "static" ||
                 (staticWithoutData && Option.isNone(entry.state.data))),
           )
-          .map((entry) => [entry, entry.fetch({ cancelRefetch })] as const);
+          .map(
+            (entry) =>
+              [
+                entry,
+                entry.fetch({ cancelRefetch, context: context as Context.Context<any> }),
+              ] as const,
+          );
         // Paused (offline) fetches are not awaited, as in TanStack.
         return Effect.forEach(started, ([entry, fiber]) => entry.awaitUnlessPaused(fiber), {
           discard: true,
@@ -462,10 +489,12 @@ export const make: (options?: Options) => Effect.Effect<Service, never, Scope.Sc
       });
 
     const refetchQueries: Service["refetchQueries"] = (filters, options) =>
-      Effect.suspend(() => refetchEntries(cache.findAll(filters), options?.cancelRefetch ?? true));
+      Effect.contextWith((context: Context.Context<never>) =>
+        refetchEntries(cache.findAll(filters), options?.cancelRefetch ?? true, context),
+      );
 
     const invalidateQueries: Service["invalidateQueries"] = (filters, options) =>
-      Effect.suspend(() => {
+      Effect.contextWith((context: Context.Context<never>) => {
         const entries = cache.findAll(filters);
         for (const entry of entries) {
           entry.invalidate();
@@ -481,11 +510,11 @@ export const make: (options?: Options) => Effect.Effect<Service, never, Scope.Sc
               ? entry.isActive
               : !entry.isActive,
         );
-        return refetchEntries(toRefetch, options?.cancelRefetch ?? true);
+        return refetchEntries(toRefetch, options?.cancelRefetch ?? true, context);
       });
 
     const resetQueries: Service["resetQueries"] = (filters, options) =>
-      Effect.suspend(() => {
+      Effect.contextWith((context: Context.Context<never>) => {
         const entries = cache.findAll(filters);
         for (const entry of entries) {
           entry.reset();
@@ -493,6 +522,7 @@ export const make: (options?: Options) => Effect.Effect<Service, never, Scope.Sc
         return refetchEntries(
           entries.filter((entry) => entry.isActive),
           options?.cancelRefetch ?? true,
+          context,
           true,
         );
       });
