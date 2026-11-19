@@ -19,8 +19,13 @@ export default defineConfig({
     options: { typeAware: true, typeCheck: true },
   },
   test: {
-    // Keep vitest defaults and skip upstream reference checkouts (see AGENTS.md).
-    exclude: ["**/node_modules/**", "**/.git/**", "docs/repos/**"],
+    // Run each workspace package with its own config (environment, setup files,
+    // resolve conditions), so a root `vp test` matches `vp run -r test`.
+    // Projects do not inherit this root `test` config, and each sets its own
+    // `test.include` under its own folder, so upstream checkouts in
+    // `docs/repos` (see AGENTS.md) are never collected. Only packages with
+    // tests are listed: the playground has no test config of its own.
+    projects: ["packages/*/vite.config.ts", "apps/flight-dashboard/vite.config.ts"],
   },
   run: {
     cache: true,
