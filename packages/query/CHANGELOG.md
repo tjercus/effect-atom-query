@@ -1,5 +1,9 @@
 # @effect-atom-query/query
 
+## 1.4.0-next.1
+
+No changes in this release.
+
 ## 1.4.0-next.0
 
 ### Patch Changes

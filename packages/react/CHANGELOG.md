@@ -1,5 +1,12 @@
 # @effect-atom-query/react
 
+## 1.4.0-next.1
+
+### Patch Changes
+
+- Docs: the README example matches on query outcomes with `QueryResult.match` instead of checking `isPending` / `isError` / `isSuccess` with `if`s.
+- @effect-atom-query/query@1.4.0-next.1
+
 ## 1.4.0-next.0
 
 ### Minor Changes
