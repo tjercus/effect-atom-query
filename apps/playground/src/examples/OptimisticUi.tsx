@@ -75,7 +75,7 @@ function OptimisticUi() {
         onSuccess: (success) => <TodoList todos={success.data.value} />,
       })}
       {add.isError && Option.isSome(add.variables) ? (
-        <p style={{ color: "#dc2626" }}>
+        <p className="error">
           {Option.match(add.error, { onNone: () => "Something broke", onSome: (e) => e.message })}{" "}
           <button onClick={() => add.mutate(add.variables.value)}>Retry</button>
         </p>

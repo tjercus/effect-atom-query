@@ -39,10 +39,14 @@ function GlobalIndicator() {
   const fetching = useIsFetching();
   const mutating = useIsMutating();
   return (
-    <small style={{ color: "#64748b" }} data-testid="global">
+    <span
+      className={fetching + mutating > 0 ? "global busy" : "global"}
+      data-testid="global"
+      aria-live="polite"
+    >
       {fetching > 0 ? `fetching ${fetching}` : "idle"}
       {mutating > 0 ? ` · mutating ${mutating}` : ""}
-    </small>
+    </span>
   );
 }
 
@@ -50,40 +54,44 @@ export function App() {
   const hash = useHash();
   const current = examples.find((e) => e.id === hash) ?? examples[0]!;
   return (
-    <div
-      style={{
-        fontFamily: "system-ui, sans-serif",
-        display: "flex",
-        flexWrap: "wrap",
-        gap: 24,
-        maxWidth: 960,
-        margin: "0 auto",
-        padding: "16px 16px 45vh",
-      }}
-    >
-      <nav style={{ flex: "0 0 220px" }}>
-        <h1 style={{ fontSize: 18 }}>effect-atom-query</h1>
+    <div className="shell">
+      <aside className="sidebar">
+        <div className="brand">
+          <span className="brand-mark" aria-hidden>
+            ⚛
+          </span>
+          <div className="brand-text">
+            Playground
+            <span className="brand-sub">effect-atom-query</span>
+          </div>
+        </div>
         <GlobalIndicator />
-        <ul style={{ listStyle: "none", padding: 0 }}>
-          {examples.map((e) => (
-            <li key={e.id} style={{ margin: "4px 0" }}>
-              <a href={`#${e.id}`} style={{ fontWeight: e === current ? 700 : 400 }}>
-                {e.title}
-              </a>
-            </li>
-          ))}
-        </ul>
-      </nav>
-      <main style={{ flex: "1 1 400px", minWidth: 0 }}>
-        <h2 style={{ marginTop: 0 }}>{current.title}</h2>
-        <p style={{ color: "#475569" }}>
-          {current.description}{" "}
-          <small>
-            (TanStack example: <code>{current.tanstack}</code>)
-          </small>
-        </p>
-        <hr />
-        <current.Component key={current.id} />
+        <nav aria-label="Examples">
+          <div className="nav-label">Examples</div>
+          <ul className="nav">
+            {examples.map((e) => (
+              <li key={e.id}>
+                <a href={`#${e.id}`} aria-current={e === current ? "page" : undefined}>
+                  {e.title}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </nav>
+      </aside>
+      <main className="main">
+        <header className="top">
+          <h1>{current.title}</h1>
+          <p className="muted">
+            {current.description}{" "}
+            <small>
+              (TanStack example: <code>{current.tanstack}</code>)
+            </small>
+          </p>
+        </header>
+        <section className="panel">
+          <current.Component key={current.id} />
+        </section>
       </main>
     </div>
   );

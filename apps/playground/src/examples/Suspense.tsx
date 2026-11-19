@@ -55,7 +55,7 @@ class ErrorBoundary extends Component<
       return this.props.children;
     }
     return (
-      <div style={{ color: "#dc2626" }}>
+      <div className="error">
         <p>
           There was an error:{" "}
           {(this.state.error as { readonly message?: string }).message ?? "unknown error"}
