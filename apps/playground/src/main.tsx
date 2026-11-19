@@ -4,6 +4,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App.tsx";
 import { runtime } from "./runtime.ts";
+import "./styles.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

@@ -90,7 +90,7 @@ function OptimisticCache() {
         onSuccess: (success) => view(success.data.value),
       })}
       {add.isError ? (
-        <p style={{ color: "#dc2626" }}>
+        <p className="error">
           {Option.match(add.error, { onNone: () => "Something broke", onSome: (e) => e.message })} —
           rolled back.
         </p>

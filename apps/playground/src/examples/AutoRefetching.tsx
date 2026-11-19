@@ -33,16 +33,7 @@ function AutoRefetching() {
     <div>
       <p>
         This list refetches every interval (paused while the tab is hidden).{" "}
-        <span
-          style={{
-            display: "inline-block",
-            width: 10,
-            height: 10,
-            borderRadius: 5,
-            background: todos.isFetching ? "#2563eb" : "transparent",
-            transition: todos.isFetching ? "none" : "all .3s ease",
-          }}
-        />
+        <span className={todos.isFetching ? "fetch-dot on" : "fetch-dot"} />
       </p>
       <label>
         Query interval speed (ms):{" "}

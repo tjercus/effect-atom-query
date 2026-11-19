@@ -63,22 +63,15 @@ function InfiniteScroll() {
             ? "Load Older"
             : "Nothing more to load"}
       </button>
-      <div
-        style={{ maxHeight: 260, overflow: "auto", border: "1px solid #e2e8f0", margin: "8px 0" }}
-      >
+      <div className="scroll-box">
         {data.pages.map((page, i) => (
           <Fragment key={data.pageParams[i]}>
             {page.items.map((item) => (
-              <p
-                key={item.id}
-                style={{ margin: 0, padding: "10px 8px", borderBottom: "1px solid #f1f5f9" }}
-              >
-                {item.text}
-              </p>
+              <p key={item.id}>{item.text}</p>
             ))}
           </Fragment>
         ))}
-        <div ref={sentinel} style={{ padding: 8, color: "#64748b" }}>
+        <div ref={sentinel} className="sentinel">
           {feed.isFetchingNextPage
             ? "Loading more..."
             : feed.hasNextPage

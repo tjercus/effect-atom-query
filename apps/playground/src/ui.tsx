@@ -25,12 +25,10 @@ export const StaleDataError = ({
   failure,
 }: {
   readonly failure: QueryResult.Failure<any, { readonly message: string }>;
-}) => (
-  <p style={{ color: "#dc2626" }}>Error: {errorMessage(failure)} (showing the last loaded data)</p>
-);
+}) => <p className="error">Error: {errorMessage(failure)} (showing the last loaded data)</p>;
 
 export const Status = ({ result }: { readonly result: QueryResult.QueryResult<any, any> }) => (
-  <small style={{ color: "#64748b" }}>
+  <small className="status">
     {result.status} · {result.fetchStatus}
     {result.isStale ? " · stale" : ""}
   </small>
