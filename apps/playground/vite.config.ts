@@ -7,4 +7,9 @@ export default defineConfig({
     // Resolve workspace packages to their TypeScript sources during development.
     conditions: ["@effect-atom-query/source", ...defaultClientConditions],
   },
+  test: {
+    environment: "happy-dom",
+    include: ["test/**/*.test.{ts,tsx}"],
+    setupFiles: ["test/setup.ts"],
+  },
 });

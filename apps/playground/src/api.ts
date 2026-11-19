@@ -75,7 +75,10 @@ const characters: ReadonlyArray<Character> = [
   { id: 5, name: "Tock", species: "Ewoq", homeworld: "Fennmoor" },
 ];
 
-const makeApi = (): Api["Service"] => {
+const makeApi = (options: { readonly latency: boolean }): Api["Service"] => {
+  /** Simulated network latency; tests turn it off. */
+  const wait = (millis: number): Effect.Effect<void> =>
+    options.latency ? latency(millis) : Effect.void;
   let failNext = false;
   const todoLists = new Map<string, Array<Todo>>();
   let nextTodoId = 100;
@@ -126,7 +129,7 @@ const makeApi = (): Api["Service"] => {
 
   /** Latency, then fail if `failNext` was armed. */
   const request = <A>(millis: number, f: () => A): Effect.Effect<A, ApiError> =>
-    latency(millis).pipe(
+    wait(millis).pipe(
       Effect.andThen(
         Effect.suspend(() => {
           if (failNext) {
@@ -139,7 +142,7 @@ const makeApi = (): Api["Service"] => {
     );
 
   return {
-    repo: latency(400).pipe(
+    repo: wait(400).pipe(
       Effect.as({
         name: "effect-atom-query",
         stars: 1200 + Math.round(Math.random() * 50),
@@ -182,7 +185,7 @@ const makeApi = (): Api["Service"] => {
       })),
     todos: (name) => request(300, () => list(name).slice()),
     addTodo: (name, text) =>
-      latency(700).pipe(
+      wait(700).pipe(
         Effect.andThen(
           Effect.suspend(() => {
             if (text.toLowerCase().includes("fail")) {
@@ -224,4 +227,7 @@ const makeApi = (): Api["Service"] => {
   };
 };
 
-export const ApiLive: Layer.Layer<Api> = Layer.sync(Api, makeApi);
+export const ApiLive: Layer.Layer<Api> = Layer.sync(Api, () => makeApi({ latency: true }));
+
+/** The same fake server without latency, for tests. */
+export const ApiNoLatency: Layer.Layer<Api> = Layer.sync(Api, () => makeApi({ latency: false }));

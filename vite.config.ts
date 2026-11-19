@@ -23,9 +23,8 @@ export default defineConfig({
     // resolve conditions), so a root `vp test` matches `vp run -r test`.
     // Projects do not inherit this root `test` config, and each sets its own
     // `test.include` under its own folder, so upstream checkouts in
-    // `docs/repos` (see AGENTS.md) are never collected. Only packages with
-    // tests are listed: the playground has no test config of its own.
-    projects: ["packages/*/vite.config.ts", "apps/flight-dashboard/vite.config.ts"],
+    // `docs/repos` (see AGENTS.md) are never collected.
+    projects: ["{packages,apps}/*/vite.config.ts"],
   },
   run: {
     cache: true,
