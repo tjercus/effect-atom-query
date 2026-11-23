@@ -26,6 +26,24 @@ export type Status = "pending" | "error" | "success";
 export type FetchStatus = "fetching" | "paused" | "idle";
 
 /**
+ * What the stream of a query with live updates (`stream` in its definition)
+ * is doing:
+ *
+ * - `idle`: not running. The query has no stream, or no enabled observer.
+ * - `open`: running, and it has not failed since it started or since its
+ *   last update. A stream cannot tell when its connection is established, so
+ *   this does not mean that it is.
+ * - `reconnecting`: it failed and is being retried; no update has arrived
+ *   since. `streamError` holds the failure.
+ * - `closed`: it ended, or failed with its retries used up (`streamError`
+ *   holds the failure). The query refetches as a query without a stream.
+ *
+ * @since 1.5.0
+ * @category models
+ */
+export type StreamStatus = "idle" | "open" | "reconnecting" | "closed";
+
+/**
  * @since 0.1.0
  * @category models
  */
@@ -49,6 +67,14 @@ interface Base<A, E> {
   readonly failureCount: number;
   /** The last typed failure of the current or last fetch. Cleared on success. */
   readonly failureReason: Option.Option<E>;
+  /** See {@link StreamStatus}. `idle` for a query without a stream. */
+  readonly streamStatus: StreamStatus;
+  /**
+   * The last failure of the query's stream, until its next update. A failing
+   * stream leaves `status`, `data` and `error` as they are: the data is still
+   * valid, at worst behind. Its type is the stream's error type.
+   */
+  readonly streamError: Option.Option<unknown>;
 }
 
 /**
@@ -149,6 +175,8 @@ const empty = {
   errorUpdateCount: 0,
   failureCount: 0,
   failureReason: none,
+  streamStatus: "idle",
+  streamError: none,
 } as const;
 
 /**

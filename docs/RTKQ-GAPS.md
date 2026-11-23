@@ -20,7 +20,7 @@ not checked in the code.
 
 | #   | RTKQ feature                                          | Status here                               | Value  | Effort |
 | --- | ----------------------------------------------------- | ----------------------------------------- | ------ | ------ |
-| 1   | Streaming cache updates (`onCacheEntryAdded`)         | missing                                   | high   | large  |
+| 1   | Streaming cache updates (`onCacheEntryAdded`)         | implemented after 1.4.0 (`stream`)        | high   | large  |
 | 2   | Tags derived from the result (`providesTags(result)`) | missing; keys depend on the argument only | high   | medium |
 | 3   | Endpoint schemas (`responseSchema`, `argSchema`, …)   | schema only under `persist`               | medium | small  |
 | 4   | SSR and hydration                                     | deferred (decision D3)                    | high   | medium |
@@ -34,6 +34,12 @@ not checked in the code.
 ## Worth adding
 
 ### 1. Streaming cache updates
+
+**Implemented** after this report was written, as the `stream` option of
+`Query.make` and `Query.single`; see
+[Live updates](../apps/docs/guide/queries.md#live-updates). The analysis and
+the design below are kept as the record of why it works the way it does.
+[What was built](#what-was-built) lists where the implementation differs.
 
 In RTKQ, `onCacheEntryAdded` lets an endpoint fetch once and then keep its
 cache entry up to date from a WebSocket or server-sent events, for as long as
@@ -137,6 +143,53 @@ fields of the result: `streamStatus` (`"idle"`, `"connecting"`,
   seconds of updates; a limit can be added later.
 - The stream runs with the client runtime's services only, like a background
   refetch. It cannot use services provided by a caller.
+
+#### What was built
+
+The implementation follows the design, with these differences:
+
+- **The gap between snapshot and subscription is narrowed, not closed.** The
+  stream and the fetch start together, but a `Stream` gives no signal when
+  its subscription is established. If the server takes the snapshot before
+  the subscription is live, an update in between is lost, both on the first
+  load and after a reconnect, and nothing repairs it until the next refetch.
+  Closing the gap needs an API where connecting is an `Effect` that the
+  library waits for before it fetches; that is a possible follow-up. Until
+  then, a source that must not miss updates should subscribe first and emit
+  only once it is subscribed, or send its own snapshot as the first update.
+
+- **After a reconnect, the refetch waits for the first update.** The design
+  refetched each time the stream ran again. During an outage that refetch
+  fails with every attempt, which puts a query with good data in its error
+  state. Now a failure marks the data stale, and the refetch happens when the
+  first update after it arrives. A stream that reconnects and stays silent
+  leaves the data stale until then.
+- **Data fetched before the stream ran is refetched** by the first observer
+  (after a prefetch, a Suspense fetch or a restore), whatever the
+  `staleTime`, because it misses the updates since.
+- **A closed stream starts again** on `resetQueries`, or when observers
+  return. `updates` is fixed when the stream starts; `apply` follows the
+  latest definition.
+- **Statuses.** `streamStatus` is `"idle"`, `"open"`, `"reconnecting"` or
+  `"closed"`. The design's `"connecting"` and `"connected"` cannot be told
+  apart: a `Stream` gives no signal when its connection is established.
+  `"open"` means that the stream is running and has not failed since it
+  started or since its last update.
+- **`streamError` is `Option<unknown>`**, not `Option<E2>`. A typed error
+  needs a third type parameter on `QueryResult`, the query atoms and every
+  hook. That can be added later; until then, consumers narrow the value.
+- **Updates without data are only kept while a fetch runs.** With no data and
+  no fetch (after a failed first fetch, say) they are dropped, since the next
+  fetch returns newer data anyway. The record of updates is cleared when each
+  attempt of a fetch sends its request, so it holds the updates of one
+  request, or of one wait for the network.
+- **The grace period is fixed at one second.** It is not an option yet.
+- **The fold is called `apply`**, and the options are
+  `stream: { updates, apply, retry }`.
+- **A defect** in the stream or in `apply` puts the query in its error state
+  (which the React bindings throw to the error boundary) and closes the
+  stream.
+- **Infinite queries** do not take a stream.
 
 ### 2. Tags derived from the result
 
@@ -268,8 +321,7 @@ semaphore around the refresh, is a documentation task.
 1. Endpoint `schema` (3): small, and it builds on persistence.
 2. `useLazyQuery` (6) and the failure event stream (7): cheap, and they
    remove friction for people porting from RTKQ.
-3. Streaming updates (1): the feature that sets the library apart, but it
-   needs a design first.
+3. Streaming updates (1): done.
 4. Tags derived from the result (2): design it together with
    `reactivityKeys`.
 5. SSR (4), then the `HttpApi` integration (5) as a separate package.

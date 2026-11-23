@@ -126,7 +126,8 @@ const runtime = ManagedRuntime.make(QueryClient.layer().pipe(Layer.provideMerge(
 - SSR: `dehydrate`/`hydrate` and `HydrationBoundary` are planned after v1.
 - A default `queryFn` keyed by `queryKey`. Every query declares its own `run`,
   which is what makes the types flow.
-- `streamedQuery` and `experimental_prefetchInRender`.
+- `streamedQuery` (for a snapshot kept up to date by a stream, see
+  [Live updates](./queries#live-updates)) and `experimental_prefetchInRender`.
 - Promise-returning client methods and `mutateAsync`. The library is
   Effect-only by design; `useRunEffect` is the one Promise boundary, see
   [Promise boundaries](./promises).

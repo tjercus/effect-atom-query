@@ -244,6 +244,109 @@ Only plain objects and arrays are compared. Class instances, `Data` values,
 `structuralSharing: false` to always use the new data, or pass a function
 `(oldData, newData) => data` to merge yourself.
 
+## Live updates
+
+A query can keep its data up to date from a stream of changes, such as a
+WebSocket or server-sent events. `run` fetches a snapshot, `stream.updates`
+delivers changes to it, and `stream.apply` puts one change into the data:
+
+```ts
+const messagesQuery = Query.make({
+  key: (room: string) => ["messages", room],
+  run: (room) => Effect.flatMap(Chat, (chat) => chat.history(room)),
+  stream: {
+    updates: (room) => Stream.unwrap(Effect.map(Chat, (chat) => chat.subscribe(room))),
+    apply: (messages, message) =>
+      messages.some((m) => m.id === message.id)
+        ? messages.map((m) => (m.id === message.id ? message : m))
+        : [...messages, message],
+  },
+  staleTime: "Infinity",
+});
+```
+
+The stream runs while the query has an enabled observer (a mounted
+component, a mounted atom), and for one second after the last one left, so
+that a remount does not reconnect. It starts together with the first fetch.
+Updates that arrive while the first fetch runs are applied to its result.
+Data that was fetched before the stream ran (a prefetch, a Suspense fetch,
+restored data) misses the updates since then, so the first observer
+refetches it, whatever the `staleTime`.
+
+::: warning `apply` must be idempotent
+Applying an update that the data already contains must change nothing:
+replace by id in place, as above. Do not append, and do not move the item. Updates that arrive while a
+fetch runs are shown at once, and are applied again to the fetched data. The
+server may or may not have included them in that data, so they can be
+applied twice.
+:::
+
+::: warning Updates between the snapshot and the subscription
+The stream and the fetch start together, but the library cannot tell when
+the stream's subscription is established. If the server takes the snapshot
+before the subscription is live, an update in between is missed until the
+next refetch. Where that matters, let the server send the current state as
+the first update of the stream, or make `updates` emit only once it is
+subscribed and keep a finite `staleTime`.
+:::
+
+Set `staleTime: "Infinity"` on a query with a stream. The stream keeps the
+data current, so refetching on mount and on window focus only repeats what
+it already delivered. Invalidation, `setQueryData` and optimistic updates
+work as for any query: `apply` always runs on the data that is in the cache.
+
+### When the stream fails
+
+A failing stream does not fail the query. The data is still valid, at worst
+behind, so `status`, `data` and `error` stay as they are. The result has two
+fields for the stream:
+
+```ts
+result.streamStatus; // "idle" | "open" | "reconnecting" | "closed"
+result.streamError; // Option<unknown>: the stream's last failure, until its next update
+```
+
+| `streamStatus`   | meaning                                                                    |
+| ---------------- | -------------------------------------------------------------------------- |
+| `"idle"`         | not running: the query has no stream, or no enabled observer               |
+| `"open"`         | running, without a failure since it started or since its last update       |
+| `"reconnecting"` | it failed and is being retried; no update has arrived since                |
+| `"closed"`       | it ended, or failed with its retries used up; the query refetches as usual |
+
+A stream cannot tell when its connection is established, so `"open"` means
+that it is running, not that it is connected.
+
+A failed stream is retried with exponential backoff, from 1 second up to 30
+seconds, without a limit; the backoff starts over after an update.
+`stream.retry` takes a number, a boolean or a `Schedule`, like a query's
+`retry`. Leave reconnecting to the library rather than using `Stream.retry`
+yourself, because it has to know that updates were missed. When the stream
+fails, the data is marked stale. It is refetched when the first update after
+the failure arrives, which shows that the stream works again; refetching on
+every attempt would fail along with the stream during an outage. A stream
+that reconnects and then stays silent therefore leaves the data stale until
+its next update, or until another refetch trigger (window focus, a
+`refetchInterval`). When the stream stops for lack of observers, the data is
+marked stale as well: the next observer refetches, whatever the `staleTime`.
+
+With `networkMode: "online"` (the default) the stream waits for the network
+before each attempt. A defect in the stream, or an `apply` that throws, is
+a defect of the query. It also closes the stream, unless `apply` threw while
+updates were applied to a fetch result: then only that fetch fails.
+
+A closed stream starts again when the query is reset (`resetQueries`, an
+error boundary's reset), or when observers return after all of them left. A
+plain refetch does not reopen it.
+
+`updates` is fixed when the stream starts: a new definition for the same
+key does not reconnect. `apply` is always the one of the latest definition.
+
+The stream runs with the services of the client's runtime, like a background
+refetch. `streamError` is typed `unknown`; narrow it yourself (a
+`Schema.is`, a `_tag` check). Components that do not read `streamStatus` or
+`streamError` do not re-render when the stream reconnects. Infinite queries
+do not take a stream.
+
 ## Reading without React
 
 Query atoms are ordinary atoms:

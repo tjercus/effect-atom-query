@@ -14,6 +14,7 @@ import {
   Option,
   Result,
   Schedule,
+  Stream,
 } from "effect";
 import { AsyncResult, type Reactivity } from "effect/reactivity";
 import type * as FocusManager from "../FocusManager.ts";
@@ -169,6 +170,20 @@ export const resolveOptions = <E>(
 // ---------------------------------------------------------------------------
 
 /**
+ * Live updates for a query: a stream of updates and how to apply one to the
+ * cached data.
+ * @internal
+ */
+export interface StreamDescriptor<A> {
+  readonly updates: Stream.Stream<any, any, any>;
+  readonly apply: (data: A, update: any) => A;
+  readonly retry?: RetryOption<any> | undefined;
+}
+
+/** How long the stream keeps running after the last enabled observer left. @internal */
+export const streamGrace: Duration.Duration = Duration.seconds(1);
+
+/**
  * Everything needed to run one query instance.
  * @internal
  */
@@ -184,6 +199,8 @@ export interface QueryDescriptor<A, E, R> {
   readonly behavior?: ((context: BehaviorContext<A>) => Effect.Effect<A, E, R>) | undefined;
   /** Present when the query opted into persistence. */
   readonly persist?: PersistCodec<A> | undefined;
+  /** Present when the query has live updates. */
+  readonly stream?: StreamDescriptor<A> | undefined;
 }
 
 /** A persisted query waiting to be claimed by its query atom. @internal */
@@ -314,6 +331,9 @@ export interface QueryState<A, E> {
   readonly isInvalidated: boolean;
   /** Direction of the running (or last) fetch, for infinite queries. */
   readonly fetchDirection: FetchDirection | undefined;
+  readonly streamStatus: QueryResult.StreamStatus;
+  /** The stream's last failure; cleared by the next update. */
+  readonly streamError: Option.Option<unknown>;
 }
 
 /** @internal */
@@ -331,6 +351,8 @@ export const initialState: QueryState<never, never> = {
   failureReason: Option.none(),
   isInvalidated: false,
   fetchDirection: undefined,
+  streamStatus: "idle",
+  streamError: Option.none(),
 };
 
 /** @internal */
@@ -381,6 +403,17 @@ export class QueryEntry<A, E> {
   private removed = false;
   /** `state.data` is still the definition's `initialData` (no fetch, write or restore yet). */
   private showsInitialData = false;
+  /** Bumped when the stream starts or stops, so a stopped stream's callbacks are ignored. */
+  private streamRun = 0;
+  /** The stream was started and not stopped since (it may have ended by itself). */
+  private streamStarted = false;
+  private streamFiber: Fiber.Fiber<void, unknown> | undefined;
+  /** Stops the stream once the grace period after the last observer has passed. */
+  private streamStopFiber: Fiber.Fiber<void> | undefined;
+  /** Updates received while the current fetch runs, applied again to its result. */
+  private streamRecord: Array<unknown> = [];
+  /** The stream failed, and no update has shown yet that it works again. */
+  private streamMissedUpdates = false;
 
   readonly key: QueryKey.QueryKey;
   descriptor: QueryDescriptor<A, E, any>;
@@ -410,6 +443,12 @@ export class QueryEntry<A, E> {
     this.descriptor = descriptor;
     this.refreshOptions();
     this.claimPersisted();
+    if (descriptor.stream === undefined || this.streamStarted) {
+      // Stop the running stream when the new definition has none, or keep it
+      // when it has one again. Starting one is left to the observers
+      // (`ObserverHandle.update`), since entries are also built during render.
+      this.syncStream();
+    }
     if (this.unregisterReactivity === undefined) {
       this.registerReactivity();
     }
@@ -538,8 +577,20 @@ export class QueryEntry<A, E> {
     this.fetchId++;
     fiber?.interruptUnsafe();
     this.revertState = undefined;
+    this.streamRecord = [];
     this.cancelStaleTimer();
-    this.setState(() => this.initialStateOf(this.descriptor));
+    // A stream that ended or gave up starts over. A running one keeps
+    // running, so its fields stay.
+    const reopen = this.state.streamStatus === "closed";
+    if (reopen) {
+      this.interruptStream();
+      this.streamStarted = false;
+    }
+    this.setState((s) => ({
+      ...this.initialStateOf(this.descriptor),
+      ...(reopen ? {} : { streamStatus: s.streamStatus, streamError: s.streamError }),
+    }));
+    this.syncStream();
     // The dropped fetch's exit is ignored, so do here what it would have done.
     for (const record of this.records) {
       this.scheduleInterval(record);
@@ -606,10 +657,13 @@ export class QueryEntry<A, E> {
     const record: ObserverRecord = { options, intervalFiber: undefined };
     this.records.add(record);
     this.cancelGc();
+    this.invalidateBeforeStream(options);
     if (this.shouldFetchOnMount(options)) {
       this.fetch();
     }
     this.scheduleInterval(record);
+    // After the fetch, so that updates arriving meanwhile are recorded for it.
+    this.syncStream();
     let released = false;
     return {
       update: (next) => {
@@ -625,6 +679,11 @@ export class QueryEntry<A, E> {
         ) {
           this.scheduleInterval(record);
         }
+        // Also when nothing changed here: the definition may have got a stream.
+        if (this.invalidateBeforeStream(next) && this.shouldFetchOnMount(next)) {
+          this.fetch();
+        }
+        this.syncStream();
       },
       release: () => {
         if (released) {
@@ -633,6 +692,7 @@ export class QueryEntry<A, E> {
         released = true;
         this.clearInterval(record);
         this.records.delete(record);
+        this.syncStream();
         if (this.records.size === 0) {
           this.scheduleGc();
         }
@@ -642,6 +702,22 @@ export class QueryEntry<A, E> {
 
   private isEnabledFor(options: ObserveOptions): boolean {
     return options.enabled ?? this.options.enabled;
+  }
+
+  /**
+   * An observer is about to start the stream. Data fetched while no stream
+   * ran (a prefetch, a Suspense fetch, restored or written data) misses the
+   * updates since then, so it is invalidated and the observer refetches it.
+   * Returns whether the stream is about to start.
+   */
+  private invalidateBeforeStream(options: ObserveOptions): boolean {
+    if (this.descriptor.stream === undefined || this.streamStarted || !this.isEnabledFor(options)) {
+      return false;
+    }
+    if (Option.isSome(this.state.data) && !this.showsInitialData) {
+      this.invalidate();
+    }
+    return true;
   }
 
   /** `true` / `"always"` / `false` trigger semantics shared by mount, focus and reconnect. */
@@ -861,13 +937,13 @@ export class QueryEntry<A, E> {
     this.setState((s) => ({ ...s, fetchStatus }));
   }
 
-  /** Waits until online, showing `fetchStatus: "paused"` meanwhile. */
-  private pauseWhileOffline(id: number): Effect.Effect<void> {
+  /** Waits until online. `onPause` runs first when that takes a wait. */
+  private untilOnline(onPause?: () => void): Effect.Effect<void> {
     return Effect.suspend(() => {
       if (this.runtime.online.isOnline()) {
         return Effect.void;
       }
-      this.setFetchStatus(id, "paused");
+      onPause?.();
       return Effect.callback<void>((resume) => {
         const unsubscribe = this.runtime.online.subscribe((online) => {
           if (!online) {
@@ -877,8 +953,15 @@ export class QueryEntry<A, E> {
           resume(Effect.void);
         });
         return Effect.sync(unsubscribe);
-      }).pipe(Effect.andThen(Effect.sync(() => this.setFetchStatus(id, "fetching"))));
+      });
     });
+  }
+
+  /** Waits until online, showing `fetchStatus: "paused"` meanwhile. */
+  private pauseWhileOffline(id: number): Effect.Effect<void> {
+    return this.untilOnline(() => this.setFetchStatus(id, "paused")).pipe(
+      Effect.andThen(Effect.sync(() => this.setFetchStatus(id, "fetching"))),
+    );
   }
 
   /**
@@ -922,7 +1005,13 @@ export class QueryEntry<A, E> {
     const attempt = Effect.suspend(() => {
       const n = attemptNumber++;
       const pause = networkMode === "online" || (networkMode === "offlineFirst" && n > 0);
-      const thisAttempt = Effect.provideService(run, FetchAttempt, { attempt: n });
+      const thisAttempt = Effect.suspend(() => {
+        if (id === this.fetchId) {
+          // Updates from before this request are part of what it will return.
+          this.streamRecord = [];
+        }
+        return Effect.provideService(run, FetchAttempt, { attempt: n });
+      });
       return pause ? Effect.andThen(this.pauseWhileOffline(id), thisAttempt) : thisAttempt;
     }).pipe(
       Effect.tapError((error) =>
@@ -958,11 +1047,12 @@ export class QueryEntry<A, E> {
     return fiber;
   }
 
-  private onFetchExit(id: number, exit: Exit.Exit<A, E>): void {
+  private onFetchExit(id: number, fetched: Exit.Exit<A, E>): void {
     if (id !== this.fetchId || this.removed) {
       return;
     }
     this.fetchFiber = undefined;
+    const exit = this.withRecordedUpdates(fetched);
     const now = this.runtime.now();
 
     if (Exit.isSuccess(exit)) {
@@ -1007,6 +1097,25 @@ export class QueryEntry<A, E> {
     }
   }
 
+  /**
+   * The fetched data is a snapshot: updates received while it was fetched may
+   * be newer, so they are applied to it again. Taking the record and writing
+   * the data happen in one step, so no update falls in between. An `apply`
+   * that throws fails the fetch with a defect.
+   */
+  private withRecordedUpdates(exit: Exit.Exit<A, E>): Exit.Exit<A, E> {
+    const record = this.streamRecord;
+    this.streamRecord = [];
+    const stream = this.descriptor.stream;
+    if (!Exit.isSuccess(exit) || stream === undefined || record.length === 0) {
+      return exit;
+    }
+    const replayed = Result.try(() =>
+      record.reduce((data: A, update) => stream.apply(data, update), exit.value),
+    );
+    return Result.isSuccess(replayed) ? Exit.succeed(replayed.success) : Exit.die(replayed.failure);
+  }
+
   /** Structural sharing: unchanged data keeps its references, so subscribers can skip work. */
   private shareData(previous: Option.Option<A>, next: A): Option.Option<A> {
     if (Option.isNone(previous)) {
@@ -1024,6 +1133,193 @@ export class QueryEntry<A, E> {
     }
     const shared = replaceEqualDeep(previous.value, next);
     return shared === previous.value ? previous : Option.some(shared);
+  }
+
+  // -- stream ---------------------------------------------------------------
+
+  /**
+   * Runs the stream while an enabled observer is present, and for a grace
+   * period after the last one left (a remount must not reconnect). Called
+   * when observers change, never when an entry is merely built.
+   */
+  private syncStream(): void {
+    if (this.removed) {
+      return;
+    }
+    const stream = this.descriptor.stream;
+    if (stream !== undefined && this.isActive) {
+      this.streamStopFiber?.interruptUnsafe();
+      this.streamStopFiber = undefined;
+      if (!this.streamStarted) {
+        this.startStream(stream);
+      }
+    } else if (this.streamStarted && this.streamStopFiber === undefined) {
+      this.streamStopFiber = this.runtime.runFork(
+        Effect.sleep(streamGrace).pipe(
+          Effect.andThen(
+            Effect.sync(() => {
+              this.streamStopFiber = undefined;
+              this.stopStream();
+            }),
+          ),
+        ),
+      );
+    }
+  }
+
+  private startStream(stream: StreamDescriptor<A>): void {
+    const run = ++this.streamRun;
+    this.streamStarted = true;
+    this.patchStream({ streamStatus: "open", streamError: Option.none() });
+    this.streamMissedUpdates = false;
+    // Runs once per attempt: the first start, then each retry.
+    const attempt = Stream.unwrap(
+      Effect.as(
+        this.options.networkMode === "online" ? this.untilOnline() : Effect.void,
+        stream.updates,
+      ),
+    ).pipe(
+      Stream.tapError((error) =>
+        Effect.sync(() => {
+          if (run === this.streamRun) {
+            // Updates are missed from here on, so the data is stale. It is
+            // refetched once an update shows that the stream works again:
+            // refetching on every attempt would fail along with the stream.
+            this.streamMissedUpdates = true;
+            this.patchStream({ streamStatus: "reconnecting", streamError: Option.some(error) });
+            this.invalidate();
+          }
+        }),
+      ),
+    );
+    const retry = resolveRetry(stream.retry ?? true);
+    const updates = Option.isSome(retry) ? Stream.retry(attempt, retry.value) : attempt;
+    const fiber = this.runtime.runFork(
+      Stream.runForEach(updates, (update) =>
+        Effect.sync(() => {
+          if (run === this.streamRun) {
+            this.onStreamUpdate(update);
+          }
+        }),
+      ).pipe(
+        Effect.onExit((exit) =>
+          Effect.sync(() => {
+            if (run === this.streamRun) {
+              this.onStreamExit(exit);
+            }
+          }),
+        ),
+      ),
+    );
+    // A synchronous stream may already have ended inside runFork.
+    if (run === this.streamRun && this.state.streamStatus !== "closed") {
+      this.streamFiber = fiber;
+    }
+  }
+
+  private onStreamUpdate(update: unknown): void {
+    // The latest definition's `apply`, as for the fetch.
+    const stream = this.descriptor.stream;
+    if (stream === undefined) {
+      return;
+    }
+    if (this.streamMissedUpdates) {
+      // The stream works again after a failure: fetch what it missed. This
+      // update is recorded for that fetch like any other.
+      this.streamMissedUpdates = false;
+      if (this.isActive && this.options.staleTime !== "static") {
+        this.fetch({ cancelRefetch: true });
+      }
+    }
+    const s = this.state;
+    if (s.fetchStatus !== "idle") {
+      this.streamRecord.push(update);
+    }
+    const healthy: Pick<QueryState<A, E>, "streamStatus" | "streamError"> = {
+      streamStatus: "open",
+      streamError: Option.none(),
+    };
+    const isHealthy = s.streamStatus === "open" && Option.isNone(s.streamError);
+    // Without data there is nothing to apply to: the fetch result gets the
+    // recorded updates.
+    const data = Option.isNone(s.data)
+      ? s.data
+      : this.shareData(s.data, stream.apply(s.data.value, update));
+    if (data === s.data) {
+      if (!isHealthy) {
+        this.patchStream(healthy);
+      }
+      return;
+    }
+    this.showsInitialData = false;
+    this.cancelStaleTimer();
+    this.patchStream({
+      ...healthy,
+      data,
+      dataUpdatedAt: this.runtime.now(),
+      dataUpdateCount: s.dataUpdateCount + 1,
+    });
+    this.scheduleStaleTimer();
+  }
+
+  private onStreamExit(exit: Exit.Exit<void, unknown>): void {
+    this.streamFiber = undefined;
+    if (this.removed) {
+      return;
+    }
+    if (Exit.isSuccess(exit)) {
+      this.patchStream({ streamStatus: "closed" });
+    } else if (Cause.hasDies(exit.cause)) {
+      // A defect in the stream or in `apply` is a defect of the query.
+      const cause = exit.cause as Cause.Cause<E>;
+      this.patchStream({
+        streamStatus: "closed",
+        status: "error",
+        cause: Option.some(cause),
+        errorUpdatedAt: this.runtime.now(),
+        errorUpdateCount: this.state.errorUpdateCount + 1,
+      });
+    } else if (!Cause.hasInterruptsOnly(exit.cause)) {
+      // The retries are used up: from here on this is a query without a stream.
+      this.patchStream({
+        streamStatus: "closed",
+        streamError: Cause.findErrorOption(exit.cause),
+      });
+      this.invalidate();
+    }
+  }
+
+  /** Stops the stream. The data misses updates from now on, so it is invalidated. */
+  private stopStream(): void {
+    this.interruptStream();
+    this.streamStarted = false;
+    this.streamRecord = [];
+    this.patchStream({ streamStatus: "idle", streamError: Option.none() });
+    this.invalidate();
+  }
+
+  private interruptStream(): void {
+    // Bump first: interrupting runs the fiber's exit handler synchronously.
+    this.streamRun++;
+    this.streamStopFiber?.interruptUnsafe();
+    this.streamStopFiber = undefined;
+    this.streamFiber?.interruptUnsafe();
+    this.streamFiber = undefined;
+  }
+
+  /**
+   * A state change made by the stream. It also applies to the state that
+   * cancelling the running fetch reverts to, so a cancel keeps it.
+   */
+  private patchStream(patch: Partial<QueryState<A, E>>): void {
+    const revert = this.revertState;
+    if (revert !== undefined) {
+      this.revertState =
+        patch.data === undefined || Option.isSome(revert.data)
+          ? { ...revert, ...patch }
+          : { ...revert, ...pickStream(patch) };
+    }
+    this.setState((s) => ({ ...s, ...patch }));
   }
 
   // -- garbage collection ---------------------------------------------------
@@ -1069,6 +1365,7 @@ export class QueryEntry<A, E> {
     }
     this.unregisterReactivity?.();
     this.unregisterReactivity = undefined;
+    this.interruptStream();
     this.fetchFiber?.interruptUnsafe();
     this.fetchFiber = undefined;
     this.notify();
@@ -1102,6 +1399,13 @@ export class QueryEntry<A, E> {
   }
 }
 
+const pickStream = <A, E>(
+  patch: Partial<QueryState<A, E>>,
+): Partial<Pick<QueryState<A, E>, "streamStatus" | "streamError">> => ({
+  ...(patch.streamStatus === undefined ? {} : { streamStatus: patch.streamStatus }),
+  ...(patch.streamError === undefined ? {} : { streamError: patch.streamError }),
+});
+
 const toDateTime = (millis: number): Option.Option<DateTime.Utc> =>
   millis === 0 ? Option.none() : Option.some(DateTime.makeUnsafe(millis));
 
@@ -1130,6 +1434,8 @@ export const project = <A, E>(
     errorUpdateCount: state.errorUpdateCount,
     failureCount: state.failureCount,
     failureReason: state.failureReason,
+    streamStatus: state.streamStatus,
+    streamError: state.streamError,
   };
   const previousSuccess = Option.map(state.data, (value) =>
     AsyncResult.success<A, E>(value, { timestamp: state.dataUpdatedAt }),
