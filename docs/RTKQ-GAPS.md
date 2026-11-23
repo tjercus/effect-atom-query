@@ -37,7 +37,7 @@ not checked in the code.
 
 In RTKQ, `onCacheEntryAdded` lets an endpoint fetch once and then keep its
 cache entry up to date from a WebSocket or server-sent events, for as long as
-the entry has subscribers. The endpoint awaits `cacheDataLoaded`, applies
+the entry is in the cache. The endpoint awaits `cacheDataLoaded`, applies
 messages with `updateCachedData`, and closes the connection after
 `cacheEntryRemoved`.
 
@@ -51,6 +51,92 @@ runs in a scope tied to the entry's observers, and interruption closes the
 connection. The design questions are when the stream starts (after the first
 successful fetch, as in RTKQ, or instead of it), what a refetch does while
 the stream runs, and how stream failures show in the result.
+
+#### Proposed design
+
+In short: the fetch gives a snapshot, the stream gives updates to it; a new
+snapshot replaces the data; and a failing stream never turns good data into
+an error.
+
+**When the stream starts.** With the entry's first observer, at the same time
+as the fetch. Updates that arrive before the first successful fetch are
+buffered, and applied in order once the data is there.
+
+- Starting only after the fetch, as RTKQ code usually does, loses the updates
+  sent between the snapshot and the subscription. Subscribing first closes
+  that gap.
+- Starting the stream instead of the fetch would leave the fold without data
+  to apply an update to. With a snapshot first, the fold is
+  `(data: A, update: U) => A`, with no `Option`. A source that only streams
+  uses `initialData`, or a `run` that returns an empty value.
+- If the fetch fails, the buffer is dropped. The next successful fetch is the
+  new base.
+
+**When the stream stops.** When the last observer leaves, after a short grace
+period so that a remount (or React's StrictMode) does not reconnect. It does
+not wait for `gcTime`: RTKQ keeps the connection until the cache entry is
+removed, which here would mean an open socket for five minutes that nobody
+reads. Because updates are missed from then on, stopping marks the entry as
+invalidated, so the next observer refetches whatever the `staleTime`.
+
+**A refetch while the stream runs.** The snapshot replaces the data, and the
+updates received during the fetch are applied again on top of it:
+
+1. While the fetch runs, each update is applied to the current data at once,
+   so the UI stays live, and is also recorded.
+2. When the snapshot arrives, it becomes the data, the recorded updates are
+   applied to it in order, and the record is cleared.
+
+The snapshot may already contain a recorded update, so **the fold must be
+idempotent**: insert or replace by id, never append. This is the one rule
+users have to know, and the alternative (sequence numbers that say which
+updates a snapshot includes) would put knowledge of the protocol into the
+library.
+
+Everything else keeps working as it does now:
+
+- `invalidates`, `setQueryData` and optimistic updates are unchanged. The
+  fold always runs on the data currently in the cache, so they compose with
+  the stream. `cancelQueries` interrupts the fetch, not the stream.
+- Staleness is unchanged. The docs should advise `staleTime: "Infinity"` for
+  streamed queries, so that mounting and window focus do not refetch what the
+  stream already delivers.
+- Each update sets `dataUpdatedAt` and goes through structural sharing.
+- The library reconnects, with a `retry` `Schedule` in the stream's options
+  (exponential backoff by default, without a limit while the entry is
+  observed). Users should not use `Stream.retry` for this, because the
+  library has to see each reconnect: updates were missed, so it invalidates
+  the entry and fetches a new snapshot. The same happens when the stream
+  resumes after being paused offline (`networkMode`, `OnlineManager`).
+
+**How failures show.** Apart from the query's `status` and `error`, in two new
+fields of the result: `streamStatus` (`"idle"`, `"connecting"`,
+`"connected"`, `"reconnecting"` or `"closed"`) and
+`streamError: Option<E2>`.
+
+- Putting stream failures in `error` would widen its type to `E | E2`, set
+  `isError`, and trigger `throwOnError` and error boundaries while the data
+  is still good. A failed refetch already keeps the previous data; a failed
+  stream is a weaker failure than that, since the data is valid and at worst
+  behind.
+- While reconnecting: `"reconnecting"`, the data stays, and `streamError`
+  holds the last failure.
+- When the retries are used up: `"closed"`, `streamError` stays, and the
+  entry is invalidated. From then on it behaves as a query without a stream:
+  the usual refetch triggers and `refetchInterval` apply.
+- When the stream ends without a failure: `"closed"`, no error, no restart.
+- A defect in the stream or the fold is thrown, like defects elsewhere.
+- With tracked properties, a component that does not read `streamStatus`
+  does not re-render when the stream reconnects.
+
+**Trade-offs.**
+
+- The idempotent fold is the main way to get this wrong. It needs a clear
+  explanation and an example in the guide.
+- The buffer before the first fetch is unbounded. In practice it holds a few
+  seconds of updates; a limit can be added later.
+- The stream runs with the client runtime's services only, like a background
+  refetch. It cannot use services provided by a caller.
 
 ### 2. Tags derived from the result
 
