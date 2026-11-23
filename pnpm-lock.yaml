@@ -168,14 +168,14 @@ catalogs:
       specifier: ^3.0.3
       version: 3.0.3
     '@effect/atom-react':
-      specifier: ^4.1.4
-      version: 4.1.4
+      specifier: ^4.1.5
+      version: 4.1.5
     '@effect/language-service':
       specifier: ^0.87.5
       version: 0.87.5
     '@effect/vitest':
-      specifier: ^4.1.4
-      version: 4.1.4
+      specifier: ^4.1.5
+      version: 4.1.5
     '@stylistic/eslint-plugin':
       specifier: ^5.10.0
       version: 5.10.0
@@ -198,8 +198,8 @@ catalogs:
       specifier: 5.1.0
       version: 5.1.0
     effect:
-      specifier: ^4.1.4
-      version: 4.1.4
+      specifier: ^4.1.5
+      version: 4.1.5
     happy-dom:
       specifier: ^21.0.4
       version: 21.0.4
@@ -267,10 +267,10 @@ importers:
         version: link:../../packages/react
       '@effect/atom-react':
         specifier: 'catalog:'
-        version: 4.1.4(effect@4.1.4)(react@19.3.1)(scheduler@0.27.0)
+        version: 4.1.5(effect@4.1.5)(react@19.3.1)(scheduler@0.27.0)
       effect:
         specifier: 'catalog:'
-        version: 4.1.4
+        version: 4.1.5
       react:
         specifier: 'catalog:'
         version: 19.3.1
@@ -283,7 +283,7 @@ importers:
     devDependencies:
       '@effect/vitest':
         specifier: 'catalog:'
-        version: 4.1.4(effect@4.1.4)(vitest@5.1.0)
+        version: 4.1.5(effect@4.1.5)(vitest@5.1.0)
       '@testing-library/react':
         specifier: 'catalog:'
         version: 16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
@@ -325,10 +325,10 @@ importers:
         version: link:../../packages/react
       '@effect/atom-react':
         specifier: 'catalog:'
-        version: 4.1.4(effect@4.1.4)(react@19.3.1)(scheduler@0.27.0)
+        version: 4.1.5(effect@4.1.5)(react@19.3.1)(scheduler@0.27.0)
       effect:
         specifier: 'catalog:'
-        version: 4.1.4
+        version: 4.1.5
       react:
         specifier: 'catalog:'
         version: 19.3.1
@@ -374,10 +374,10 @@ importers:
         version: link:../react
       '@effect/atom-react':
         specifier: 'catalog:'
-        version: 4.1.4(effect@4.1.4)(react@19.3.1)(scheduler@0.27.0)
+        version: 4.1.5(effect@4.1.5)(react@19.3.1)(scheduler@0.27.0)
       '@effect/vitest':
         specifier: 'catalog:'
-        version: 4.1.4(effect@4.1.4)(vitest@5.1.0)
+        version: 4.1.5(effect@4.1.5)(vitest@5.1.0)
       '@testing-library/react':
         specifier: 'catalog:'
         version: 16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
@@ -392,7 +392,7 @@ importers:
         version: 5.1.0(@vitest/browser@5.1.0)(vitest@5.1.0)
       effect:
         specifier: 'catalog:'
-        version: 4.1.4
+        version: 4.1.5
       happy-dom:
         specifier: 'catalog:'
         version: 21.0.4
@@ -416,13 +416,13 @@ importers:
     devDependencies:
       '@effect/vitest':
         specifier: 'catalog:'
-        version: 4.1.4(effect@4.1.4)(vitest@5.1.0)
+        version: 4.1.5(effect@4.1.5)(vitest@5.1.0)
       '@vitest/coverage-v8':
         specifier: 'catalog:'
         version: 5.1.0(@vitest/browser@5.1.0)(vitest@5.1.0)
       effect:
         specifier: 'catalog:'
-        version: 4.1.4
+        version: 4.1.5
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
@@ -438,10 +438,10 @@ importers:
     devDependencies:
       '@effect/atom-react':
         specifier: 'catalog:'
-        version: 4.1.4(effect@4.1.4)(react@19.3.1)(scheduler@0.27.0)
+        version: 4.1.5(effect@4.1.5)(react@19.3.1)(scheduler@0.27.0)
       '@effect/vitest':
         specifier: 'catalog:'
-        version: 4.1.4(effect@4.1.4)(vitest@5.1.0)
+        version: 4.1.5(effect@4.1.5)(vitest@5.1.0)
       '@testing-library/react':
         specifier: 'catalog:'
         version: 16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
@@ -456,7 +456,7 @@ importers:
         version: 5.1.0(@vitest/browser@5.1.0)(vitest@5.1.0)
       effect:
         specifier: 'catalog:'
-        version: 4.1.4
+        version: 4.1.5
       happy-dom:
         specifier: 'catalog:'
         version: 21.0.4
@@ -594,10 +594,10 @@ packages:
   '@docsearch/sidepanel-js@4.7.1':
     resolution: {integrity: sha512-uyOKbC6rjHCZBVbLCSZVb1NDWzjbD27WqxTuRYnkTW717laEj2dX+W8Ho1fNHSyG4dqssIlPWlXdg+McGxxxxg==}
 
-  '@effect/atom-react@4.1.4':
-    resolution: {integrity: sha512-Xj58DcAzKsysHhzBCPaz2v1QAJq6NvMdGVmG7SV4zkw1RMiTZv8gaOXA1VqIRlpmvdspMwRe/BQ4eayuzRZTpQ==}
+  '@effect/atom-react@4.1.5':
+    resolution: {integrity: sha512-7bFJUOa4hatIE4LD4EmuOSS7+jNniZxaltX3TRExBCYAFqMd6vjZs9G/Ez3u24oUaJnkschmjfG3EwVzzebgig==}
     peerDependencies:
-      effect: ^4.1.4
+      effect: ^4.1.5
       react: '>=19.0.0 <20.0.0'
       scheduler: '>=0.25.0 <0.29.0'
 
@@ -605,10 +605,10 @@ packages:
     resolution: {integrity: sha512-np/zJgk71/PyHxtoqyUKLYcpQhoRBI+L6+1Z0ILk35JSQ/lvXzwlwOwddYZLDkeC4bdF2ukKekqKlla/F88R5w==}
     hasBin: true
 
-  '@effect/vitest@4.1.4':
-    resolution: {integrity: sha512-AKpZ6zKihCRhY7hDbiQ2yp/krw+afIkxDRjFMwwzMiyhd0iYk0WaHa9J6GGC7TUF/C7HP2dZyMVq5xC0Qm/2/g==}
+  '@effect/vitest@4.1.5':
+    resolution: {integrity: sha512-18u1013wkJtSelk1ZYLc/5aUnluTQyDfi2hAemkJW1GQ9qXw4mtPSiSf0AXZPhesmGCvG1Dk2C4JYD2sz+R72w==}
     peerDependencies:
-      effect: ^4.1.4
+      effect: ^4.1.5
       vitest: '>=5.0.0 <6.0.0'
 
   '@eslint-community/eslint-utils@4.10.1':
@@ -1713,8 +1713,8 @@ packages:
   dom-accessibility-api@0.5.16:
     resolution: {integrity: sha512-X7BJ2yElsnOJ30pZF4uIIDfBEVgF4XEBxL9Bxhy6dnrm5hkzqmsWHGTiHqRiITNhMyFLyAiWndIJP7Z1NTteDg==}
 
-  effect@4.1.4:
-    resolution: {integrity: sha512-Tgrv/9FN+TZYyOn8XSli+fVqAfwDrDAkiX5Uu9vztINb675VTQdhD0gWI5Kzvhlh9QqzjZvw72iugqw5pwoghQ==}
+  effect@4.1.5:
+    resolution: {integrity: sha512-xyR20KhQI0vg2gD8ILUSQRTTESEYJ0JKdP+QD8J37xbwPTqXRxFM/l0+vUVD9fuSvoYruoTqyt33C4FZv1s4TQ==}
 
   entities@7.0.1:
     resolution: {integrity: sha512-TWrgLOFUQTH994YUyl1yT4uyavY5nNB5muff+RtWaqNVCAK408b5ZnnbNAUEWLTCpum9w6arT70i1XdQ4UeOPA==}
@@ -2586,17 +2586,17 @@ snapshots:
 
   '@docsearch/sidepanel-js@4.7.1': {}
 
-  '@effect/atom-react@4.1.4(effect@4.1.4)(react@19.3.1)(scheduler@0.27.0)':
+  '@effect/atom-react@4.1.5(effect@4.1.5)(react@19.3.1)(scheduler@0.27.0)':
     dependencies:
-      effect: 4.1.4
+      effect: 4.1.5
       react: 19.3.1
       scheduler: 0.27.0
 
   '@effect/language-service@0.87.5': {}
 
-  '@effect/vitest@4.1.4(effect@4.1.4)(vitest@5.1.0)':
+  '@effect/vitest@4.1.5(effect@4.1.5)(vitest@5.1.0)':
     dependencies:
-      effect: 4.1.4
+      effect: 4.1.5
       vitest: 5.1.0(@types/node@24.19.2)(@vitest/browser-preview@5.1.0)(@vitest/coverage-v8@5.1.0)(@vitest/ui@5.1.0)(@voidzero-dev/vite-plus-core@1.6.0(@types/node@24.19.2)(typescript@7.0.2)(yaml@2.9.1))(happy-dom@21.0.4)
 
   '@eslint-community/eslint-utils@4.10.1(eslint@10.15.0)':
@@ -3384,7 +3384,7 @@ snapshots:
 
   dom-accessibility-api@0.5.16: {}
 
-  effect@4.1.4: {}
+  effect@4.1.5: {}
 
   entities@7.0.1: {}
 
