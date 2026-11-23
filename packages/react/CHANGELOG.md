@@ -1,5 +1,46 @@
 # @effect-atom-query/react
 
+## 1.4.0
+
+### Minor Changes
+
+- f051723: Raise the minimum supported Effect and @effect/atom-react versions to 4.1.5.
+- e3785cb: Request options without a new query key. `Query.FetchAttempt` tells a query's `run` which attempt is running (`0`, then `1`, `2`, … on retries), for example to bypass an HTTP cache when retrying. `refetchQueries`, `invalidateQueries` and `resetQueries` now run the fetches they start with the caller's services, as `fetchQuery` already did, so request options can be provided as services (`Effect.provideService`) while the cache entry stays the same. A mutation's `invalidates` refetches with the services of its `mutate` call.
+- d4b523d: - New `useQueryClientOption()` in the react package: the provider's client as an `Option`, `None` outside a provider. The devtools use it instead of catching the error of `useQueryClient`.
+  - Persisted data and mutation variables are stored as `JSON.stringify` writes them, whatever the schema. A value it cannot write (a bigint, a cycle) skips only that query or mutation, with one warning naming its key. An `undefined` field no longer keeps Standard Schema data from being persisted.
+  - `QueryClientProvider` with its own `registry`: unmounting while a query atom is still mounted elsewhere no longer raises an uncaught `MissingQueryClientError`, and a disposed registry is no longer recognised by its error message.
+  - A mutation state without the data or cause it should have is reported as a defect instead of being skipped or shown as a success.
+  - Labels of keys whose parts cannot be turned into a string no longer throw.
+
+### Patch Changes
+
+- 9b117f4: Docs: the `refetch` JSDoc explains how to wait for a refetch. The guides gain "Waiting for a refetch", "Request options without a new key", and a getting-started guide that covers loading, typed failures, failures with old data, empty results, retry, a shared registry and testing with `makeTestHarness`.
+- b282614: Internal: Effect functions use `Effect.fnUntraced`, resuming paused mutations after a restore uses `Effect.forkDetach`, and `useRunEffect` runs Effects through the client's `runPromiseExit` instead of a hand-built Promise. No behavior change.
+- 30c8c63: Keys JSON cannot hold no longer throw outside persistence:
+
+  - `Mutation.make` with such a key no longer throws while building its label.
+  - The "has no `run`" defect messages no longer throw while formatting the key.
+  - Persisted storage that cannot be read now logs a warning instead of being ignored silently.
+  - The devtools "ago" labels use the client's clock, so they agree with the snapshot times under a `TestClock`.
+
+- 774cb92: Docs: the README example matches on query outcomes with `QueryResult.match` instead of checking `isPending` / `isError` / `isSuccess` with `if`s.
+- 027d933: Fix persistence stopping on data that is not JSON, and stop hiding unexpected errors:
+
+  - A query whose persisted data JSON cannot hold (a `bigint`, a cycle) is now skipped. Before, it made the whole snapshot fail to encode, which killed the persister's write and stopped all persisting.
+  - `QueryClientProvider` no longer swallows errors thrown while unbinding the client, other than the ones unbinding is expected to cause.
+  - The devtools only treat a missing `QueryClientProvider` as "no client".
+
+- 243c860: `queryHookResult` and `mutationHookResult` accept `undefined` for an override (with `exactOptionalPropertyTypes`) and then keep the default no-op, instead of copying `undefined` over it.
+- Updated dependencies [f051723]
+- Updated dependencies [b282614]
+- Updated dependencies [e3785cb]
+- Updated dependencies [7122f2f]
+- Updated dependencies [30c8c63]
+- Updated dependencies [027d933]
+- Updated dependencies [d4b523d]
+- Updated dependencies [eb50a97]
+  - @effect-atom-query/query@1.4.0
+
 ## 1.4.0-next.3
 
 ### Minor Changes

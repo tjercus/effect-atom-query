@@ -1,5 +1,39 @@
 # @effect-atom-query/query
 
+## 1.4.0
+
+### Minor Changes
+
+- f051723: Raise the minimum supported Effect and @effect/atom-react versions to 4.1.5.
+- e3785cb: Request options without a new query key. `Query.FetchAttempt` tells a query's `run` which attempt is running (`0`, then `1`, `2`, … on retries), for example to bypass an HTTP cache when retrying. `refetchQueries`, `invalidateQueries` and `resetQueries` now run the fetches they start with the caller's services, as `fetchQuery` already did, so request options can be provided as services (`Effect.provideService`) while the cache entry stays the same. A mutation's `invalidates` refetches with the services of its `mutate` call.
+
+### Patch Changes
+
+- b282614: Internal: Effect functions use `Effect.fnUntraced`, resuming paused mutations after a restore uses `Effect.forkDetach`, and `useRunEffect` runs Effects through the client's `runPromiseExit` instead of a hand-built Promise. No behavior change.
+- 7122f2f: Internal: persisted infinite query data is checked with a `Schema` instead of by hand. No behavior change.
+- 30c8c63: Keys JSON cannot hold no longer throw outside persistence:
+
+  - `Mutation.make` with such a key no longer throws while building its label.
+  - The "has no `run`" defect messages no longer throw while formatting the key.
+  - Persisted storage that cannot be read now logs a warning instead of being ignored silently.
+  - The devtools "ago" labels use the client's clock, so they agree with the snapshot times under a `TestClock`.
+
+- 027d933: Fix persistence stopping on data that is not JSON, and stop hiding unexpected errors:
+
+  - A query whose persisted data JSON cannot hold (a `bigint`, a cycle) is now skipped. Before, it made the whole snapshot fail to encode, which killed the persister's write and stopped all persisting.
+  - `QueryClientProvider` no longer swallows errors thrown while unbinding the client, other than the ones unbinding is expected to cause.
+  - The devtools only treat a missing `QueryClientProvider` as "no client".
+
+- d4b523d: - New `useQueryClientOption()` in the react package: the provider's client as an `Option`, `None` outside a provider. The devtools use it instead of catching the error of `useQueryClient`.
+  - Persisted data and mutation variables are stored as `JSON.stringify` writes them, whatever the schema. A value it cannot write (a bigint, a cycle) skips only that query or mutation, with one warning naming its key. An `undefined` field no longer keeps Standard Schema data from being persisted.
+  - `QueryClientProvider` with its own `registry`: unmounting while a query atom is still mounted elsewhere no longer raises an uncaught `MissingQueryClientError`, and a disposed registry is no longer recognised by its error message.
+  - A mutation state without the data or cause it should have is reported as a defect instead of being skipped or shown as a success.
+  - Labels of keys whose parts cannot be turned into a string no longer throw.
+- eb50a97: Persistence no longer crashes or silently hides bugs on data it cannot store:
+
+  - A persisted query whose key JSON cannot hold (a cycle, a throwing `toJSON`) no longer throws when its atom is mounted; it is simply not persisted.
+  - A persist schema whose transform or validator throws is now reported once with `console.warn`; the value is still skipped. Data the schema rejects is skipped without a warning, as before.
+
 ## 1.4.0-next.3
 
 ### Minor Changes
