@@ -1,5 +1,11 @@
 # @effect-atom-query/query
 
+## 1.4.0-next.3
+
+### Minor Changes
+
+- f051723: Raise the minimum supported Effect and @effect/atom-react versions to 4.1.5.
+
 ## 1.4.0-next.2
 
 ### Minor Changes
