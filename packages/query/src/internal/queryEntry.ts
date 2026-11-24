@@ -420,6 +420,8 @@ export class QueryEntry<A, E> {
    * stays invalidated.
    */
   private streamOutdatedFetch = false;
+  /** The services the running fetch was started with (`fetchQuery`'s caller). */
+  private fetchContext: Context.Context<any> | undefined;
 
   readonly key: QueryKey.QueryKey;
   descriptor: QueryDescriptor<A, E, any>;
@@ -501,15 +503,19 @@ export class QueryEntry<A, E> {
   /** Restoring finished: claim data, then do the mount fetches that were held back. */
   onRestored(): void {
     this.claimPersisted();
-    if (this.state.fetchStatus !== "idle") {
-      return;
-    }
+    // The stream was held back as well: restored data is from before it.
     for (const record of this.records) {
-      if (this.shouldFetchOnMount(record.options)) {
-        this.fetch();
-        return;
+      this.invalidateBeforeStream(record.options);
+    }
+    if (this.state.fetchStatus === "idle") {
+      for (const record of this.records) {
+        if (this.shouldFetchOnMount(record.options)) {
+          this.fetch();
+          break;
+        }
       }
     }
+    this.syncStream();
   }
 
   /** Re-resolve options, e.g. after `setQueryDefaults`. */
@@ -1000,6 +1006,7 @@ export class QueryEntry<A, E> {
     }
 
     const id = ++this.fetchId;
+    this.fetchContext = options?.context;
     this.fetchStartedAt = this.runtime.now();
     this.revertState = this.state;
     this.revertOnInterrupt = false;
@@ -1092,6 +1099,7 @@ export class QueryEntry<A, E> {
       return;
     }
     this.fetchFiber = undefined;
+    this.fetchContext = undefined;
     // Recorded updates were for this fetch; a success has applied them.
     this.streamRecord = [];
     const outdated = this.streamOutdatedFetch;
@@ -1193,6 +1201,11 @@ export class QueryEntry<A, E> {
       return;
     }
     const stream = this.descriptor.stream;
+    if (!this.streamStarted && this.runtime.restoring.isRestoring()) {
+      // Mount fetches are held back while a persister restores, so there is
+      // no data and no fetch to give updates to. `onRestored` starts it.
+      return;
+    }
     if (stream !== undefined && this.isActive) {
       this.streamStopFiber?.interruptUnsafe();
       this.streamStopFiber = undefined;
@@ -1272,10 +1285,12 @@ export class QueryEntry<A, E> {
     if (this.streamMissedUpdates) {
       // The stream works again after a failure: fetch what it missed. A
       // running fetch may be from before that, so it is replaced, also the
-      // first one. This update is recorded for the new fetch like any other.
+      // first one, with the services it was started with: its caller follows
+      // the replacement. This update is recorded for the new fetch like any other.
       this.streamMissedUpdates = false;
       if (this.isActive && this.options.staleTime !== "static") {
-        this.startFetch({ cancelRefetch: true }, true);
+        const context = this.fetchFiber === undefined ? undefined : this.fetchContext;
+        this.startFetch({ cancelRefetch: true, context }, true);
       }
     }
     const s = this.state;
@@ -1349,6 +1364,11 @@ export class QueryEntry<A, E> {
   private invalidateByStream(): void {
     if (this.state.fetchStatus !== "idle") {
       this.streamOutdatedFetch = true;
+      // A cancelled fetch goes back to the state from before it, which
+      // misses the same updates.
+      if (this.revertState !== undefined) {
+        this.revertState = { ...this.revertState, isInvalidated: true };
+      }
     }
     this.invalidate();
   }

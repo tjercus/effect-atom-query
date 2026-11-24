@@ -719,6 +719,73 @@ describe("stream: failures", () => {
     }),
   );
 
+  it.effect("keeps the data invalidated when the fetch was still waiting for the network", () =>
+    Effect.gen(function* () {
+      const { client, registry, online } = yield* setup();
+      const source = makeSource<Item>();
+      const q = Query.single({
+        key: ["live-closed-while-paused"],
+        run: Effect.succeed<ReadonlyArray<Item>>([item(1)]).pipe(Effect.delay("1 second")),
+        stream: { updates: source.updates, apply: upsert, retry: false },
+        staleTime: "Infinity",
+      });
+      registry.mount(q);
+      yield* settle;
+      yield* TestClock.adjust("1 second");
+      yield* settle;
+
+      online.setOnline(false);
+      yield* Effect.forkChild(client.refetchQueries({ queryKey: ["live-closed-while-paused"] }));
+      yield* settle;
+      assert.strictEqual(registry.get(q).fetchStatus, "paused");
+      yield* source.fail("gone");
+      // The request goes out after the failure, and is then cancelled.
+      online.setOnline(true);
+      yield* settle;
+      yield* client.cancelQueries({ queryKey: ["live-closed-while-paused"] });
+      yield* settle;
+      const result = registry.get(q);
+      assert.strictEqual(result.fetchStatus, "idle");
+      assert.isTrue(result.isStale);
+    }),
+  );
+
+  it.effect("replaces a fetchQuery fetch with the services of its caller", () =>
+    Effect.gen(function* () {
+      class Tenant extends Context.Service<Tenant, { readonly id: number }>()("test/Tenant") {}
+      const { client } = yield* setup();
+      const source = makeSource<Item>();
+      const runs = counter();
+      const q = Query.single({
+        key: ["live-caller-services"],
+        run: Effect.gen(function* () {
+          yield* runs.tick;
+          const tenant = yield* Tenant;
+          yield* Effect.sleep("5 seconds");
+          return [item(tenant.id)] as ReadonlyArray<Item>;
+        }),
+        stream: { updates: source.updates, apply: upsert },
+      });
+      const fetched = yield* Effect.forkChild(
+        client.fetchQuery(q).pipe(Effect.provideService(Tenant, { id: 7 })),
+      );
+      yield* settle;
+      // An observer joins that fetch, and starts the stream.
+      QueryObserver.make(client, q).subscribe(() => {});
+      yield* settle;
+      assert.strictEqual(source.state.opened, 1);
+
+      yield* source.fail("connection lost");
+      yield* TestClock.adjust("1 second");
+      yield* settle;
+      yield* source.emit(item(2));
+      assert.strictEqual(runs.count, 2);
+      yield* TestClock.adjust("5 seconds");
+      yield* settle;
+      assert.deepStrictEqual(yield* Fiber.join(fetched), [item(7), item(2)]);
+    }),
+  );
+
   it.effect("applies recorded updates to a fetch that outlasts the stream", () =>
     Effect.gen(function* () {
       const { client, registry } = yield* setup();
@@ -788,6 +855,19 @@ describe("stream: types", () => {
           : undefined,
       });
     expectTypeOf(live).returns.toEqualTypeOf<Query.QueryAtom<number, never, Socket>>();
+  });
+
+  it("accepts a definition held in a variable of the definition type", () => {
+    const single = (
+      definition: Query.SingleDefinition<number, "http", Api, number, never, Socket>,
+    ) => Query.single(definition);
+    expectTypeOf(single).returns.toEqualTypeOf<Query.QueryAtom<number, "http", Api | Socket>>();
+    const family = (
+      definition: Query.Definition<string, number, "http", Api, number, never, Socket>,
+    ) => Query.make(definition);
+    expectTypeOf(family).returns.toEqualTypeOf<
+      Query.QueryFamily<string, number, "http", Api | Socket>
+    >();
   });
 
   it("leaves a query without a stream as it was, also as an argument", () => {

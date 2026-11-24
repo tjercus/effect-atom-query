@@ -379,6 +379,11 @@ export const make: {
     definition: Definition<Arg, A, E, R> & { readonly initialData: (arg: Arg) => A },
   ): QueryFamily<Arg, A, E, R, DefinedQueryAtom<A, E, R>>;
   <Arg, A, E = never, R = never>(definition: Definition<Arg, A, E, R>): QueryFamily<Arg, A, E, R>;
+  // A definition held in a variable of the definition type: whether it has a
+  // stream or initial data is not known.
+  <Arg, A, E = never, R = never, U = never, SE = never, SR = never>(
+    definition: Definition<Arg, A, E, R, U, SE, SR>,
+  ): QueryFamily<Arg, A, E, R | SR>;
 } = (<Arg, A, E = never, R = never>(
   definition: Definition<Arg, A, E, R, any, any, R>,
 ): QueryFamily<Arg, A, E, R> => {
@@ -432,6 +437,10 @@ export const single: {
     definition: SingleDefinition<A, E, R> & { readonly initialData: () => A },
   ): DefinedQueryAtom<A, E, R>;
   <A, E = never, R = never>(definition: SingleDefinition<A, E, R>): QueryAtom<A, E, R>;
+  // A definition held in a variable of the definition type: see `make`.
+  <A, E = never, R = never, U = never, SE = never, SR = never>(
+    definition: SingleDefinition<A, E, R, U, SE, SR>,
+  ): QueryAtom<A, E, R | SR>;
 } = (<A, E = never, R = never>(
   definition: SingleDefinition<A, E, R, any, any, R>,
 ): QueryAtom<A, E, R> => {

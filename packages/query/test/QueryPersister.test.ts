@@ -1,6 +1,6 @@
 import { assert, describe, it } from "@effect/vitest";
 import { vi } from "vite-plus/test";
-import { DateTime, Effect, Exit, Layer, Option, Schema, Scope } from "effect";
+import { DateTime, Effect, Exit, Layer, Option, Schema, Scope, Stream } from "effect";
 import { KeyValueStore } from "effect/persistence";
 import { AtomRegistry } from "effect/reactivity";
 import { TestClock } from "effect/testing";
@@ -194,6 +194,46 @@ describe("QueryPersister", () => {
         Option.some("todo 1"),
       );
       assert.strictEqual(runs.count, 0);
+    }).pipe(Effect.provide(KeyValueStore.layerMemory)),
+  );
+
+  it.effect("starts a stream after a background restore, and refetches restored data", () =>
+    Effect.gen(function* () {
+      const live = (runs: ReturnType<typeof counter>, state: { opened: number }) =>
+        Query.single({
+          key: ["live-restored"],
+          run: runs.tick,
+          stream: {
+            updates: Stream.unwrap(
+              Effect.sync(() => {
+                state.opened++;
+                return Stream.never as Stream.Stream<number>;
+              }),
+            ),
+            apply: Math.max,
+          },
+          staleTime: "Infinity",
+          persist: { schema: Schema.Number },
+        });
+      const a = yield* persistedClient();
+      a.registry.mount(live(counter(), { opened: 0 }));
+      yield* settle;
+      yield* a.close;
+
+      const runs = counter();
+      const state = { opened: 0 };
+      const b = yield* persistedClient({ restore: "background" });
+      assert.isTrue(yield* b.client.isRestoring);
+      const q = live(runs, state);
+      b.registry.mount(q);
+      // Held back: there is no data and no fetch to give updates to.
+      assert.strictEqual(state.opened, 0);
+      yield* settle;
+      assert.isFalse(yield* b.client.isRestoring);
+      assert.strictEqual(state.opened, 1);
+      // The restored data is from before the stream, whatever its `staleTime`.
+      assert.strictEqual(runs.count, 1);
+      assert.strictEqual(b.registry.get(q).streamStatus, "open");
     }).pipe(Effect.provide(KeyValueStore.layerMemory)),
   );
 
