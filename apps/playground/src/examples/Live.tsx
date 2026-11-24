@@ -73,7 +73,7 @@ function QuoteTable() {
       {Option.match(quotes.data, {
         onNone: () => null,
         onSome: (list) => (
-          <table>
+          <table className="quotes">
             <thead>
               <tr>
                 <th align="left">Symbol</th>
@@ -137,7 +137,11 @@ export const example: Example = {
   id: "live",
   title: "Live updates (WebSocket)",
   tanstack: "none",
-  description:
-    "A snapshot over HTTP kept current by a WebSocket: `stream` on the query, with reconnecting.",
+  description: (
+    <>
+      A snapshot over HTTP kept current by a WebSocket: <code>stream</code> on the query, with
+      reconnecting.
+    </>
+  ),
   Component: Live,
 };
