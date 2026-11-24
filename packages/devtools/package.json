@@ -1,6 +1,6 @@
 {
   "name": "@effect-atom-query/devtools",
-  "version": "1.4.0",
+  "version": "1.5.0-next.0",
   "description": "In-app devtools panel for @effect-atom-query (query and mutation cache inspector).",
   "keywords": [
     "devtools",
