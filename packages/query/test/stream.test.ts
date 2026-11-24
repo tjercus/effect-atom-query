@@ -65,7 +65,7 @@ describe("stream: applying updates", () => {
       });
       registry.mount(q);
       yield* settle;
-      assert.strictEqual(registry.get(q).streamStatus, "open");
+      assert.strictEqual(registry.get(q).stream?.status, "open");
       assert.strictEqual(source.state.opened, 1);
 
       yield* source.emit(item(2));
@@ -211,7 +211,7 @@ describe("stream: applying updates", () => {
       const result = registry.get(q);
       assert.isFalse(result.isFetching);
       assert.deepStrictEqual(Option.getOrThrow(result.data), [item(1), item(2)]);
-      assert.strictEqual(result.streamStatus, "open");
+      assert.strictEqual(result.stream?.status, "open");
     }),
   );
 
@@ -230,7 +230,7 @@ describe("stream: applying updates", () => {
 
       yield* client.resetQueries({ queryKey: ["live-reset"] });
       yield* settle;
-      assert.strictEqual(registry.get(q).streamStatus, "open");
+      assert.strictEqual(registry.get(q).stream?.status, "open");
       assert.strictEqual(source.state.opened, 1);
       assert.deepStrictEqual(Option.getOrThrow(registry.get(q).data), [item(1)]);
       yield* source.emit(item(3));
@@ -316,7 +316,7 @@ describe("stream: lifetime", () => {
       observer.setOptions(definition(true));
       yield* settle;
       assert.strictEqual(source.state.opened, 1);
-      assert.strictEqual(observer.getCurrentResult().streamStatus, "open");
+      assert.strictEqual(observer.getCurrentResult().stream?.status, "open");
       // The data from before the stream is refetched.
       assert.strictEqual(runs.count, 2);
 
@@ -372,7 +372,7 @@ describe("stream: lifetime", () => {
       yield* settle;
       assert.deepStrictEqual(source.state, { opened: 1, closed: 1 });
       const state = Option.getOrThrow(yield* client.getQueryState(q));
-      assert.strictEqual(state.streamStatus, "idle");
+      assert.strictEqual(state.stream?.status, "idle");
       assert.isTrue(state.isStale);
 
       // The next observer refetches, although the data would never go stale by time.
@@ -457,7 +457,7 @@ describe("stream: lifetime", () => {
       yield* client.prefetchQuery(live());
       yield* settle;
       assert.deepStrictEqual(source.state, { opened: 2, closed: 1 });
-      assert.strictEqual(registry.get(q).streamStatus, "open");
+      assert.strictEqual(registry.get(q).stream?.status, "open");
       assert.isFalse(registry.get(q).isStale);
     }),
   );
@@ -499,8 +499,8 @@ describe("stream: failures", () => {
 
       yield* source.fail("connection lost");
       const failed = registry.get(q);
-      assert.strictEqual(failed.streamStatus, "reconnecting");
-      assert.deepStrictEqual(failed.streamError, Option.some("connection lost"));
+      assert.strictEqual(failed.stream?.status, "reconnecting");
+      assert.deepStrictEqual(failed.stream?.error, Option.some("connection lost"));
       // The query itself is untouched: the data is valid, at worst behind.
       assert.strictEqual(failed.status, "success");
       assert.isTrue(Option.isNone(failed.error));
@@ -515,14 +515,14 @@ describe("stream: failures", () => {
       yield* settle;
       assert.strictEqual(source.state.opened, 2);
       assert.strictEqual(runs.count, 1);
-      assert.strictEqual(registry.get(q).streamStatus, "reconnecting");
+      assert.strictEqual(registry.get(q).stream?.status, "reconnecting");
 
       // The first update shows that the stream works again: now it refetches.
       yield* source.emit(item(2));
       const recovered = registry.get(q);
       assert.strictEqual(runs.count, 2);
-      assert.strictEqual(recovered.streamStatus, "open");
-      assert.isTrue(Option.isNone(recovered.streamError));
+      assert.strictEqual(recovered.stream?.status, "open");
+      assert.deepStrictEqual(recovered.stream?.error, Option.none());
       assert.isFalse(recovered.isStale);
       assert.deepStrictEqual(Option.getOrThrow(recovered.data), [item(1), item(2)]);
     }),
@@ -542,8 +542,8 @@ describe("stream: failures", () => {
       yield* settle;
       yield* source.fail("gone");
       const result = registry.get(q);
-      assert.strictEqual(result.streamStatus, "closed");
-      assert.deepStrictEqual(result.streamError, Option.some("gone"));
+      assert.strictEqual(result.stream?.status, "closed");
+      assert.deepStrictEqual(result.stream?.error, Option.some("gone"));
       assert.strictEqual(result.status, "success");
       assert.isTrue(result.isStale);
     }),
@@ -561,13 +561,13 @@ describe("stream: failures", () => {
       registry.mount(q);
       yield* settle;
       yield* source.fail("gone");
-      assert.strictEqual(registry.get(q).streamStatus, "closed");
+      assert.strictEqual(registry.get(q).stream?.status, "closed");
 
       yield* client.resetQueries({ queryKey: ["live-reopened"] });
       yield* settle;
       const result = registry.get(q);
-      assert.strictEqual(result.streamStatus, "open");
-      assert.isTrue(Option.isNone(result.streamError));
+      assert.strictEqual(result.stream?.status, "open");
+      assert.deepStrictEqual(result.stream?.error, Option.none());
       assert.strictEqual(source.state.opened, 2);
       yield* source.emit(item(2));
       assert.deepStrictEqual(Option.getOrThrow(registry.get(q).data), [item(1), item(2)]);
@@ -588,8 +588,8 @@ describe("stream: failures", () => {
       yield* settle;
       yield* source.end;
       const result = registry.get(q);
-      assert.strictEqual(result.streamStatus, "closed");
-      assert.isTrue(Option.isNone(result.streamError));
+      assert.strictEqual(result.stream?.status, "closed");
+      assert.deepStrictEqual(result.stream?.error, Option.none());
       // No updates arrive any more, so the data is behind from here on.
       assert.isTrue(result.isStale);
       yield* TestClock.adjust("1 minute");
@@ -609,9 +609,9 @@ describe("stream: failures", () => {
       yield* settle;
       const result = registry.get(q);
       assert.isTrue(QueryResult.isDefect(result));
-      assert.strictEqual(result.streamStatus, "closed");
+      assert.strictEqual(result.stream?.status, "closed");
       yield* TestClock.adjust("1 minute");
-      assert.strictEqual(registry.get(q).streamStatus, "closed");
+      assert.strictEqual(registry.get(q).stream?.status, "closed");
     }),
   );
 
@@ -637,7 +637,7 @@ describe("stream: failures", () => {
       yield* source.emit(item(-1));
       const result = registry.get(q);
       assert.isTrue(QueryResult.isDefect(result));
-      assert.strictEqual(result.streamStatus, "closed");
+      assert.strictEqual(result.stream?.status, "closed");
       assert.deepStrictEqual(Option.getOrThrow(result.data), [item(1)]);
     }),
   );
@@ -757,7 +757,7 @@ describe("stream: failures", () => {
       yield* settle;
       const result = registry.get(q);
       assert.strictEqual(result.status, "success");
-      assert.strictEqual(result.streamStatus, "closed");
+      assert.strictEqual(result.stream?.status, "closed");
       // The fetch may be from before the failure: it does not make up for it.
       assert.isTrue(result.isStale);
     }),
@@ -1229,7 +1229,7 @@ describe("stream: failures", () => {
       yield* client.refetchQueries({ queryKey: ["live-defect-stale"] });
       const result = registry.get(q);
       assert.strictEqual(result.status, "success");
-      assert.strictEqual(result.streamStatus, "closed");
+      assert.strictEqual(result.stream?.status, "closed");
       assert.isTrue(result.isStale);
     }),
   );
@@ -1248,11 +1248,11 @@ describe("stream: failures", () => {
       });
       registry.mount(q);
       yield* settle;
-      assert.strictEqual(registry.get(q).streamStatus, "open");
+      assert.strictEqual(registry.get(q).stream?.status, "open");
       yield* TestClock.adjust("1 second");
       yield* settle;
       const result = registry.get(q);
-      assert.strictEqual(result.streamStatus, "closed");
+      assert.strictEqual(result.stream?.status, "closed");
       assert.isTrue(result.isStale);
     }),
   );
@@ -1359,6 +1359,14 @@ describe("stream: types", () => {
         Api | Socket,
         Query.DefinedQueryAtom<number, "http", Api | Socket>
       >
+    >();
+  });
+
+  it("accepts a result that was built by hand before there were streams", () => {
+    const { stream: _, ...before } = QueryResult.success<number, never>(1);
+    expectTypeOf(before).toExtend<QueryResult.QueryResult<number, never>>();
+    expectTypeOf<QueryResult.QueryResult<number>["stream"]>().toEqualTypeOf<
+      QueryResult.StreamState | undefined
     >();
   });
 

@@ -233,7 +233,7 @@ describe("QueryPersister", () => {
       assert.strictEqual(state.opened, 1);
       // The restored data is from before the stream, whatever its `staleTime`.
       assert.strictEqual(runs.count, 1);
-      assert.strictEqual(b.registry.get(q).streamStatus, "open");
+      assert.strictEqual(b.registry.get(q).stream?.status, "open");
     }).pipe(Effect.provide(KeyValueStore.layerMemory)),
   );
 

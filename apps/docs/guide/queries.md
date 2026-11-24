@@ -328,15 +328,19 @@ work as for any query: `apply` always runs on the data that is in the cache.
 ### When the stream fails
 
 A failing stream does not fail the query. The data is still valid, at worst
-behind, so `status`, `data` and `error` stay as they are. The result has two
-fields for the stream:
+behind, so `status`, `data` and `error` stay as they are. The state of the
+stream is a field of its own on the result:
 
 ```ts
-result.streamStatus; // "idle" | "open" | "reconnecting" | "closed"
-result.streamError; // Option<unknown>: the stream's last failure, until its next update
+result.stream?.status; // "idle" | "open" | "reconnecting" | "closed"
+result.stream?.error; // Option<unknown>: the stream's last failure, until its next update
 ```
 
-| `streamStatus`   | meaning                                                                |
+Results from queries and hooks always have `stream`. The field is optional
+in the type so that results built by hand, in a mock or a story, keep
+type-checking without it; that is why it is read with `?.`.
+
+| `stream.status`  | meaning                                                                |
 | ---------------- | ---------------------------------------------------------------------- |
 | `"idle"`         | not running: the query has no stream, or no enabled observer           |
 | `"open"`         | running, without a failure since it started or since its last update   |
@@ -396,9 +400,9 @@ stream is used again. Share one definition per key.
 :::
 
 The stream runs with the services of the client's runtime, like a background
-refetch. `streamError` is typed `unknown`; narrow it yourself (a
-`Schema.is`, a `_tag` check). Components that do not read `streamStatus` or
-`streamError` do not re-render when the stream reconnects. Infinite queries
+refetch. `stream.error` is typed `unknown`; narrow it yourself (a
+`Schema.is`, a `_tag` check). Components that do not read `stream` do not
+re-render when the stream reconnects. Infinite queries
 do not take a stream.
 
 ## Reading without React

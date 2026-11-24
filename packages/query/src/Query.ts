@@ -214,8 +214,8 @@ export interface QueryFamily<
  * hold a later change of the same item: if updates can arrive late, `apply`
  * should compare versions and ignore an update that is not newer.
  *
- * A failing stream does not fail the query: see `streamStatus` and
- * `streamError` on the result. It is retried with `retry`. A failure marks
+ * A failing stream does not fail the query: see `stream` on the result
+ * (`stream.status`, `stream.error`). It is retried with `retry`. A failure marks
  * the data stale, since updates are missed; it is refetched when the first
  * update after the failure arrives. When the stream stops for lack of
  * observers, or closes, the query is invalidated too, so the next observer

@@ -59,7 +59,7 @@ describe("useQuery with a stream", () => {
       const r = useQuery(q);
       return (
         <p>
-          {Option.getOrElse(r.data, () => 0)} {r.streamStatus}
+          {Option.getOrElse(r.data, () => 0)} {r.stream?.status}
         </p>
       );
     }
@@ -90,7 +90,7 @@ describe("useQuery with a stream", () => {
     const before = renders.count;
     await source.fail("connection lost");
     const state = await Effect.runPromise(client.getQueryState(q));
-    expect(Option.getOrThrow(state).streamStatus).toBe("reconnecting");
+    expect(Option.getOrThrow(state).stream?.status).toBe("reconnecting");
     expect(renders.count).toBe(before);
   });
 });

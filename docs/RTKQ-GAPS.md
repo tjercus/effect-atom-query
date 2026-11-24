@@ -197,12 +197,17 @@ The implementation follows the design, with these differences:
 - **A closed stream starts again** on `resetQueries`, or when observers
   return. `updates` is fixed when the stream starts; `apply` follows the
   latest definition.
-- **Statuses.** `streamStatus` is `"idle"`, `"open"`, `"reconnecting"` or
+- **One optional field.** The result has `stream?: { status, error }`
+  instead of the design's two fields. Adding required fields would break
+  results that are built by hand (mocks, stories) at type level; an optional
+  field does not, and one field is easier to read than two optional ones.
+  Results from queries and hooks always set it.
+- **Statuses.** `stream.status` is `"idle"`, `"open"`, `"reconnecting"` or
   `"closed"`. The design's `"connecting"` and `"connected"` cannot be told
   apart: a `Stream` gives no signal when its connection is established.
   `"open"` means that the stream is running and has not failed since it
   started or since its last update.
-- **`streamError` is `Option<unknown>`**, not `Option<E2>`. A typed error
+- **`stream.error` is `Option<unknown>`**, not `Option<E2>`. A typed error
   needs a third type parameter on `QueryResult`, the query atoms and every
   hook. That can be added later; until then, consumers narrow the value.
 - **Updates without data are only kept while a fetch runs.** With no data and

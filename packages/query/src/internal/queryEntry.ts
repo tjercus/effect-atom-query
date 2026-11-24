@@ -331,10 +331,12 @@ export interface QueryState<A, E> {
   readonly isInvalidated: boolean;
   /** Direction of the running (or last) fetch, for infinite queries. */
   readonly fetchDirection: FetchDirection | undefined;
-  readonly streamStatus: QueryResult.StreamStatus;
-  /** The stream's last failure; cleared by the next update. */
-  readonly streamError: Option.Option<unknown>;
+  /** Replaced only when it changes, so that observers can compare it by identity. */
+  readonly stream: QueryResult.StreamState;
 }
+
+/** The stream state of a query without a stream, or with one that does not run. @internal */
+export const idleStream: QueryResult.StreamState = { status: "idle", error: Option.none() };
 
 /** @internal */
 export const initialState: QueryState<never, never> = {
@@ -351,8 +353,7 @@ export const initialState: QueryState<never, never> = {
   failureReason: Option.none(),
   isInvalidated: false,
   fetchDirection: undefined,
-  streamStatus: "idle",
-  streamError: Option.none(),
+  stream: idleStream,
 };
 
 /** @internal */
@@ -610,14 +611,14 @@ export class QueryEntry<A, E> {
     this.cancelStaleTimer();
     // A stream that ended or gave up starts over. A running one keeps
     // running, so its fields stay.
-    const reopen = this.state.streamStatus === "closed";
+    const reopen = this.state.stream.status === "closed";
     if (reopen) {
       this.interruptStream();
       this.streamStarted = false;
     }
     this.setState((s) => ({
       ...this.initialStateOf(this.descriptor),
-      ...(reopen ? {} : { streamStatus: s.streamStatus, streamError: s.streamError }),
+      ...(reopen ? {} : { stream: s.stream }),
     }));
     this.syncStream();
     // The dropped fetch's exit is ignored, so do here what it would have done.
@@ -1256,7 +1257,7 @@ export class QueryEntry<A, E> {
     this.streamLive = true;
     // Whatever was fetched or is being fetched is from before the stream.
     this.streamGap++;
-    this.patchStream({ streamStatus: "open", streamError: Option.none() });
+    this.patchStream({ status: "open", error: Option.none() });
     // Only marks the data stale: whoever starts the stream fetches as on a
     // mount, and a fetch that is under way comes back here when it is done.
     this.markBehind();
@@ -1274,7 +1275,7 @@ export class QueryEntry<A, E> {
             // refetched once an update shows that the stream works again:
             // refetching on every attempt would fail along with the stream.
             this.streamLive = false;
-            this.patchStream({ streamStatus: "reconnecting", streamError: Option.some(error) });
+            this.patchStream({ status: "reconnecting", error: Option.some(error) });
             this.syncSnapshot();
           }
         }),
@@ -1327,11 +1328,7 @@ export class QueryEntry<A, E> {
     if (s.fetchStatus !== "idle") {
       this.streamRecord.push(update);
     }
-    const healthy: Pick<QueryState<A, E>, "streamStatus" | "streamError"> = {
-      streamStatus: "open",
-      streamError: Option.none(),
-    };
-    const isHealthy = s.streamStatus === "open" && Option.isNone(s.streamError);
+    const healthy: QueryResult.StreamState = { status: "open", error: Option.none() };
     // Without data there is nothing to apply to: the fetch result gets the
     // recorded updates.
     let data = s.data;
@@ -1341,14 +1338,11 @@ export class QueryEntry<A, E> {
       data = applied === s.data.value ? s.data : this.shareData(s.data, applied);
     }
     if (data === s.data) {
-      if (!isHealthy) {
-        this.patchStream(healthy);
-      }
+      this.patchStream(healthy);
     } else {
       this.showsInitialData = false;
       this.cancelStaleTimer();
-      this.patchStream({
-        ...healthy,
+      this.patchStream(healthy, {
         data,
         dataUpdatedAt: this.runtime.now(),
         dataUpdateCount: s.dataUpdateCount + 1,
@@ -1365,24 +1359,23 @@ export class QueryEntry<A, E> {
     // However it ended, updates are missed from here on.
     this.streamLive = false;
     if (Exit.isSuccess(exit)) {
-      this.patchStream({ streamStatus: "closed" });
+      this.patchStream({ status: "closed" });
     } else if (Cause.hasDies(exit.cause)) {
       // A defect in the stream or in `apply` is a defect of the query.
       const cause = exit.cause as Cause.Cause<E>;
-      this.patchStream({
-        streamStatus: "closed",
-        status: "error",
-        cause: Option.some(cause),
-        errorUpdatedAt: this.runtime.now(),
-        errorUpdateCount: this.state.errorUpdateCount + 1,
-      });
+      this.patchStream(
+        { status: "closed" },
+        {
+          status: "error",
+          cause: Option.some(cause),
+          errorUpdatedAt: this.runtime.now(),
+          errorUpdateCount: this.state.errorUpdateCount + 1,
+        },
+      );
     } else {
       // The retries are used up, or the stream was interrupted from within:
       // from here on this is a query without a stream.
-      this.patchStream({
-        streamStatus: "closed",
-        streamError: Cause.findErrorOption(exit.cause),
-      });
+      this.patchStream({ status: "closed", error: Cause.findErrorOption(exit.cause) });
     }
     this.syncSnapshot();
   }
@@ -1398,7 +1391,7 @@ export class QueryEntry<A, E> {
     // data is only marked stale, and the next mount decides.
     this.snapshotDue = this.isActive;
     // The record stays: a running fetch still needs the updates it holds.
-    this.patchStream({ streamStatus: "idle", streamError: Option.none() });
+    this.patchStream(idleStream);
     this.syncSnapshot();
   }
 
@@ -1477,18 +1470,32 @@ export class QueryEntry<A, E> {
   }
 
   /**
-   * A state change made by the stream. It also applies to the state that
-   * cancelling the running fetch reverts to, so a cancel keeps it.
+   * A state change made by the stream: its own state, and what else it
+   * changed. It also applies to the state that cancelling the running fetch
+   * reverts to, so a cancel keeps it. Nothing changed, nobody notified.
    */
-  private patchStream(patch: Partial<QueryState<A, E>>): void {
+  private patchStream(
+    patch: Partial<QueryResult.StreamState>,
+    rest?: Partial<QueryState<A, E>>,
+  ): void {
+    const current = this.state.stream;
+    const status = patch.status ?? current.status;
+    const error = patch.error ?? current.error;
+    const unchanged =
+      status === current.status &&
+      (error === current.error || (Option.isNone(error) && Option.isNone(current.error)));
+    if (unchanged && rest === undefined) {
+      return;
+    }
+    const stream = unchanged ? current : { status, error };
     const revert = this.revertState;
     if (revert !== undefined) {
       this.revertState =
-        patch.data === undefined || Option.isSome(revert.data)
-          ? { ...revert, ...patch }
-          : { ...revert, ...pickStream(patch) };
+        rest?.data === undefined || Option.isSome(revert.data)
+          ? { ...revert, ...rest, stream }
+          : { ...revert, stream };
     }
-    this.setState((s) => ({ ...s, ...patch }));
+    this.setState((s) => ({ ...s, ...rest, stream }));
   }
 
   // -- garbage collection ---------------------------------------------------
@@ -1568,13 +1575,6 @@ export class QueryEntry<A, E> {
   }
 }
 
-const pickStream = <A, E>(
-  patch: Partial<QueryState<A, E>>,
-): Partial<Pick<QueryState<A, E>, "streamStatus" | "streamError">> => ({
-  ...(patch.streamStatus === undefined ? {} : { streamStatus: patch.streamStatus }),
-  ...(patch.streamError === undefined ? {} : { streamError: patch.streamError }),
-});
-
 const toDateTime = (millis: number): Option.Option<DateTime.Utc> =>
   millis === 0 ? Option.none() : Option.some(DateTime.makeUnsafe(millis));
 
@@ -1603,8 +1603,7 @@ export const project = <A, E>(
     errorUpdateCount: state.errorUpdateCount,
     failureCount: state.failureCount,
     failureReason: state.failureReason,
-    streamStatus: state.streamStatus,
-    streamError: state.streamError,
+    stream: state.stream,
   };
   const previousSuccess = Option.map(state.data, (value) =>
     AsyncResult.success<A, E>(value, { timestamp: state.dataUpdatedAt }),
