@@ -1132,6 +1132,106 @@ describe("stream: failures", () => {
     }),
   );
 
+  it.effect("fetches for the updates lost while the definition had no stream", () =>
+    Effect.gen(function* () {
+      const { client } = yield* setup();
+      const source = makeSource<Item>();
+      const runs = counter();
+      const run = runs.tick.pipe(Effect.as<ReadonlyArray<Item>>([item(1)]));
+      const definition = (live: boolean) =>
+        Query.single({
+          key: ["live-lost-in-grace"],
+          run,
+          stream: live ? { updates: source.updates, apply: upsert } : undefined,
+          staleTime: "Infinity",
+        });
+      const observer = QueryObserver.make(client, definition(true));
+      observer.subscribe(() => {});
+      yield* settle;
+      assert.strictEqual(runs.count, 1);
+
+      // Without a stream for a moment, shorter than the grace period.
+      observer.setOptions(definition(false));
+      yield* source.emit(item(2));
+      observer.setOptions(definition(true));
+      yield* settle;
+      assert.strictEqual(source.state.opened, 1);
+      assert.isTrue(observer.getCurrentResult().isStale);
+
+      // The connection was kept, but item 2 was dropped: fetch once more.
+      yield* source.emit(item(3));
+      yield* settle;
+      assert.strictEqual(runs.count, 2);
+      assert.isFalse(observer.getCurrentResult().isStale);
+    }),
+  );
+
+  it.effect("fetches for a gap after the first fetch failed", () =>
+    Effect.gen(function* () {
+      const { registry } = yield* setup();
+      const source = makeSource<Item>();
+      const runs = counter();
+      const q = Query.single({
+        key: ["live-first-fetch-failed"],
+        run: runs.tick.pipe(
+          Effect.flatMap((n) =>
+            n === 1
+              ? Effect.fail("http" as const).pipe(Effect.delay("2 seconds"))
+              : Effect.succeed<ReadonlyArray<Item>>([item(1)]),
+          ),
+        ),
+        stream: { updates: source.updates, apply: upsert },
+        staleTime: "Infinity",
+        retry: false,
+      });
+      registry.mount(q);
+      yield* settle;
+      yield* source.fail("connection lost");
+      yield* TestClock.adjust("1 second");
+      yield* settle;
+      yield* source.emit(item(2));
+      assert.strictEqual(runs.count, 1);
+
+      // The first fetch fails. The stream is healthy, so nothing else would
+      // ever load the data.
+      yield* TestClock.adjust("1 second");
+      yield* settle;
+      assert.strictEqual(runs.count, 2);
+      assert.strictEqual(registry.get(q).status, "success");
+    }),
+  );
+
+  it.effect("marks initial data stale after a failure, and fetches when the stream is back", () =>
+    Effect.gen(function* () {
+      const { registry } = yield* setup();
+      const source = makeSource<number>();
+      const runs = counter();
+      const q = Query.single({
+        key: ["live-initial-data"],
+        run: runs.tick.pipe(Effect.as(20)),
+        initialData: () => 10,
+        stream: { updates: source.updates, apply: Math.max },
+        staleTime: "Infinity",
+      });
+      registry.mount(q);
+      yield* settle;
+      // The seed is fresh, as without a stream.
+      assert.strictEqual(runs.count, 0);
+      assert.isFalse(registry.get(q).isStale);
+
+      yield* source.fail("connection lost");
+      assert.isTrue(registry.get(q).isStale);
+      yield* TestClock.adjust("1 second");
+      yield* settle;
+      // An update that changes nothing still shows that the stream is back.
+      yield* source.emit(10);
+      yield* settle;
+      assert.strictEqual(runs.count, 1);
+      assert.deepStrictEqual(Option.getOrThrow(registry.get(q).data), 20);
+      assert.isFalse(registry.get(q).isStale);
+    }),
+  );
+
   it.effect("keeps recorded updates when a definition without a stream takes over", () =>
     Effect.gen(function* () {
       const { client, registry } = yield* setup();

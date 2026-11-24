@@ -272,7 +272,8 @@ Updates that arrive while the first fetch runs are applied to its result.
 Data that was fetched before the stream ran (a prefetch, a Suspense fetch,
 restored data) misses the updates since then, so the first observer
 refetches it, whatever the `staleTime`. A fetch that is still under way when
-the stream starts is left to finish, and is followed by another one. Two
+the stream starts is left to finish, and is followed by another one under
+the same conditions. Two
 settings switch this refetch off, and leave the data marked stale instead:
 `refetchOnMount: false` and `staleTime: "static"`.
 
@@ -369,11 +370,16 @@ its next update, or until another refetch trigger (window focus, a
 The rule behind this: the data is current when its request was sent after
 the last gap in the updates closed. A fetch that is running when a gap
 closes (the stream starts, or delivers again after a failure) is never
-cancelled. It is left to finish, its data is shown and marked stale, and
-one more fetch follows. A connection that keeps dropping therefore cannot
-keep the query from loading, and causes at most one request at a time. If
-the request for a gap fails, it is not repeated: the data stays stale until
-the next gap closes or another refetch trigger fires.
+cancelled by the stream. It is left to finish, and its data is shown and
+marked stale. After a failure one more fetch follows. When the stream
+starts, one more fetch follows only if an observer's `refetchOnMount` allows
+a refetch. A connection that keeps dropping therefore cannot keep the query
+from loading, and causes at most one request at a time.
+
+Two cases leave the data stale until the next gap closes or another refetch
+trigger fires: the request for a gap failed (it is not repeated), or you
+cancelled the fetch yourself (`cancelQueries`, as before an optimistic
+update), which is not followed by another fetch.
 
 The data is marked stale whenever updates stop arriving: when the stream
 stops for lack of observers, and when it closes, whether it ended, used up

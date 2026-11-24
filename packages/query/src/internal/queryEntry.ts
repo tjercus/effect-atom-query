@@ -1257,6 +1257,11 @@ export class QueryEntry<A, E> {
     this.streamLive = true;
     // Whatever was fetched or is being fetched is from before the stream.
     this.streamGap++;
+    if (this.showsInitialData && this.state.fetchStatus === "idle") {
+      // Not the definition's `initialData`: whether to replace that is up
+      // to the mount, as without a stream.
+      this.coveredGap = this.streamGap;
+    }
     this.patchStream({ status: "open", error: Option.none() });
     // Only marks the data stale: whoever starts the stream fetches as on a
     // mount, and a fetch that is under way comes back here when it is done.
@@ -1312,6 +1317,10 @@ export class QueryEntry<A, E> {
     // The latest definition's `apply`, as for the fetch.
     const stream = this.descriptor.stream;
     if (stream === undefined) {
+      // A definition without a stream took over and the grace period runs.
+      // This update is lost, so there is a hole if the stream is kept.
+      this.streamLive = false;
+      this.markBehind();
       return;
     }
     this.streamApply = stream.apply;
@@ -1409,8 +1418,13 @@ export class QueryEntry<A, E> {
    * and fetches a snapshot when that can help.
    */
   private syncSnapshot(context?: Context.Context<any>): void {
+    const hasData = this.markBehind();
     if (
-      !this.markBehind() ||
+      this.removed ||
+      !this.isBehindStream ||
+      // Without data, loading is up to the observers. But a hole that closed
+      // in a running stream is fetched for, also after a failed first load.
+      (!hasData && !this.snapshotDue) ||
       // While a hole is open, a snapshot would miss the rest of it.
       (this.streamStarted && !this.streamLive) ||
       // No request twice for the same hole, also when it failed.
@@ -1424,13 +1438,9 @@ export class QueryEntry<A, E> {
     this.fetch(context === undefined ? undefined : { context });
   }
 
-  /** Marks data that is behind the stream as stale. Returns whether it is. */
+  /** Marks data that is behind the stream as stale. Returns whether there is such data. */
   private markBehind(): boolean {
-    if (this.removed || !this.isBehindStream) {
-      return false;
-    }
-    if (Option.isNone(this.state.data) || this.showsInitialData) {
-      // Nothing to bring up to date: loading is up to the observers.
+    if (this.removed || !this.isBehindStream || Option.isNone(this.state.data)) {
       return false;
     }
     this.invalidate();

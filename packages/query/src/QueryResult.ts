@@ -86,7 +86,9 @@ interface Base<A, E> {
   /**
    * The state of the query's stream (`stream` in its definition). A failing
    * stream leaves `status`, `data` and `error` as they are: the data is still
-   * valid, at worst behind.
+   * valid, at worst behind. A defect is different: when the stream dies, or
+   * `apply` throws, the query itself goes to `status: "error"` with the
+   * defect in `cause`, and `stream.error` stays empty.
    *
    * Results from queries and hooks always have it. It is optional so that a
    * result built by hand (a mock, a story) from before 1.5.0 still

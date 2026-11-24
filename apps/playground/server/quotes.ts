@@ -68,7 +68,12 @@ const attach = (
   // the upgrade requests for our path.
   httpServer.on("upgrade", (req, socket, head) => {
     if (req.url === LIVE_PATH) {
-      sockets.handleUpgrade(req, socket, head, (client) => sockets.emit("connection", client, req));
+      sockets.handleUpgrade(req, socket, head, (client) => {
+        // Without a listener, a malformed frame from one client would be an
+        // uncaught error that stops the whole dev server.
+        client.on("error", () => client.terminate());
+        sockets.emit("connection", client, req);
+      });
     }
   });
 
