@@ -414,6 +414,12 @@ export class QueryEntry<A, E> {
   private streamRecord: Array<unknown> = [];
   /** The stream failed, and no update has shown yet that it works again. */
   private streamMissedUpdates = false;
+  /**
+   * The stream invalidated the data after the running fetch sent its request.
+   * That request may be from before the updates were missed, so its result
+   * stays invalidated.
+   */
+  private streamOutdatedFetch = false;
 
   readonly key: QueryKey.QueryKey;
   descriptor: QueryDescriptor<A, E, any>;
@@ -578,6 +584,7 @@ export class QueryEntry<A, E> {
     fiber?.interruptUnsafe();
     this.revertState = undefined;
     this.streamRecord = [];
+    this.streamOutdatedFetch = false;
     this.cancelStaleTimer();
     // A stream that ended or gave up starts over. A running one keeps
     // running, so its fields stay.
@@ -969,9 +976,20 @@ export class QueryEntry<A, E> {
    * the fiber that settles with this fetch's outcome.
    */
   fetch(options?: FetchOptions<E>): Fiber.Fiber<A, E> {
+    return this.startFetch(options, false);
+  }
+
+  /**
+   * `replaceFirstFetch` also replaces a running fetch when there is no data
+   * yet, which `cancelRefetch` leaves alone.
+   */
+  private startFetch(
+    options: FetchOptions<E> | undefined,
+    replaceFirstFetch: boolean,
+  ): Fiber.Fiber<A, E> {
     let superseded: Fiber.Fiber<A, E> | undefined;
     if (this.fetchFiber !== undefined) {
-      if (!options?.cancelRefetch || Option.isNone(this.state.data)) {
+      if (!options?.cancelRefetch || (Option.isNone(this.state.data) && !replaceFirstFetch)) {
         return this.fetchFiber;
       }
       // Superseded: the new fetch takes over. Bump the id before interrupting,
@@ -1007,8 +1025,10 @@ export class QueryEntry<A, E> {
       const pause = networkMode === "online" || (networkMode === "offlineFirst" && n > 0);
       const thisAttempt = Effect.suspend(() => {
         if (id === this.fetchId) {
-          // Updates from before this request are part of what it will return.
+          // Updates from before this request are part of what it will return,
+          // and so is whatever the stream missed before it.
           this.streamRecord = [];
+          this.streamOutdatedFetch = false;
         }
         return Effect.provideService(run, FetchAttempt, { attempt: n });
       });
@@ -1030,8 +1050,28 @@ export class QueryEntry<A, E> {
     const retry = options?.retry !== undefined ? resolveRetry(options.retry) : this.options.retry;
     const withRetry = Option.isSome(retry) ? attempt.pipe(Effect.retry(retry.value)) : attempt;
 
+    // The fiber settles with the data that goes into the cache: the fetched
+    // data with the recorded updates applied. Taking the record and writing
+    // the data happen in one synchronous step, so no update falls in between.
+    let settled = false;
+    const settle = (exit: Exit.Exit<A, E>): void => {
+      if (!settled) {
+        settled = true;
+        this.onFetchExit(id, exit);
+      }
+    };
     const fiber = this.runtime.runFork(
-      withRetry.pipe(Effect.onExit((exit) => Effect.sync(() => this.onFetchExit(id, exit)))),
+      withRetry.pipe(
+        Effect.flatMap((fetched) =>
+          Effect.suspend(() => {
+            const exit =
+              id === this.fetchId ? this.withRecordedUpdates(fetched) : Exit.succeed(fetched);
+            settle(exit);
+            return exit;
+          }),
+        ),
+        Effect.onExit((exit) => Effect.sync(() => settle(exit))),
+      ),
       options?.context,
     );
     if (superseded !== undefined) {
@@ -1047,12 +1087,15 @@ export class QueryEntry<A, E> {
     return fiber;
   }
 
-  private onFetchExit(id: number, fetched: Exit.Exit<A, E>): void {
+  private onFetchExit(id: number, exit: Exit.Exit<A, E>): void {
     if (id !== this.fetchId || this.removed) {
       return;
     }
     this.fetchFiber = undefined;
-    const exit = this.withRecordedUpdates(fetched);
+    // Recorded updates were for this fetch; a success has applied them.
+    this.streamRecord = [];
+    const outdated = this.streamOutdatedFetch;
+    this.streamOutdatedFetch = false;
     const now = this.runtime.now();
 
     if (Exit.isSuccess(exit)) {
@@ -1069,13 +1112,17 @@ export class QueryEntry<A, E> {
         cause: Option.none(),
         failureCount: 0,
         failureReason: Option.none(),
-        isInvalidated: false,
+        isInvalidated: outdated,
       }));
       this.scheduleStaleTimer();
     } else if (Cause.hasInterruptsOnly(exit.cause)) {
       // Cancelled: back to the state before the fetch (`revert`), or keep progress.
       const revertTo = this.revertOnInterrupt ? this.revertState : undefined;
-      this.setState((s) => ({ ...(revertTo ?? s), fetchStatus: "idle" }));
+      // What the stream missed during the fetch is still missing afterwards.
+      this.setState((s) => {
+        const base = revertTo ?? s;
+        return { ...base, fetchStatus: "idle", isInvalidated: base.isInvalidated || outdated };
+      });
     } else {
       this.setState((s) => ({
         ...s,
@@ -1099,19 +1146,18 @@ export class QueryEntry<A, E> {
 
   /**
    * The fetched data is a snapshot: updates received while it was fetched may
-   * be newer, so they are applied to it again. Taking the record and writing
-   * the data happen in one step, so no update falls in between. An `apply`
-   * that throws fails the fetch with a defect.
+   * be newer, so they are applied to it again. An `apply` that throws fails
+   * the fetch with a defect.
    */
-  private withRecordedUpdates(exit: Exit.Exit<A, E>): Exit.Exit<A, E> {
+  private withRecordedUpdates(fetched: A): Exit.Exit<A, E> {
     const record = this.streamRecord;
     this.streamRecord = [];
     const stream = this.descriptor.stream;
-    if (!Exit.isSuccess(exit) || stream === undefined || record.length === 0) {
-      return exit;
+    if (stream === undefined || record.length === 0) {
+      return Exit.succeed(fetched);
     }
     const replayed = Result.try(() =>
-      record.reduce((data: A, update) => stream.apply(data, update), exit.value),
+      record.reduce((data: A, update) => stream.apply(data, update), fetched),
     );
     return Result.isSuccess(replayed) ? Exit.succeed(replayed.success) : Exit.die(replayed.failure);
   }
@@ -1187,7 +1233,7 @@ export class QueryEntry<A, E> {
             // refetching on every attempt would fail along with the stream.
             this.streamMissedUpdates = true;
             this.patchStream({ streamStatus: "reconnecting", streamError: Option.some(error) });
-            this.invalidate();
+            this.invalidateByStream();
           }
         }),
       ),
@@ -1224,11 +1270,12 @@ export class QueryEntry<A, E> {
       return;
     }
     if (this.streamMissedUpdates) {
-      // The stream works again after a failure: fetch what it missed. This
-      // update is recorded for that fetch like any other.
+      // The stream works again after a failure: fetch what it missed. A
+      // running fetch may be from before that, so it is replaced, also the
+      // first one. This update is recorded for the new fetch like any other.
       this.streamMissedUpdates = false;
       if (this.isActive && this.options.staleTime !== "static") {
-        this.fetch({ cancelRefetch: true });
+        this.startFetch({ cancelRefetch: true }, true);
       }
     }
     const s = this.state;
@@ -1285,7 +1332,7 @@ export class QueryEntry<A, E> {
         streamStatus: "closed",
         streamError: Cause.findErrorOption(exit.cause),
       });
-      this.invalidate();
+      this.invalidateByStream();
     }
   }
 
@@ -1293,8 +1340,16 @@ export class QueryEntry<A, E> {
   private stopStream(): void {
     this.interruptStream();
     this.streamStarted = false;
-    this.streamRecord = [];
+    // The record stays: a running fetch still needs the updates it holds.
     this.patchStream({ streamStatus: "idle", streamError: Option.none() });
+    this.invalidateByStream();
+  }
+
+  /** Invalidates because the stream missed updates, also for a running fetch. */
+  private invalidateByStream(): void {
+    if (this.state.fetchStatus !== "idle") {
+      this.streamOutdatedFetch = true;
+    }
     this.invalidate();
   }
 

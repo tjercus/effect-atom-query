@@ -209,7 +209,9 @@ export interface QueryFamily<
  * **`apply` must be idempotent**: applying an update that the data already
  * contains must change nothing (replace by id in place, do not append). Updates that
  * arrive while a fetch runs are applied to the current data, and again to the
- * fetched data, which may already contain them.
+ * fetched data, which may already contain them. The fetched data may also
+ * hold a later change of the same item: if updates can arrive late, `apply`
+ * should compare versions and ignore an update that is not newer.
  *
  * A failing stream does not fail the query: see `streamStatus` and
  * `streamError` on the result. It is retried with `retry`. A failure marks
@@ -222,9 +224,11 @@ export interface QueryFamily<
  *
  * The stream runs with the services of the client's runtime.
  *
- * The library cannot tell when the stream's subscription is established. An
- * update sent after the snapshot was taken and before the subscription is
- * live is missed until the next refetch.
+ * The library cannot tell when the stream's subscription is established. A
+ * change made after the snapshot was taken and before the subscription is
+ * live is in neither of them, and stays missing until something refetches
+ * the query. A server can close this gap by sending the current state as the
+ * first update.
  *
  * @since 1.5.0
  * @category models

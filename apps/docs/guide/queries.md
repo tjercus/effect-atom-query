@@ -275,19 +275,46 @@ refetches it, whatever the `staleTime`.
 
 ::: warning `apply` must be idempotent
 Applying an update that the data already contains must change nothing:
-replace by id in place, as above. Do not append, and do not move the item. Updates that arrive while a
-fetch runs are shown at once, and are applied again to the fetched data. The
-server may or may not have included them in that data, so they can be
-applied twice.
+replace by id in place, as above. Do not append, and do not move the item.
+Updates that arrive while a fetch runs are shown at once, and are applied
+again to the fetched data. The server may or may not have included them in
+that data, so they can be applied twice.
+:::
+
+::: warning An update can be older than the fetched data
+Idempotent is not enough when the same item can change twice in a short
+time. An update that arrives during a fetch is applied to the fetched data,
+and that data may already hold a later change of the same item: the older
+update then overwrites the newer value, until the later update arrives too.
+If the stream can deliver updates late or out of order, give each item a
+version (a revision number, an update time from the server) and let `apply`
+ignore an update that is not newer:
+
+```ts
+apply: (messages, message) => {
+  const current = messages.find((m) => m.id === message.id);
+  if (current === undefined) {
+    return [...messages, message];
+  }
+  return current.version >= message.version
+    ? messages
+    : messages.map((m) => (m.id === message.id ? message : m));
+},
+```
+
 :::
 
 ::: warning Updates between the snapshot and the subscription
 The stream and the fetch start together, but the library cannot tell when
 the stream's subscription is established. If the server takes the snapshot
-before the subscription is live, an update in between is missed until the
-next refetch. Where that matters, let the server send the current state as
-the first update of the stream, or make `updates` emit only once it is
-subscribed and keep a finite `staleTime`.
+before the subscription is live, a change in between is in neither of them,
+and nothing in the client can find that out. The data stays behind until
+something refetches it: an invalidation, a `refetch`, a `refetchInterval`,
+or a finite `staleTime` together with a remount or a window focus.
+
+Where that matters, close the gap on the server: let it send the current
+state as the first update of the stream, so that `apply` replaces the data
+with a snapshot taken after the subscription was established.
 :::
 
 Set `staleTime: "Infinity"` on a query with a stream. The stream keeps the

@@ -155,15 +155,21 @@ The implementation follows the design, with these differences:
   load and after a reconnect, and nothing repairs it until the next refetch.
   Closing the gap needs an API where connecting is an `Effect` that the
   library waits for before it fetches; that is a possible follow-up. Until
-  then, a source that must not miss updates should subscribe first and emit
-  only once it is subscribed, or send its own snapshot as the first update.
+  then, a source that must not miss updates should send its own snapshot as
+  the first update, taken after the subscription was established.
 
 - **After a reconnect, the refetch waits for the first update.** The design
   refetched each time the stream ran again. During an outage that refetch
   fails with every attempt, which puts a query with good data in its error
   state. Now a failure marks the data stale, and the refetch happens when the
   first update after it arrives. A stream that reconnects and stays silent
-  leaves the data stale until then.
+  leaves the data stale until then. That refetch replaces a running fetch,
+  also the first one, because its request may be from before the failure.
+- **A fetch does not undo what the stream missed while it ran.** When the
+  stream fails or stops during a fetch, the result of that fetch stays
+  invalidated, also when the fetch is cancelled.
+- **`fetchQuery` returns what goes into the cache**: the fetched data with
+  the recorded updates applied. If `apply` throws on it, the fetch fails.
 - **Data fetched before the stream ran is refetched** by the first observer
   (after a prefetch, a Suspense fetch or a restore), whatever the
   `staleTime`, because it misses the updates since.
