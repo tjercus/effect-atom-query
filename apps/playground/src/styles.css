@@ -349,3 +349,13 @@ fieldset {
   padding: 10px 12px;
   color: var(--muted);
 }
+
+.quotes {
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.quotes th,
+.quotes td {
+  padding: 4px 24px 4px 0;
+}

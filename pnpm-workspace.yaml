@@ -26,6 +26,8 @@ catalog:
   vitepress: 2.0.0-alpha.21
   "@changesets/cli": ^3.0.3
   "@stylistic/eslint-plugin": ^5.10.0
+  "@types/ws": ^8.18.2
+  ws: ^8.23.0
 overrides:
   vite@*: "catalog:"
 peerDependencyRules:

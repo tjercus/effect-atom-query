@@ -14,6 +14,7 @@ import {
   Option,
   Result,
   Schedule,
+  Stream,
 } from "effect";
 import { AsyncResult, type Reactivity } from "effect/reactivity";
 import type * as FocusManager from "../FocusManager.ts";
@@ -169,6 +170,20 @@ export const resolveOptions = <E>(
 // ---------------------------------------------------------------------------
 
 /**
+ * Live updates for a query: a stream of updates and how to apply one to the
+ * cached data.
+ * @internal
+ */
+export interface StreamDescriptor<A> {
+  readonly updates: Stream.Stream<any, any, any>;
+  readonly apply: (data: A, update: any) => A;
+  readonly retry?: RetryOption<any> | undefined;
+}
+
+/** How long the stream keeps running after the last enabled observer left. @internal */
+export const streamGrace: Duration.Duration = Duration.seconds(1);
+
+/**
  * Everything needed to run one query instance.
  * @internal
  */
@@ -184,6 +199,8 @@ export interface QueryDescriptor<A, E, R> {
   readonly behavior?: ((context: BehaviorContext<A>) => Effect.Effect<A, E, R>) | undefined;
   /** Present when the query opted into persistence. */
   readonly persist?: PersistCodec<A> | undefined;
+  /** Present when the query has live updates. */
+  readonly stream?: StreamDescriptor<A> | undefined;
 }
 
 /** A persisted query waiting to be claimed by its query atom. @internal */
@@ -314,7 +331,12 @@ export interface QueryState<A, E> {
   readonly isInvalidated: boolean;
   /** Direction of the running (or last) fetch, for infinite queries. */
   readonly fetchDirection: FetchDirection | undefined;
+  /** Replaced only when it changes, so that observers can compare it by identity. */
+  readonly stream: QueryResult.StreamState;
 }
+
+/** The stream state of a query without a stream, or with one that does not run. @internal */
+export const idleStream: QueryResult.StreamState = { status: "idle", error: Option.none() };
 
 /** @internal */
 export const initialState: QueryState<never, never> = {
@@ -331,6 +353,7 @@ export const initialState: QueryState<never, never> = {
   failureReason: Option.none(),
   isInvalidated: false,
   fetchDirection: undefined,
+  stream: idleStream,
 };
 
 /** @internal */
@@ -381,6 +404,38 @@ export class QueryEntry<A, E> {
   private removed = false;
   /** `state.data` is still the definition's `initialData` (no fetch, write or restore yet). */
   private showsInitialData = false;
+  /** Bumped when the stream starts or stops, so a stopped stream's callbacks are ignored. */
+  private streamRun = 0;
+  /** The stream was started and not stopped since (it may have ended by itself). */
+  private streamStarted = false;
+  private streamFiber: Fiber.Fiber<void, unknown> | undefined;
+  /** Stops the stream once the grace period after the last observer has passed. */
+  private streamStopFiber: Fiber.Fiber<void> | undefined;
+  /** Updates received while the current fetch runs, applied again to its result. */
+  private streamRecord: Array<unknown> = [];
+  /** The latest `apply`, for updates recorded before a definition without a stream took over. */
+  private streamApply: StreamDescriptor<A>["apply"] | undefined;
+  /**
+   * Updates arrive without a hole. `false` from a failure until the first
+   * update after it, and once the stream has ended.
+   */
+  private streamLive = false;
+  /**
+   * How the data keeps up with the stream, in one rule: the data is current
+   * when its snapshot was requested after the last hole in the updates
+   * closed. `streamGap` counts the holes that closed: the stream started
+   * (everything before it), it delivered again after a failure, or it
+   * stopped (everything after it). `coveredGap` is the count at the request
+   * that gave the current data, `requestedGap` the count at the last request
+   * that was sent, also when it failed.
+   */
+  private streamGap = 0;
+  private coveredGap = 0;
+  private requestedGap = 0;
+  /** A hole closed for which the observers' `refetchOnMount` does not decide. */
+  private snapshotDue = false;
+  /** The services of the running fetch, for a fetch that follows it. */
+  private fetchContext: Context.Context<any> | undefined;
 
   readonly key: QueryKey.QueryKey;
   descriptor: QueryDescriptor<A, E, any>;
@@ -410,6 +465,25 @@ export class QueryEntry<A, E> {
     this.descriptor = descriptor;
     this.refreshOptions();
     this.claimPersisted();
+    if (descriptor.stream === undefined || this.streamStarted) {
+      // Stop the running stream when the new definition has none, or keep it
+      // when it has one again.
+      this.syncStream();
+    } else if (this.isActive) {
+      // A definition with a stream is back while the query is observed.
+      // Entries are also built during render, so start it afterwards.
+      this.runtime.runFork(
+        Effect.andThen(
+          Effect.yieldNow,
+          Effect.sync(() => {
+            // Unless an observer started it meanwhile.
+            if (this.syncStream()) {
+              this.fetchForObservers();
+            }
+          }),
+        ),
+      );
+    }
     if (this.unregisterReactivity === undefined) {
       this.registerReactivity();
     }
@@ -456,15 +530,9 @@ export class QueryEntry<A, E> {
   /** Restoring finished: claim data, then do the mount fetches that were held back. */
   onRestored(): void {
     this.claimPersisted();
-    if (this.state.fetchStatus !== "idle") {
-      return;
-    }
-    for (const record of this.records) {
-      if (this.shouldFetchOnMount(record.options)) {
-        this.fetch();
-        return;
-      }
-    }
+    // The stream was held back as well.
+    this.syncStream();
+    this.fetchForObservers();
   }
 
   /** Re-resolve options, e.g. after `setQueryDefaults`. */
@@ -525,7 +593,8 @@ export class QueryEntry<A, E> {
       dataRequestedAt: updatedAt,
       dataUpdateCount: s.dataUpdateCount + 1,
       cause: Option.none(),
-      isInvalidated: false,
+      // A write does not contain what the stream missed.
+      isInvalidated: this.isBehindStream,
     }));
     this.scheduleStaleTimer();
   }
@@ -538,8 +607,20 @@ export class QueryEntry<A, E> {
     this.fetchId++;
     fiber?.interruptUnsafe();
     this.revertState = undefined;
+    this.streamRecord = [];
     this.cancelStaleTimer();
-    this.setState(() => this.initialStateOf(this.descriptor));
+    // A stream that ended or gave up starts over. A running one keeps
+    // running, so its fields stay.
+    const reopen = this.state.stream.status === "closed";
+    if (reopen) {
+      this.interruptStream();
+      this.streamStarted = false;
+    }
+    this.setState((s) => ({
+      ...this.initialStateOf(this.descriptor),
+      ...(reopen ? {} : { stream: s.stream }),
+    }));
+    this.syncStream();
     // The dropped fetch's exit is ignored, so do here what it would have done.
     for (const record of this.records) {
       this.scheduleInterval(record);
@@ -606,6 +687,9 @@ export class QueryEntry<A, E> {
     const record: ObserverRecord = { options, intervalFiber: undefined };
     this.records.add(record);
     this.cancelGc();
+    // Before the fetch, so that its request counts as sent with the stream
+    // running. The stream itself connects after this step.
+    this.syncStream();
     if (this.shouldFetchOnMount(options)) {
       this.fetch();
     }
@@ -625,6 +709,10 @@ export class QueryEntry<A, E> {
         ) {
           this.scheduleInterval(record);
         }
+        // Also when nothing changed here: the definition may have got a stream.
+        if (this.syncStream() && this.shouldFetchOnMount(next)) {
+          this.fetch();
+        }
       },
       release: () => {
         if (released) {
@@ -633,6 +721,7 @@ export class QueryEntry<A, E> {
         released = true;
         this.clearInterval(record);
         this.records.delete(record);
+        this.syncStream();
         if (this.records.size === 0) {
           this.scheduleGc();
         }
@@ -835,7 +924,13 @@ export class QueryEntry<A, E> {
       });
       return Effect.sync(unsubscribe);
     });
-    return Effect.raceFirst(Effect.asVoid(Fiber.await(fiber)), paused);
+    // A fetch that was superseded is not done until its successor is.
+    const settled = (current: Fiber.Fiber<A, E>): Effect.Effect<void> =>
+      Effect.flatMap(Fiber.await(current), () => {
+        const successor = this.successors.get(current);
+        return successor === undefined ? Effect.void : settled(successor);
+      });
+    return Effect.raceFirst(settled(fiber), paused);
   }
 
   /** The fetch that superseded `fiber` (a fetch of this entry), if any. */
@@ -861,13 +956,13 @@ export class QueryEntry<A, E> {
     this.setState((s) => ({ ...s, fetchStatus }));
   }
 
-  /** Waits until online, showing `fetchStatus: "paused"` meanwhile. */
-  private pauseWhileOffline(id: number): Effect.Effect<void> {
+  /** Waits until online. `onPause` runs first when that takes a wait. */
+  private untilOnline(onPause?: () => void): Effect.Effect<void> {
     return Effect.suspend(() => {
       if (this.runtime.online.isOnline()) {
         return Effect.void;
       }
-      this.setFetchStatus(id, "paused");
+      onPause?.();
       return Effect.callback<void>((resume) => {
         const unsubscribe = this.runtime.online.subscribe((online) => {
           if (!online) {
@@ -877,8 +972,15 @@ export class QueryEntry<A, E> {
           resume(Effect.void);
         });
         return Effect.sync(unsubscribe);
-      }).pipe(Effect.andThen(Effect.sync(() => this.setFetchStatus(id, "fetching"))));
+      });
     });
+  }
+
+  /** Waits until online, showing `fetchStatus: "paused"` meanwhile. */
+  private pauseWhileOffline(id: number): Effect.Effect<void> {
+    return this.untilOnline(() => this.setFetchStatus(id, "paused")).pipe(
+      Effect.andThen(Effect.sync(() => this.setFetchStatus(id, "fetching"))),
+    );
   }
 
   /**
@@ -899,6 +1001,7 @@ export class QueryEntry<A, E> {
     }
 
     const id = ++this.fetchId;
+    this.fetchContext = options?.context;
     this.fetchStartedAt = this.runtime.now();
     this.revertState = this.state;
     this.revertOnInterrupt = false;
@@ -922,7 +1025,16 @@ export class QueryEntry<A, E> {
     const attempt = Effect.suspend(() => {
       const n = attemptNumber++;
       const pause = networkMode === "online" || (networkMode === "offlineFirst" && n > 0);
-      const thisAttempt = Effect.provideService(run, FetchAttempt, { attempt: n });
+      const thisAttempt = Effect.suspend(() => {
+        if (id === this.fetchId) {
+          // Updates from before this request are part of what it will return,
+          // and so is whatever the stream missed before it.
+          this.streamRecord = [];
+          this.requestedGap = this.streamGap;
+          this.snapshotDue = false;
+        }
+        return Effect.provideService(run, FetchAttempt, { attempt: n });
+      });
       return pause ? Effect.andThen(this.pauseWhileOffline(id), thisAttempt) : thisAttempt;
     }).pipe(
       Effect.tapError((error) =>
@@ -941,8 +1053,28 @@ export class QueryEntry<A, E> {
     const retry = options?.retry !== undefined ? resolveRetry(options.retry) : this.options.retry;
     const withRetry = Option.isSome(retry) ? attempt.pipe(Effect.retry(retry.value)) : attempt;
 
+    // The fiber settles with the data that goes into the cache: the fetched
+    // data with the recorded updates applied. Taking the record and writing
+    // the data happen in one synchronous step, so no update falls in between.
+    let settled = false;
+    const settle = (exit: Exit.Exit<A, E>): void => {
+      if (!settled) {
+        settled = true;
+        this.onFetchExit(id, exit);
+      }
+    };
     const fiber = this.runtime.runFork(
-      withRetry.pipe(Effect.onExit((exit) => Effect.sync(() => this.onFetchExit(id, exit)))),
+      withRetry.pipe(
+        Effect.flatMap((fetched) =>
+          Effect.suspend(() => {
+            const exit =
+              id === this.fetchId ? this.withRecordedUpdates(fetched) : Exit.succeed(fetched);
+            settle(exit);
+            return exit;
+          }),
+        ),
+        Effect.onExit((exit) => Effect.sync(() => settle(exit))),
+      ),
       options?.context,
     );
     if (superseded !== undefined) {
@@ -963,9 +1095,14 @@ export class QueryEntry<A, E> {
       return;
     }
     this.fetchFiber = undefined;
+    const context = this.fetchContext;
+    this.fetchContext = undefined;
+    // Recorded updates were for this fetch; a success has applied them.
+    this.streamRecord = [];
     const now = this.runtime.now();
 
     if (Exit.isSuccess(exit)) {
+      this.coveredGap = this.requestedGap;
       this.showsInitialData = false;
       this.cancelStaleTimer();
       this.setState((s) => ({
@@ -979,13 +1116,22 @@ export class QueryEntry<A, E> {
         cause: Option.none(),
         failureCount: 0,
         failureReason: Option.none(),
-        isInvalidated: false,
+        // Behind when a hole closed after the request, or is still open.
+        isInvalidated: this.isBehindStream,
       }));
       this.scheduleStaleTimer();
     } else if (Cause.hasInterruptsOnly(exit.cause)) {
       // Cancelled: back to the state before the fetch (`revert`), or keep progress.
       const revertTo = this.revertOnInterrupt ? this.revertState : undefined;
-      this.setState((s) => ({ ...(revertTo ?? s), fetchStatus: "idle" }));
+      // What the stream missed during the fetch is still missing afterwards.
+      this.setState((s) => {
+        const base = revertTo ?? s;
+        return {
+          ...base,
+          fetchStatus: "idle",
+          isInvalidated: base.isInvalidated || this.isBehindStream,
+        };
+      });
     } else {
       this.setState((s) => ({
         ...s,
@@ -1005,6 +1151,32 @@ export class QueryEntry<A, E> {
     if (this.records.size === 0) {
       this.scheduleGc();
     }
+    // Its request may be from before a hole closed: then another one follows.
+    // Not after a cancel: whoever cancelled does not want a fetch now (an
+    // optimistic write may follow). The data stays stale.
+    if (Exit.isSuccess(exit) || !Cause.hasInterruptsOnly(exit.cause)) {
+      this.syncSnapshot(context);
+    }
+  }
+
+  /**
+   * The fetched data is a snapshot: updates received while it was fetched may
+   * be newer, so they are applied to it again. An `apply` that throws fails
+   * the fetch with a defect.
+   */
+  private withRecordedUpdates(fetched: A): Exit.Exit<A, E> {
+    const record = this.streamRecord;
+    this.streamRecord = [];
+    // Also when a definition without a stream took over meanwhile: the
+    // updates were shown, so the fetched data must not lose them.
+    const apply = this.descriptor.stream?.apply ?? this.streamApply;
+    if (apply === undefined || record.length === 0) {
+      return Exit.succeed(fetched);
+    }
+    const replayed = Result.try(() =>
+      record.reduce((data: A, update) => apply(data, update), fetched),
+    );
+    return Result.isSuccess(replayed) ? Exit.succeed(replayed.success) : Exit.die(replayed.failure);
   }
 
   /** Structural sharing: unchanged data keeps its references, so subscribers can skip work. */
@@ -1024,6 +1196,316 @@ export class QueryEntry<A, E> {
     }
     const shared = replaceEqualDeep(previous.value, next);
     return shared === previous.value ? previous : Option.some(shared);
+  }
+
+  // -- stream ---------------------------------------------------------------
+
+  /**
+   * Runs the stream while an enabled observer is present, and for a grace
+   * period after the last one left (a remount must not reconnect). Called
+   * when observers change, never when an entry is merely built. Returns
+   * whether it started the stream.
+   */
+  private syncStream(): boolean {
+    if (this.removed) {
+      return false;
+    }
+    const stream = this.descriptor.stream;
+    if (!this.streamStarted && this.runtime.restoring.isRestoring()) {
+      // Mount fetches are held back while a persister restores, so there is
+      // no data and no fetch to give updates to. `onRestored` starts it.
+      return false;
+    }
+    if (stream !== undefined && this.isActive) {
+      this.streamStopFiber?.interruptUnsafe();
+      this.streamStopFiber = undefined;
+      if (!this.streamStarted) {
+        this.startStream(stream);
+        return true;
+      }
+    } else if (this.streamStarted && this.streamStopFiber === undefined) {
+      this.streamStopFiber = this.runtime.runFork(
+        Effect.sleep(streamGrace).pipe(
+          Effect.andThen(
+            Effect.sync(() => {
+              this.streamStopFiber = undefined;
+              this.stopStream();
+            }),
+          ),
+        ),
+      );
+    }
+    return false;
+  }
+
+  /** Fetches as the mount of the observers that are there would. */
+  private fetchForObservers(): void {
+    if (this.removed || this.state.fetchStatus !== "idle") {
+      return;
+    }
+    for (const record of this.records) {
+      if (this.shouldFetchOnMount(record.options)) {
+        this.fetch();
+        return;
+      }
+    }
+  }
+
+  private startStream(stream: StreamDescriptor<A>): void {
+    const run = ++this.streamRun;
+    this.streamStarted = true;
+    this.streamLive = true;
+    // Whatever was fetched or is being fetched is from before the stream.
+    this.streamGap++;
+    if (this.showsInitialData && this.state.fetchStatus === "idle") {
+      // Not the definition's `initialData`: whether to replace that is up
+      // to the mount, as without a stream.
+      this.coveredGap = this.streamGap;
+    }
+    this.patchStream({ status: "open", error: Option.none() });
+    // Only marks the data stale: whoever starts the stream fetches as on a
+    // mount, and a fetch that is under way comes back here when it is done.
+    this.markBehind();
+    // Runs once per attempt: the first start, then each retry.
+    const attempt = Stream.unwrap(
+      Effect.as(
+        this.options.networkMode === "online" ? this.untilOnline() : Effect.void,
+        stream.updates,
+      ),
+    ).pipe(
+      Stream.tapError((error) =>
+        Effect.sync(() => {
+          if (run === this.streamRun) {
+            // Updates are missed from here on, so the data is stale. It is
+            // refetched once an update shows that the stream works again:
+            // refetching on every attempt would fail along with the stream.
+            this.streamLive = false;
+            this.patchStream({ status: "reconnecting", error: Option.some(error) });
+            this.syncSnapshot();
+          }
+        }),
+      ),
+    );
+    const retry = resolveRetry(stream.retry ?? true);
+    const updates = Option.isSome(retry) ? Stream.retry(attempt, retry.value) : attempt;
+    // The stream runs after whoever started it is done, so that a fetch
+    // started in the same step is there to record its first updates.
+    const fiber = this.runtime.runFork(
+      Effect.andThen(
+        Effect.yieldNow,
+        Stream.runForEach(updates, (update) =>
+          Effect.sync(() => {
+            if (run === this.streamRun) {
+              this.onStreamUpdate(update);
+            }
+          }),
+        ),
+      ).pipe(
+        Effect.onExit((exit) =>
+          Effect.sync(() => {
+            if (run === this.streamRun) {
+              this.onStreamExit(exit);
+            }
+          }),
+        ),
+      ),
+    );
+    this.streamFiber = fiber;
+  }
+
+  private onStreamUpdate(update: unknown): void {
+    // The latest definition's `apply`, as for the fetch.
+    const stream = this.descriptor.stream;
+    if (stream === undefined) {
+      // A definition without a stream took over and the grace period runs.
+      // This update is lost, so there is a hole if the stream is kept.
+      this.streamLive = false;
+      this.markBehind();
+      return;
+    }
+    this.streamApply = stream.apply;
+    // The first update after a failure shows that the stream works again:
+    // the hole closes here, and what it swallowed has to be fetched.
+    if (!this.streamLive) {
+      this.streamLive = true;
+      this.streamGap++;
+      this.snapshotDue = true;
+      // Before this update is handled, so that it is recorded for the fetch.
+      this.syncSnapshot();
+    }
+    const s = this.state;
+    if (s.fetchStatus !== "idle") {
+      this.streamRecord.push(update);
+    }
+    const healthy: QueryResult.StreamState = { status: "open", error: Option.none() };
+    // Without data there is nothing to apply to: the fetch result gets the
+    // recorded updates.
+    let data = s.data;
+    if (Option.isSome(s.data)) {
+      const applied = stream.apply(s.data.value, update);
+      // Also without structural sharing, an update that changes nothing is none.
+      data = applied === s.data.value ? s.data : this.shareData(s.data, applied);
+    }
+    if (data === s.data) {
+      this.patchStream(healthy);
+    } else {
+      this.showsInitialData = false;
+      this.cancelStaleTimer();
+      this.patchStream(healthy, {
+        data,
+        dataUpdatedAt: this.runtime.now(),
+        dataUpdateCount: s.dataUpdateCount + 1,
+      });
+      this.scheduleStaleTimer();
+    }
+  }
+
+  private onStreamExit(exit: Exit.Exit<void, unknown>): void {
+    this.streamFiber = undefined;
+    if (this.removed) {
+      return;
+    }
+    // However it ended, updates are missed from here on.
+    this.streamLive = false;
+    if (Exit.isSuccess(exit)) {
+      this.patchStream({ status: "closed" });
+    } else if (Cause.hasDies(exit.cause)) {
+      // A defect in the stream or in `apply` is a defect of the query.
+      const cause = exit.cause as Cause.Cause<E>;
+      this.patchStream(
+        { status: "closed" },
+        {
+          status: "error",
+          cause: Option.some(cause),
+          errorUpdatedAt: this.runtime.now(),
+          errorUpdateCount: this.state.errorUpdateCount + 1,
+        },
+      );
+    } else {
+      // The retries are used up, or the stream was interrupted from within:
+      // from here on this is a query without a stream.
+      this.patchStream({ status: "closed", error: Cause.findErrorOption(exit.cause) });
+    }
+    this.syncSnapshot();
+  }
+
+  /** Stops the stream. The data misses updates from now on. */
+  private stopStream(): void {
+    this.interruptStream();
+    this.streamStarted = false;
+    this.streamLive = false;
+    this.streamGap++;
+    // Still observed: a definition without a stream took over. From here on
+    // this is a plain query, brought up to date once. Without observers the
+    // data is only marked stale, and the next mount decides.
+    this.snapshotDue = this.isActive;
+    // The record stays: a running fetch still needs the updates it holds.
+    this.patchStream(idleStream);
+    this.syncSnapshot();
+  }
+
+  /**
+   * The data misses updates: a hole closed after its snapshot was requested,
+   * or one is open (the stream is reconnecting or has ended).
+   */
+  private get isBehindStream(): boolean {
+    return this.coveredGap < this.streamGap || (this.streamStarted && !this.streamLive);
+  }
+
+  /**
+   * The one place that keeps the data in step with the stream. Called after
+   * each stream event and each fetch: marks data that is behind as stale,
+   * and fetches a snapshot when that can help.
+   */
+  private syncSnapshot(context?: Context.Context<any>): void {
+    const hasData = this.markBehind();
+    if (
+      this.removed ||
+      !this.isBehindStream ||
+      // Without data, loading is up to the observers. But a hole that closed
+      // in a running stream is fetched for, also after a failed first load.
+      (!hasData && !this.snapshotDue) ||
+      // While a hole is open, a snapshot would miss the rest of it.
+      (this.streamStarted && !this.streamLive) ||
+      // No request twice for the same hole, also when it failed.
+      this.requestedGap >= this.streamGap ||
+      // A running fetch finishes first; its exit comes back here.
+      this.state.fetchStatus !== "idle" ||
+      !this.mayFetchSnapshot()
+    ) {
+      return;
+    }
+    this.fetch(context === undefined ? undefined : { context });
+  }
+
+  /** Marks data that is behind the stream as stale. Returns whether there is such data. */
+  private markBehind(): boolean {
+    if (this.removed || !this.isBehindStream || Option.isNone(this.state.data)) {
+      return false;
+    }
+    this.invalidate();
+    return true;
+  }
+
+  /**
+   * Data from before the stream started is refetched like on a mount, so
+   * `refetchOnMount: false` holds. A hole in a running stream, or its stop,
+   * is refetched for any enabled observer.
+   */
+  private mayFetchSnapshot(): boolean {
+    if (this.snapshotDue) {
+      return this.isActive && this.options.staleTime !== "static";
+    }
+    for (const record of this.records) {
+      if (
+        this.isEnabledFor(record.options) &&
+        this.shouldRefetchOn(
+          record.options.refetchOnMount ?? this.options.refetchOnMount,
+          record.options,
+        )
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private interruptStream(): void {
+    // Bump first: interrupting runs the fiber's exit handler synchronously.
+    this.streamRun++;
+    this.streamStopFiber?.interruptUnsafe();
+    this.streamStopFiber = undefined;
+    this.streamFiber?.interruptUnsafe();
+    this.streamFiber = undefined;
+  }
+
+  /**
+   * A state change made by the stream: its own state, and what else it
+   * changed. It also applies to the state that cancelling the running fetch
+   * reverts to, so a cancel keeps it. Nothing changed, nobody notified.
+   */
+  private patchStream(
+    patch: Partial<QueryResult.StreamState>,
+    rest?: Partial<QueryState<A, E>>,
+  ): void {
+    const current = this.state.stream;
+    const status = patch.status ?? current.status;
+    const error = patch.error ?? current.error;
+    const unchanged =
+      status === current.status &&
+      (error === current.error || (Option.isNone(error) && Option.isNone(current.error)));
+    if (unchanged && rest === undefined) {
+      return;
+    }
+    const stream = unchanged ? current : { status, error };
+    const revert = this.revertState;
+    if (revert !== undefined) {
+      this.revertState =
+        rest?.data === undefined || Option.isSome(revert.data)
+          ? { ...revert, ...rest, stream }
+          : { ...revert, stream };
+    }
+    this.setState((s) => ({ ...s, ...rest, stream }));
   }
 
   // -- garbage collection ---------------------------------------------------
@@ -1069,6 +1551,7 @@ export class QueryEntry<A, E> {
     }
     this.unregisterReactivity?.();
     this.unregisterReactivity = undefined;
+    this.interruptStream();
     this.fetchFiber?.interruptUnsafe();
     this.fetchFiber = undefined;
     this.notify();
@@ -1130,6 +1613,7 @@ export const project = <A, E>(
     errorUpdateCount: state.errorUpdateCount,
     failureCount: state.failureCount,
     failureReason: state.failureReason,
+    stream: state.stream,
   };
   const previousSuccess = Option.map(state.data, (value) =>
     AsyncResult.success<A, E>(value, { timestamp: state.dataUpdatedAt }),

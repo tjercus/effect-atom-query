@@ -44,6 +44,7 @@ differences that turned into bugs in a real port.
 | `onQueryStarted` + `updateQueryData` (optimistic)  | `Mutation.optimisticUpdate(query, update)`                                                   |
 | `dispatch(api.util.prefetch(...))`                 | `usePrefetchQuery`, or `client.prefetchQuery` in an Effect                                   |
 | `serializeQueryArgs` / `merge` / `forceRefetch`    | an infinite query, or nothing: structural sharing keeps unchanged data stable                |
+| `onCacheEntryAdded` + `updateCachedData`           | `stream: { updates, apply }` on the query; see [Live updates](./queries#live-updates)        |
 | `data?: T`, `error?: FetchBaseQueryError`          | `data: Option<A>`, `error: Option<E>` with your own typed `E`                                |
 | `isLoading`, `isFetching`, `isSuccess`, `isError`  | the same flags; `isSuccess` narrows `data` to `Some`                                         |
 

@@ -4,6 +4,7 @@ import { example as autoRefetching } from "./examples/AutoRefetching.tsx";
 import { example as basic } from "./examples/Basic.tsx";
 import { example as dependent } from "./examples/Dependent.tsx";
 import { example as infiniteScroll } from "./examples/InfiniteScroll.tsx";
+import { example as live } from "./examples/Live.tsx";
 import { example as maxPages } from "./examples/MaxPages.tsx";
 import { example as offline } from "./examples/Offline.tsx";
 import { example as optimisticCache } from "./examples/OptimisticCache.tsx";
@@ -27,6 +28,7 @@ export const examples: ReadonlyArray<Example> = [
   optimisticCache,
   suspense,
   offline,
+  live,
 ];
 
 const subscribeHash = (onChange: () => void) => {

@@ -6,7 +6,7 @@
  */
 import { Cause, type DateTime, Option } from "effect";
 import { AsyncResult } from "effect/reactivity";
-import { initialState, project, type QueryState } from "./internal/queryEntry.ts";
+import { idleStream, initialState, project, type QueryState } from "./internal/queryEntry.ts";
 
 /**
  * Whether any data or error has arrived yet.
@@ -24,6 +24,40 @@ export type Status = "pending" | "error" | "success";
  * @category models
  */
 export type FetchStatus = "fetching" | "paused" | "idle";
+
+/**
+ * What the stream of a query with live updates (`stream` in its definition)
+ * is doing:
+ *
+ * - `idle`: not running. The query has no stream, or no enabled observer.
+ * - `open`: running, and it has not failed since it started or since its
+ *   last update. A stream cannot tell when its connection is established, so
+ *   this does not mean that it is.
+ * - `reconnecting`: it failed and is being retried; no update has arrived
+ *   since. `error` holds the failure.
+ * - `closed`: it ended, or failed with its retries used up (`error` holds
+ *   the failure). The data counts as stale until the stream runs again.
+ *
+ * @since 1.5.0
+ * @category models
+ */
+export type StreamStatus = "idle" | "open" | "reconnecting" | "closed";
+
+/**
+ * The state of a query's stream, as `stream` on its result.
+ *
+ * @since 1.5.0
+ * @category models
+ */
+export interface StreamState {
+  /** See {@link StreamStatus}. `idle` for a query without a stream. */
+  readonly status: StreamStatus;
+  /**
+   * The last failure of the stream, until its next update. The value is
+   * typed `unknown`: narrow it before use.
+   */
+  readonly error: Option.Option<unknown>;
+}
 
 /**
  * @since 0.1.0
@@ -49,6 +83,20 @@ interface Base<A, E> {
   readonly failureCount: number;
   /** The last typed failure of the current or last fetch. Cleared on success. */
   readonly failureReason: Option.Option<E>;
+  /**
+   * The state of the query's stream (`stream` in its definition). A failing
+   * stream leaves `status`, `data` and `error` as they are: the data is still
+   * valid, at worst behind. A defect is different: when the stream dies, or
+   * `apply` throws, the query itself goes to `status: "error"` with the
+   * defect in `cause`, and `stream.error` stays empty.
+   *
+   * Results from queries and hooks always have it. It is optional so that a
+   * result built by hand (a mock, a story) from before 1.5.0 still
+   * type-checks; read it as `result.stream?.status`.
+   *
+   * @since 1.5.0
+   */
+  readonly stream?: StreamState | undefined;
 }
 
 /**
@@ -149,6 +197,7 @@ const empty = {
   errorUpdateCount: 0,
   failureCount: 0,
   failureReason: none,
+  stream: idleStream,
 } as const;
 
 /**

@@ -3,15 +3,17 @@ import { Layer, ManagedRuntime } from "effect";
 import { KeyValueStore } from "effect/persistence";
 import { ApiLive } from "./api.ts";
 import { addOfflineTodo } from "./examples/offlineTodos.ts";
+import { QuotesLive } from "./quotes.ts";
 
 /**
- * The app runtime: the fake `Api`, a `QueryClient`, and a persister writing
+ * The app runtime: the fake `Api`, the quote server's client, a `QueryClient`, and a persister writing
  * queries that opt in (`persist`) to localStorage.
  */
 export const runtime = ManagedRuntime.make(
   QueryPersister.layer({ buster: "playground-v2", mutations: [addOfflineTodo] }).pipe(
     Layer.provideMerge(QueryClient.layer()),
     Layer.provideMerge(ApiLive),
+    Layer.provideMerge(QuotesLive),
     Layer.provide(KeyValueStore.layerStorage(() => localStorage)),
   ),
 );

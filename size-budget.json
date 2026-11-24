@@ -1,9 +1,9 @@
 {
-  "query: everything": 17152,
-  "query: Query.make + QueryClient.layer": 10944,
-  "react: everything": 20416,
-  "react: provider + useQuery": 14720,
-  "react: provider + useQuery, with effect and react": 73664,
-  "react: testing": 11200,
+  "query: everything": 19712,
+  "query: Query.make + QueryClient.layer": 12992,
+  "react: everything": 23424,
+  "react: provider + useQuery": 17024,
+  "react: provider + useQuery, with effect and react": 76800,
+  "react: testing": 12672,
   "devtools (production build)": 256
 }

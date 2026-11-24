@@ -14,7 +14,7 @@
  *
  * @since 0.1.0
  */
-import { type Context, type Effect, Option } from "effect";
+import { type Context, type Effect, Option, type Stream } from "effect";
 import { AsyncResult, Atom } from "effect/reactivity";
 import {
   FetchAttempt as InternalFetchAttempt,
@@ -22,6 +22,7 @@ import {
   type QueryDescriptor,
   type QueryEntry,
   type QueryOptions as InternalQueryOptions,
+  type RetryOption,
 } from "./internal/queryEntry.ts";
 import {
   persistCodec,
@@ -181,10 +182,95 @@ export interface QueryFamily<
 }
 
 /**
+ * Live updates for a query. `run` fetches a snapshot of the data; `updates`
+ * is a stream of changes to it (from a WebSocket or server-sent events, say),
+ * and `apply` puts one change into the data:
+ *
+ * ```ts
+ * const messagesQuery = Query.make({
+ *   key: (room: string) => ["messages", room],
+ *   run: (room) => Chat.use((chat) => chat.history(room)),
+ *   stream: {
+ *     updates: (room) => Stream.unwrap(Chat.use((chat) => chat.subscribe(room))),
+ *     apply: (messages, message) =>
+ *       messages.some((m) => m.id === message.id)
+ *         ? messages.map((m) => (m.id === message.id ? message : m))
+ *         : [...messages, message],
+ *   },
+ *   staleTime: "Infinity",
+ * })
+ * ```
+ *
+ * The stream runs while the query has an enabled observer, and for one second
+ * after the last one left. It starts together with the first fetch; updates
+ * that arrive while the first fetch runs are applied to its result. Data
+ * fetched before the stream ran is refetched by the first observer, unless
+ * `refetchOnMount` is `false` or `staleTime` is `"static"`.
+ *
+ * **`apply` must be idempotent**: applying an update that the data already
+ * contains must change nothing (replace by id in place, do not append). Updates that
+ * arrive while a fetch runs are applied to the current data, and again to the
+ * fetched data, which may already contain them. The fetched data may also
+ * hold a later change of the same item: if updates can arrive late, `apply`
+ * should compare versions and ignore an update that is not newer.
+ *
+ * A failing stream does not fail the query: see `stream` on the result
+ * (`stream.status`, `stream.error`). It is retried with `retry`. A failure marks
+ * the data stale, since updates are missed; it is refetched when the first
+ * update after the failure arrives. When the stream stops for lack of
+ * observers, or closes, the query is invalidated too, so the next observer
+ * refetches.
+ *
+ * `updates` is fixed when the stream starts; `apply` is always the one of
+ * the latest definition for the key. Use one definition per key: a
+ * definition without `stream` for the same key stops the stream.
+ *
+ * The stream runs with the services of the client's runtime.
+ *
+ * The library cannot tell when the stream's subscription is established. A
+ * change made after the snapshot was taken and before the subscription is
+ * live is in neither of them, and stays missing until something refetches
+ * the query. A server can close this gap by sending the current state as the
+ * first update.
+ *
+ * @since 1.5.0
+ * @category models
+ */
+export interface StreamDefinition<A, U, SE = never, SR = never> {
+  readonly updates: Stream.Stream<U, SE, SR>;
+  /** Puts one update into the data. Must be idempotent, and must not throw. */
+  readonly apply: (data: NoInfer<A>, update: NoInfer<U>) => NoInfer<A>;
+  /**
+   * How a failed stream is retried. Default `true`: exponential backoff from
+   * 1 s capped at 30 s, without a limit; the backoff starts over after an
+   * update. A number limits the retries, `false` disables them, and any
+   * `Schedule` can inspect the typed error.
+   */
+  readonly retry?: RetryOption<NoInfer<SE>> | undefined;
+}
+
+/**
+ * {@link StreamDefinition} for a parameterised query: `updates` takes the
+ * query's argument.
+ *
+ * @since 1.5.0
+ * @category models
+ */
+export interface StreamFamilyDefinition<Arg, A, U, SE = never, SR = never> extends Omit<
+  StreamDefinition<A, U, SE, SR>,
+  "updates"
+> {
+  readonly updates: (arg: Arg) => Stream.Stream<U, SE, SR>;
+}
+
+/**
  * @since 0.1.0
  * @category models
  */
-export interface Definition<Arg, A, E, R> extends Omit<QueryOptions<E>, "enabled"> {
+export interface Definition<Arg, A, E, R, U = never, SE = never, SR = never> extends Omit<
+  QueryOptions<E>,
+  "enabled"
+> {
   readonly key: (arg: Arg) => QueryKey.QueryKey;
   readonly run: (arg: Arg) => Effect.Effect<A, E, R>;
   readonly enabled?: boolean | ((arg: Arg) => boolean) | undefined;
@@ -194,6 +280,8 @@ export interface Definition<Arg, A, E, R> extends Omit<QueryOptions<E>, "enabled
   readonly initialDataUpdatedAt?: ((arg: Arg) => number) | undefined;
   /** Opt into persistence (`QueryPersister`): the data is stored with this schema's JSON codec. */
   readonly persist?: Persist<A> | undefined;
+  /** Live updates to the data. See {@link StreamDefinition}. */
+  readonly stream?: StreamFamilyDefinition<Arg, A, U, SE, SR> | undefined;
 }
 
 /**
@@ -234,12 +322,21 @@ export interface Persist<A> {
  * @since 0.1.0
  * @category models
  */
-export interface SingleDefinition<A, E, R> extends QueryOptions<E> {
+export interface SingleDefinition<
+  A,
+  E,
+  R,
+  U = never,
+  SE = never,
+  SR = never,
+> extends QueryOptions<E> {
   readonly key: QueryKey.QueryKey;
   readonly run: Effect.Effect<A, E, R>;
   readonly initialData?: (() => A) | undefined;
   readonly initialDataUpdatedAt?: (() => number) | undefined;
   readonly persist?: Persist<A> | undefined;
+  /** Live updates to the data. See {@link StreamDefinition}. */
+  readonly stream?: StreamDefinition<A, U, SE, SR> | undefined;
 }
 
 /**
@@ -267,14 +364,37 @@ export const isSkipped = (u: unknown): u is SkippedQueryAtom<unknown, unknown> =
  * @category constructors
  */
 export const make: {
+  // With a stream, the stream's services are needed too. These are separate
+  // overloads so that a query without one keeps its `R` when the call is
+  // typed by its context (an argument of `fetchQuery`, say).
+  <Arg, A, E = never, R = never, U = never, SE = never, SR = never>(
+    definition: Definition<Arg, A, E, R, U, SE, SR> & {
+      readonly initialData: (arg: Arg) => A;
+      readonly stream: StreamFamilyDefinition<Arg, A, U, SE, SR> | undefined;
+    },
+  ): QueryFamily<Arg, A, E, R | SR, DefinedQueryAtom<A, E, R | SR>>;
+  <Arg, A, E = never, R = never, U = never, SE = never, SR = never>(
+    definition: Definition<Arg, A, E, R, U, SE, SR> & {
+      readonly stream: StreamFamilyDefinition<Arg, A, U, SE, SR> | undefined;
+    },
+  ): QueryFamily<Arg, A, E, R | SR>;
   <Arg, A, E = never, R = never>(
     definition: Definition<Arg, A, E, R> & { readonly initialData: (arg: Arg) => A },
   ): QueryFamily<Arg, A, E, R, DefinedQueryAtom<A, E, R>>;
   <Arg, A, E = never, R = never>(definition: Definition<Arg, A, E, R>): QueryFamily<Arg, A, E, R>;
+  // A definition held in a variable of the definition type: whether it has a
+  // stream is not known.
+  <Arg, A, E = never, R = never, U = never, SE = never, SR = never>(
+    definition: Definition<Arg, A, E, R, U, SE, SR> & { readonly initialData: (arg: Arg) => A },
+  ): QueryFamily<Arg, A, E, R | SR, DefinedQueryAtom<A, E, R | SR>>;
+  <Arg, A, E = never, R = never, U = never, SE = never, SR = never>(
+    definition: Definition<Arg, A, E, R, U, SE, SR>,
+  ): QueryFamily<Arg, A, E, R | SR>;
 } = (<Arg, A, E = never, R = never>(
-  definition: Definition<Arg, A, E, R>,
+  definition: Definition<Arg, A, E, R, any, any, R>,
 ): QueryFamily<Arg, A, E, R> => {
-  const { key, run, enabled, initialData, initialDataUpdatedAt, persist, ...options } = definition;
+  const { key, run, enabled, initialData, initialDataUpdatedAt, persist, stream, ...options } =
+    definition;
   const codec = persist === undefined ? undefined : persistCodec(persist.schema);
   const instance = Atom.family((arg: Arg) =>
     makeAtom<A, E, R>({
@@ -290,6 +410,7 @@ export const make: {
                 initialDataUpdatedAt === undefined ? undefined : () => initialDataUpdatedAt(arg),
             },
       persist: codec,
+      stream: stream === undefined ? undefined : { ...stream, updates: stream.updates(arg) },
     }),
   );
   const skipped = makeSkipped<A, E>();
@@ -306,14 +427,36 @@ export const make: {
  * @category constructors
  */
 export const single: {
+  // Separate overloads for a stream: see `make`.
+  <A, E = never, R = never, U = never, SE = never, SR = never>(
+    definition: SingleDefinition<A, E, R, U, SE, SR> & {
+      readonly initialData: () => A;
+      readonly stream: StreamDefinition<A, U, SE, SR> | undefined;
+    },
+  ): DefinedQueryAtom<A, E, R | SR>;
+  <A, E = never, R = never, U = never, SE = never, SR = never>(
+    definition: SingleDefinition<A, E, R, U, SE, SR> & {
+      readonly stream: StreamDefinition<A, U, SE, SR> | undefined;
+    },
+  ): QueryAtom<A, E, R | SR>;
   <A, E = never, R = never>(
     definition: SingleDefinition<A, E, R> & { readonly initialData: () => A },
   ): DefinedQueryAtom<A, E, R>;
   <A, E = never, R = never>(definition: SingleDefinition<A, E, R>): QueryAtom<A, E, R>;
-} = (<A, E = never, R = never>(definition: SingleDefinition<A, E, R>): QueryAtom<A, E, R> => {
-  const { key, run, initialData, initialDataUpdatedAt, persist, ...options } = definition;
+  // A definition held in a variable of the definition type: see `make`.
+  <A, E = never, R = never, U = never, SE = never, SR = never>(
+    definition: SingleDefinition<A, E, R, U, SE, SR> & { readonly initialData: () => A },
+  ): DefinedQueryAtom<A, E, R | SR>;
+  <A, E = never, R = never, U = never, SE = never, SR = never>(
+    definition: SingleDefinition<A, E, R, U, SE, SR>,
+  ): QueryAtom<A, E, R | SR>;
+} = (<A, E = never, R = never>(
+  definition: SingleDefinition<A, E, R, any, any, R>,
+): QueryAtom<A, E, R> => {
+  const { key, run, initialData, initialDataUpdatedAt, persist, stream, ...options } = definition;
   return makeAtom({
     persist: persist === undefined ? undefined : persistCodec(persist.schema),
+    stream,
     key: key as QueryKey.Tagged<A, E>,
     run,
     options,
@@ -354,6 +497,7 @@ export const makeAtom = <A, E, R, W = never, Extra extends object = {}>(
     readonly initialData: InitialData<A> | undefined;
     readonly behavior?: QueryDescriptor<A, E, R>["behavior"];
     readonly persist?: QueryDescriptor<A, E, R>["persist"];
+    readonly stream?: QueryDescriptor<A, E, R>["stream"];
   },
   extra?: {
     readonly fields?: Extra | undefined;
@@ -422,6 +566,7 @@ export const makeAtom = <A, E, R, W = never, Extra extends object = {}>(
     initialData: descriptor.initialData,
     behavior: descriptor.behavior,
     persist: descriptor.persist,
+    stream: descriptor.stream,
     ...(extra?.fields ?? ({} as Extra)),
   } as const) as unknown as QueryAtom<A, E, R> & Extra;
   return self;
