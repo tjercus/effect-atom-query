@@ -163,8 +163,17 @@ The implementation follows the design, with these differences:
   fails with every attempt, which puts a query with good data in its error
   state. Now a failure marks the data stale, and the refetch happens when the
   first update after it arrives. A stream that reconnects and stays silent
-  leaves the data stale until then. That refetch replaces a running fetch,
-  also the first one, because its request may be from before the failure.
+  leaves the data stale until then.
+- **One rule keeps the data in step with the stream.** The data is current
+  when its request was sent after the last gap in the updates closed. A gap
+  closes when the stream starts (everything before it), when it delivers
+  again after a failure, and when it stops (everything after it). The entry
+  counts these, remembers the count at each request, and decides in one
+  place (`syncSnapshot`) whether the data is stale and whether to fetch.
+- **A running fetch is never cancelled for the stream.** If a gap closes
+  while it runs, it finishes, its data is shown as stale, and one more fetch
+  follows with the same services. A request for a gap is sent once, also
+  when it fails.
 - **A fetch does not undo what the stream missed while it ran.** When the
   stream fails or stops during a fetch, the result of that fetch stays
   invalidated, also when the fetch is cancelled.
@@ -176,11 +185,9 @@ The implementation follows the design, with these differences:
 - **During a background restore** by a persister, the stream is held back
   like the mount fetch. Once restored, the data is refetched and the stream
   starts.
-- **A fetch that is under way when the stream starts** is from before it as
-  well: it is left to finish, and another fetch follows.
-- **A stream that keeps failing cannot cancel the refetch that makes up for
-  it.** That refetch is left to finish and is followed by one more. It keeps
-  the services and the `retry` of the fetch it replaced.
+- **`refetchOnMount: false` holds at the start of the stream**, also for
+  the fetch that follows one that was under way. A gap in a running stream,
+  or its stop, is refetched for any enabled observer.
 - **Every way of closing marks the data stale**: the stream ended, its
   retries are used up, it died, or it was interrupted from within. While
   it is closed, fetched data counts as stale at once.

@@ -356,15 +356,24 @@ the failure arrives, which shows that the stream works again; refetching on
 every attempt would fail along with the stream during an outage. A stream
 that reconnects and then stays silent therefore leaves the data stale until
 its next update, or until another refetch trigger (window focus, a
-`refetchInterval`). If the stream fails again while that refetch runs, the
-refetch is left to finish and is followed by another one, so a connection
-that keeps dropping cannot keep the query from loading.
+`refetchInterval`).
+
+The rule behind this: the data is current when its request was sent after
+the last gap in the updates closed. A fetch that is running when a gap
+closes (the stream starts, or delivers again after a failure) is never
+cancelled. It is left to finish, its data is shown and marked stale, and
+one more fetch follows. A connection that keeps dropping therefore cannot
+keep the query from loading, and causes at most one request at a time. If
+the request for a gap fails, it is not repeated: the data stays stale until
+the next gap closes or another refetch trigger fires.
 
 The data is marked stale whenever updates stop arriving: when the stream
 stops for lack of observers, and when it closes, whether it ended, used up
 its retries, or died. The next observer, window focus or reconnect then
-refetches, whatever the `staleTime`. While the stream is closed, fetched
-data counts as stale at once, so those triggers keep refetching.
+refetches, whatever the `staleTime`; the two exceptions are the same as
+above, `refetchOnMount: false` for a new observer and `staleTime: "static"`
+for all of them. While the stream is closed, fetched data counts as stale
+at once, so those triggers keep refetching.
 
 With `networkMode: "online"` (the default) the stream waits for the network
 before each attempt. A defect in the stream, or an `apply` that throws, is
