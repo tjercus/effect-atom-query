@@ -237,6 +237,28 @@ describe("stream: applying updates", () => {
       assert.deepStrictEqual(Option.getOrThrow(registry.get(q).data), [item(1), item(3)]);
     }),
   );
+  it.effect("does not notify for an unchanged update without structural sharing", () =>
+    Effect.gen(function* () {
+      const { registry } = yield* setup();
+      const source = makeSource<Item>();
+      const q = Query.single({
+        key: ["live-unshared"],
+        run: Effect.succeed<ReadonlyArray<Item>>([item(1)]),
+        stream: {
+          updates: source.updates,
+          apply: (items, next) => (items.some((i) => i.id === next.id) ? items : [...items, next]),
+        },
+        structuralSharing: false,
+      });
+      registry.mount(q);
+      yield* settle;
+      const before = registry.get(q);
+      yield* source.emit(item(1));
+      const after = registry.get(q);
+      assert.strictEqual(after.dataUpdateCount, before.dataUpdateCount);
+      assert.strictEqual(after.dataUpdatedAt, before.dataUpdatedAt);
+    }),
+  );
 });
 
 describe("stream: lifetime", () => {
@@ -400,6 +422,46 @@ describe("stream: lifetime", () => {
     }),
   );
 
+  it.effect("refetches when a definition without a stream takes over, and resumes", () =>
+    Effect.gen(function* () {
+      const { client, registry } = yield* setup();
+      const source = makeSource<Item>();
+      const runs = counter();
+      const run = runs.tick.pipe(Effect.as<ReadonlyArray<Item>>([item(1)]));
+      const live = () =>
+        Query.single({
+          key: ["live-mixed"],
+          run,
+          stream: { updates: source.updates, apply: upsert },
+          staleTime: "Infinity",
+        });
+      const q = live();
+      registry.mount(q);
+      yield* settle;
+      assert.strictEqual(runs.count, 1);
+
+      // Elsewhere, the same key is defined without a stream. The data is
+      // fresh, so this prefetch fetches nothing.
+      yield* client.prefetchQuery(
+        Query.single({ key: ["live-mixed"], run, staleTime: "Infinity" }),
+      );
+      assert.strictEqual(runs.count, 1);
+      yield* TestClock.adjust("1 second");
+      yield* settle;
+      assert.deepStrictEqual(source.state, { opened: 1, closed: 1 });
+      // Now a plain query that is still observed: brought up to date once.
+      assert.strictEqual(runs.count, 2);
+      assert.isFalse(registry.get(q).isStale);
+
+      // The definition with the stream is the latest again.
+      yield* client.prefetchQuery(live());
+      yield* settle;
+      assert.deepStrictEqual(source.state, { opened: 2, closed: 1 });
+      assert.strictEqual(registry.get(q).streamStatus, "open");
+      assert.isFalse(registry.get(q).isStale);
+    }),
+  );
+
   it.effect("waits for the network before it starts", () =>
     Effect.gen(function* () {
       const { registry, online } = yield* setup();
@@ -528,7 +590,8 @@ describe("stream: failures", () => {
       const result = registry.get(q);
       assert.strictEqual(result.streamStatus, "closed");
       assert.isTrue(Option.isNone(result.streamError));
-      assert.isFalse(result.isStale);
+      // No updates arrive any more, so the data is behind from here on.
+      assert.isTrue(result.isStale);
       yield* TestClock.adjust("1 minute");
       assert.strictEqual(source.state.opened, 1);
     }),
@@ -783,6 +846,207 @@ describe("stream: failures", () => {
       yield* TestClock.adjust("5 seconds");
       yield* settle;
       assert.deepStrictEqual(yield* Fiber.join(fetched), [item(7), item(2)]);
+    }),
+  );
+
+  it.effect("refetches after a fetch that was under way when the stream started", () =>
+    Effect.gen(function* () {
+      const { client, registry } = yield* setup();
+      const source = makeSource<Item>();
+      const runs = counter();
+      let server: ReadonlyArray<Item> = [item(1)];
+      const q = Query.single({
+        key: ["live-joined-prefetch"],
+        // The request reads the server at once; the response takes a while.
+        run: runs.tick.pipe(
+          Effect.andThen(Effect.sync(() => server)),
+          Effect.tap(() => Effect.sleep("3 seconds")),
+        ),
+        stream: { updates: source.updates, apply: upsert },
+        staleTime: "Infinity",
+      });
+      yield* Effect.forkChild(client.prefetchQuery(q));
+      yield* settle;
+      // Changed after the request, before the stream: nobody is told.
+      server = [item(1), item(2)];
+      registry.mount(q);
+      yield* settle;
+      assert.strictEqual(source.state.opened, 1);
+      assert.strictEqual(runs.count, 1);
+
+      yield* TestClock.adjust("3 seconds");
+      yield* settle;
+      // The prefetched data is shown, and fetched again.
+      assert.deepStrictEqual(Option.getOrThrow(registry.get(q).data), [item(1)]);
+      assert.strictEqual(runs.count, 2);
+      yield* TestClock.adjust("3 seconds");
+      yield* settle;
+      const result = registry.get(q);
+      assert.deepStrictEqual(Option.getOrThrow(result.data), [item(1), item(2)]);
+      assert.isFalse(result.isStale);
+    }),
+  );
+
+  it.effect("lets the fetch finish when the stream keeps failing", () =>
+    Effect.gen(function* () {
+      const { registry } = yield* setup();
+      const source = makeSource<Item>();
+      const runs = counter();
+      const q = Query.single({
+        key: ["live-flapping"],
+        run: runs.tick.pipe(
+          Effect.andThen(Effect.sleep("2 seconds")),
+          Effect.as<ReadonlyArray<Item>>([item(1)]),
+        ),
+        stream: { updates: source.updates, apply: upsert },
+        staleTime: "Infinity",
+      });
+      registry.mount(q);
+      yield* settle;
+
+      // Each connection delivers one update and fails, every second.
+      yield* source.fail("dropped");
+      yield* TestClock.adjust("1 second");
+      yield* settle;
+      yield* source.emit(item(2));
+      assert.strictEqual(runs.count, 2);
+      yield* source.fail("dropped");
+      yield* TestClock.adjust("1 second");
+      yield* settle;
+      yield* source.emit(item(3));
+      // The fetch that makes up for the first failure is not cancelled.
+      assert.strictEqual(runs.count, 2);
+
+      yield* TestClock.adjust("1 second");
+      yield* settle;
+      const landed = registry.get(q);
+      assert.strictEqual(landed.status, "success");
+      // It is from before the second failure, so another one follows.
+      assert.isTrue(landed.isStale);
+      assert.strictEqual(runs.count, 3);
+      yield* TestClock.adjust("2 seconds");
+      yield* settle;
+      assert.isFalse(registry.get(q).isStale);
+      assert.strictEqual(runs.count, 3);
+    }),
+  );
+
+  it.effect("replaces a fetchQuery fetch with the retry of its caller", () =>
+    Effect.gen(function* () {
+      const { client } = yield* setup();
+      const source = makeSource<Item>();
+      const runs = counter();
+      const q = Query.single({
+        key: ["live-caller-retry"],
+        run: runs.tick.pipe(
+          Effect.flatMap((n) =>
+            n === 1
+              ? Effect.succeed<ReadonlyArray<Item>>([item(1)]).pipe(Effect.delay("5 seconds"))
+              : Effect.fail("http" as const),
+          ),
+        ),
+        stream: { updates: source.updates, apply: upsert },
+      });
+      // `fetchQuery` does not retry.
+      const fetched = yield* Effect.forkChild(client.fetchQuery(q));
+      yield* settle;
+      QueryObserver.make(client, q).subscribe(() => {});
+      yield* settle;
+      yield* source.fail("connection lost");
+      yield* TestClock.adjust("1 second");
+      yield* settle;
+      yield* source.emit(item(2));
+      yield* settle;
+      const exit = yield* Fiber.await(fetched);
+      assert.isTrue(Exit.isFailure(exit));
+      yield* TestClock.adjust("1 minute");
+      yield* settle;
+      assert.strictEqual(runs.count, 2);
+    }),
+  );
+
+  it.effect("waits for the replacement before refetchQueries is done", () =>
+    Effect.gen(function* () {
+      const { client, registry } = yield* setup();
+      const source = makeSource<Item>();
+      const q = Query.single({
+        key: ["live-awaited"],
+        run: Effect.succeed<ReadonlyArray<Item>>([item(1)]).pipe(Effect.delay("5 seconds")),
+        stream: { updates: source.updates, apply: upsert },
+        staleTime: "Infinity",
+      });
+      registry.mount(q);
+      yield* settle;
+      yield* TestClock.adjust("5 seconds");
+      yield* settle;
+
+      const state = { done: false };
+      yield* Effect.forkChild(
+        client
+          .refetchQueries({ queryKey: ["live-awaited"] })
+          .pipe(Effect.andThen(Effect.sync(() => (state.done = true)))),
+      );
+      yield* settle;
+      yield* source.fail("connection lost");
+      yield* TestClock.adjust("1 second");
+      yield* settle;
+      // The stream works again: the refetch is replaced by a new one.
+      yield* source.emit(item(2));
+      yield* settle;
+      assert.isFalse(state.done);
+      yield* TestClock.adjust("5 seconds");
+      yield* settle;
+      assert.isTrue(state.done);
+    }),
+  );
+
+  it.effect("marks the data stale when a defect closed the stream", () =>
+    Effect.gen(function* () {
+      const { client, registry } = yield* setup();
+      const q = Query.single({
+        key: ["live-defect-stale"],
+        run: Effect.succeed<ReadonlyArray<Item>>([item(1)]),
+        stream: {
+          updates: Stream.fromEffect(Effect.sleep("1 second")).pipe(
+            Stream.flatMap(() => Stream.die(new Error("broken stream"))),
+          ),
+          apply: upsert,
+        },
+        staleTime: "Infinity",
+      });
+      registry.mount(q);
+      yield* settle;
+      yield* TestClock.adjust("1 second");
+      yield* settle;
+      assert.isTrue(QueryResult.isDefect(registry.get(q)));
+      // A refetch repairs the query, but no updates arrive any more.
+      yield* client.refetchQueries({ queryKey: ["live-defect-stale"] });
+      const result = registry.get(q);
+      assert.strictEqual(result.status, "success");
+      assert.strictEqual(result.streamStatus, "closed");
+    }),
+  );
+
+  it.effect("closes when the stream is interrupted from within", () =>
+    Effect.gen(function* () {
+      const { registry } = yield* setup();
+      const q = Query.single({
+        key: ["live-interrupted"],
+        run: Effect.succeed<ReadonlyArray<Item>>([item(1)]),
+        stream: {
+          updates: Stream.fromEffect(Effect.andThen(Effect.sleep("1 second"), Effect.interrupt)),
+          apply: upsert,
+        },
+        staleTime: "Infinity",
+      });
+      registry.mount(q);
+      yield* settle;
+      assert.strictEqual(registry.get(q).streamStatus, "open");
+      yield* TestClock.adjust("1 second");
+      yield* settle;
+      const result = registry.get(q);
+      assert.strictEqual(result.streamStatus, "closed");
+      assert.isTrue(result.isStale);
     }),
   );
 

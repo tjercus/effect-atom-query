@@ -420,8 +420,12 @@ export class QueryEntry<A, E> {
    * stays invalidated.
    */
   private streamOutdatedFetch = false;
-  /** The services the running fetch was started with (`fetchQuery`'s caller). */
-  private fetchContext: Context.Context<any> | undefined;
+  /** The running fetch is to be followed by another: it was sent too early. */
+  private refetchAfterFetch = false;
+  /** The running fetch makes up for updates the stream missed. */
+  private fetchForStream = false;
+  /** What the caller of the running fetch asked for (`fetchQuery`). */
+  private fetchCaller: Pick<FetchOptions<E>, "context" | "retry"> | undefined;
 
   readonly key: QueryKey.QueryKey;
   descriptor: QueryDescriptor<A, E, any>;
@@ -453,9 +457,17 @@ export class QueryEntry<A, E> {
     this.claimPersisted();
     if (descriptor.stream === undefined || this.streamStarted) {
       // Stop the running stream when the new definition has none, or keep it
-      // when it has one again. Starting one is left to the observers
-      // (`ObserverHandle.update`), since entries are also built during render.
+      // when it has one again.
       this.syncStream();
+    } else if (this.isActive) {
+      // A definition with a stream is back while the query is observed.
+      // Entries are also built during render, so start it afterwards.
+      this.runtime.runFork(
+        Effect.andThen(
+          Effect.yieldNow,
+          Effect.sync(() => this.resumeStream()),
+        ),
+      );
     }
     if (this.unregisterReactivity === undefined) {
       this.registerReactivity();
@@ -505,7 +517,9 @@ export class QueryEntry<A, E> {
     this.claimPersisted();
     // The stream was held back as well: restored data is from before it.
     for (const record of this.records) {
-      this.invalidateBeforeStream(record.options);
+      if (this.invalidateBeforeStream(record.options)) {
+        break;
+      }
     }
     if (this.state.fetchStatus === "idle") {
       for (const record of this.records) {
@@ -591,6 +605,7 @@ export class QueryEntry<A, E> {
     this.revertState = undefined;
     this.streamRecord = [];
     this.streamOutdatedFetch = false;
+    this.refetchAfterFetch = false;
     this.cancelStaleTimer();
     // A stream that ended or gave up starts over. A running one keeps
     // running, so its fields stay.
@@ -721,11 +736,22 @@ export class QueryEntry<A, E> {
    * An observer is about to start the stream. Data fetched while no stream
    * ran (a prefetch, a Suspense fetch, restored or written data) misses the
    * updates since then, so it is invalidated and the observer refetches it.
-   * Returns whether the stream is about to start.
+   * A fetch that is under way is from before the stream too: it is left to
+   * finish, and followed by another. Returns whether the stream is about to
+   * start.
    */
   private invalidateBeforeStream(options: ObserveOptions): boolean {
-    if (this.descriptor.stream === undefined || this.streamStarted || !this.isEnabledFor(options)) {
+    if (
+      this.descriptor.stream === undefined ||
+      this.streamStarted ||
+      !this.isEnabledFor(options) ||
+      // `onRestored` does this once the stream can start.
+      this.runtime.restoring.isRestoring()
+    ) {
       return false;
+    }
+    if (this.state.fetchStatus !== "idle") {
+      this.markFetchOutdated();
     }
     if (Option.isSome(this.state.data) && !this.showsInitialData) {
       this.invalidate();
@@ -924,7 +950,13 @@ export class QueryEntry<A, E> {
       });
       return Effect.sync(unsubscribe);
     });
-    return Effect.raceFirst(Effect.asVoid(Fiber.await(fiber)), paused);
+    // A fetch that was superseded is not done until its successor is.
+    const settled = (current: Fiber.Fiber<A, E>): Effect.Effect<void> =>
+      Effect.flatMap(Fiber.await(current), () => {
+        const successor = this.successors.get(current);
+        return successor === undefined ? Effect.void : settled(successor);
+      });
+    return Effect.raceFirst(settled(fiber), paused);
   }
 
   /** The fetch that superseded `fiber` (a fetch of this entry), if any. */
@@ -982,16 +1014,18 @@ export class QueryEntry<A, E> {
    * the fiber that settles with this fetch's outcome.
    */
   fetch(options?: FetchOptions<E>): Fiber.Fiber<A, E> {
-    return this.startFetch(options, false);
+    return this.startFetch(options, false, false);
   }
 
   /**
    * `replaceFirstFetch` also replaces a running fetch when there is no data
-   * yet, which `cancelRefetch` leaves alone.
+   * yet, which `cancelRefetch` leaves alone. `forStream` marks a fetch that
+   * makes up for updates the stream missed.
    */
   private startFetch(
     options: FetchOptions<E> | undefined,
     replaceFirstFetch: boolean,
+    forStream: boolean,
   ): Fiber.Fiber<A, E> {
     let superseded: Fiber.Fiber<A, E> | undefined;
     if (this.fetchFiber !== undefined) {
@@ -1006,7 +1040,9 @@ export class QueryEntry<A, E> {
     }
 
     const id = ++this.fetchId;
-    this.fetchContext = options?.context;
+    this.fetchCaller = { context: options?.context, retry: options?.retry };
+    this.fetchForStream = forStream;
+    this.refetchAfterFetch = false;
     this.fetchStartedAt = this.runtime.now();
     this.revertState = this.state;
     this.revertOnInterrupt = false;
@@ -1036,6 +1072,7 @@ export class QueryEntry<A, E> {
           // and so is whatever the stream missed before it.
           this.streamRecord = [];
           this.streamOutdatedFetch = false;
+          this.refetchAfterFetch = false;
         }
         return Effect.provideService(run, FetchAttempt, { attempt: n });
       });
@@ -1099,11 +1136,13 @@ export class QueryEntry<A, E> {
       return;
     }
     this.fetchFiber = undefined;
-    this.fetchContext = undefined;
+    this.fetchCaller = undefined;
     // Recorded updates were for this fetch; a success has applied them.
     this.streamRecord = [];
     const outdated = this.streamOutdatedFetch;
     this.streamOutdatedFetch = false;
+    const refetch = this.refetchAfterFetch;
+    this.refetchAfterFetch = false;
     const now = this.runtime.now();
 
     if (Exit.isSuccess(exit)) {
@@ -1149,6 +1188,10 @@ export class QueryEntry<A, E> {
     }
     if (this.records.size === 0) {
       this.scheduleGc();
+    }
+    if (refetch && Exit.isSuccess(exit) && this.isActive && this.options.staleTime !== "static") {
+      // The request was sent before the stream ran (again): fetch once more.
+      this.startFetch(undefined, false, true);
     }
   }
 
@@ -1283,14 +1326,21 @@ export class QueryEntry<A, E> {
       return;
     }
     if (this.streamMissedUpdates) {
-      // The stream works again after a failure: fetch what it missed. A
-      // running fetch may be from before that, so it is replaced, also the
-      // first one, with the services it was started with: its caller follows
-      // the replacement. This update is recorded for the new fetch like any other.
+      // The stream works again after a failure: fetch what it missed. This
+      // update is recorded for that fetch like any other.
       this.streamMissedUpdates = false;
       if (this.isActive && this.options.staleTime !== "static") {
-        const context = this.fetchFiber === undefined ? undefined : this.fetchContext;
-        this.startFetch({ cancelRefetch: true, context }, true);
+        if (this.fetchFiber !== undefined && this.fetchForStream) {
+          // A stream that keeps failing must not keep cancelling the fetch
+          // that makes up for it: let it finish, then fetch once more.
+          this.markFetchOutdated();
+        } else {
+          // A running fetch may be from before the failure, so it is
+          // replaced, also the first one, with what its caller asked for:
+          // the caller follows the replacement.
+          const caller = this.fetchFiber === undefined ? undefined : this.fetchCaller;
+          this.startFetch({ cancelRefetch: true, ...caller }, true, true);
+        }
       }
     }
     const s = this.state;
@@ -1304,9 +1354,12 @@ export class QueryEntry<A, E> {
     const isHealthy = s.streamStatus === "open" && Option.isNone(s.streamError);
     // Without data there is nothing to apply to: the fetch result gets the
     // recorded updates.
-    const data = Option.isNone(s.data)
-      ? s.data
-      : this.shareData(s.data, stream.apply(s.data.value, update));
+    let data = s.data;
+    if (Option.isSome(s.data)) {
+      const applied = stream.apply(s.data.value, update);
+      // Also without structural sharing, an update that changes nothing is none.
+      data = applied === s.data.value ? s.data : this.shareData(s.data, applied);
+    }
     if (data === s.data) {
       if (!isHealthy) {
         this.patchStream(healthy);
@@ -1329,8 +1382,10 @@ export class QueryEntry<A, E> {
     if (this.removed) {
       return;
     }
+    // However it ended, updates are missed from here on.
     if (Exit.isSuccess(exit)) {
       this.patchStream({ streamStatus: "closed" });
+      this.invalidateByStream();
     } else if (Cause.hasDies(exit.cause)) {
       // A defect in the stream or in `apply` is a defect of the query.
       const cause = exit.cause as Cause.Cause<E>;
@@ -1341,8 +1396,10 @@ export class QueryEntry<A, E> {
         errorUpdatedAt: this.runtime.now(),
         errorUpdateCount: this.state.errorUpdateCount + 1,
       });
-    } else if (!Cause.hasInterruptsOnly(exit.cause)) {
-      // The retries are used up: from here on this is a query without a stream.
+      this.invalidateByStream();
+    } else {
+      // The retries are used up, or the stream was interrupted from within:
+      // from here on this is a query without a stream.
       this.patchStream({
         streamStatus: "closed",
         streamError: Cause.findErrorOption(exit.cause),
@@ -1358,6 +1415,27 @@ export class QueryEntry<A, E> {
     // The record stays: a running fetch still needs the updates it holds.
     this.patchStream({ streamStatus: "idle", streamError: Option.none() });
     this.invalidateByStream();
+    if (this.isActive && this.options.staleTime !== "static") {
+      // Still observed: a definition without a stream took over. From here
+      // on this is a plain query, so bring its data up to date once.
+      this.fetch();
+    }
+  }
+
+  /** Starts the stream for the observers that are there, as a mount would. */
+  private resumeStream(): void {
+    if (this.removed || this.descriptor.stream === undefined || this.streamStarted) {
+      return;
+    }
+    for (const record of this.records) {
+      if (this.invalidateBeforeStream(record.options)) {
+        if (this.shouldFetchOnMount(record.options)) {
+          this.fetch();
+        }
+        break;
+      }
+    }
+    this.syncStream();
   }
 
   /** Invalidates because the stream missed updates, also for a running fetch. */
@@ -1371,6 +1449,15 @@ export class QueryEntry<A, E> {
       }
     }
     this.invalidate();
+  }
+
+  /**
+   * The running fetch sent its request before the stream ran (again): its
+   * result stays invalidated, and another fetch follows it.
+   */
+  private markFetchOutdated(): void {
+    this.invalidateByStream();
+    this.refetchAfterFetch = true;
   }
 
   private interruptStream(): void {

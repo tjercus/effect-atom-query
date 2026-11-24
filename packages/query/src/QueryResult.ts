@@ -72,7 +72,7 @@ interface Base<A, E> {
   /**
    * The last failure of the query's stream, until its next update. A failing
    * stream leaves `status`, `data` and `error` as they are: the data is still
-   * valid, at worst behind. Its type is the stream's error type.
+   * valid, at worst behind. The value is typed `unknown`: narrow it before use.
    */
   readonly streamError: Option.Option<unknown>;
 }

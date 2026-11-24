@@ -204,7 +204,8 @@ export interface QueryFamily<
  * The stream runs while the query has an enabled observer, and for one second
  * after the last one left. It starts together with the first fetch; updates
  * that arrive while the first fetch runs are applied to its result. Data
- * fetched before the stream ran is refetched by the first observer.
+ * fetched before the stream ran is refetched by the first observer, unless
+ * `refetchOnMount` is `false` or `staleTime` is `"static"`.
  *
  * **`apply` must be idempotent**: applying an update that the data already
  * contains must change nothing (replace by id in place, do not append). Updates that
@@ -217,10 +218,12 @@ export interface QueryFamily<
  * `streamError` on the result. It is retried with `retry`. A failure marks
  * the data stale, since updates are missed; it is refetched when the first
  * update after the failure arrives. When the stream stops for lack of
- * observers, the query is invalidated too, so the next observer refetches.
+ * observers, or closes, the query is invalidated too, so the next observer
+ * refetches.
  *
  * `updates` is fixed when the stream starts; `apply` is always the one of
- * the latest definition for the key.
+ * the latest definition for the key. Use one definition per key: a
+ * definition without `stream` for the same key stops the stream.
  *
  * The stream runs with the services of the client's runtime.
  *

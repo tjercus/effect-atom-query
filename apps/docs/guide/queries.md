@@ -271,7 +271,10 @@ that a remount does not reconnect. It starts together with the first fetch.
 Updates that arrive while the first fetch runs are applied to its result.
 Data that was fetched before the stream ran (a prefetch, a Suspense fetch,
 restored data) misses the updates since then, so the first observer
-refetches it, whatever the `staleTime`.
+refetches it, whatever the `staleTime`. A fetch that is still under way when
+the stream starts is left to finish, and is followed by another one. Two
+settings switch this refetch off, and leave the data marked stale instead:
+`refetchOnMount: false` and `staleTime: "static"`.
 
 ::: warning `apply` must be idempotent
 Applying an update that the data already contains must change nothing:
@@ -333,12 +336,12 @@ result.streamStatus; // "idle" | "open" | "reconnecting" | "closed"
 result.streamError; // Option<unknown>: the stream's last failure, until its next update
 ```
 
-| `streamStatus`   | meaning                                                                    |
-| ---------------- | -------------------------------------------------------------------------- |
-| `"idle"`         | not running: the query has no stream, or no enabled observer               |
-| `"open"`         | running, without a failure since it started or since its last update       |
-| `"reconnecting"` | it failed and is being retried; no update has arrived since                |
-| `"closed"`       | it ended, or failed with its retries used up; the query refetches as usual |
+| `streamStatus`   | meaning                                                                |
+| ---------------- | ---------------------------------------------------------------------- |
+| `"idle"`         | not running: the query has no stream, or no enabled observer           |
+| `"open"`         | running, without a failure since it started or since its last update   |
+| `"reconnecting"` | it failed and is being retried; no update has arrived since            |
+| `"closed"`       | it ended, or failed with its retries used up; the data is marked stale |
 
 A stream cannot tell when its connection is established, so `"open"` means
 that it is running, not that it is connected.
@@ -353,8 +356,14 @@ the failure arrives, which shows that the stream works again; refetching on
 every attempt would fail along with the stream during an outage. A stream
 that reconnects and then stays silent therefore leaves the data stale until
 its next update, or until another refetch trigger (window focus, a
-`refetchInterval`). When the stream stops for lack of observers, the data is
-marked stale as well: the next observer refetches, whatever the `staleTime`.
+`refetchInterval`). If the stream fails again while that refetch runs, the
+refetch is left to finish and is followed by another one, so a connection
+that keeps dropping cannot keep the query from loading.
+
+The data is marked stale whenever updates stop arriving: when the stream
+stops for lack of observers, and when it closes, whether it ended, used up
+its retries, or died. The next observer, window focus or reconnect then
+refetches, whatever the `staleTime`.
 
 With `networkMode: "online"` (the default) the stream waits for the network
 before each attempt. A defect in the stream, or an `apply` that throws, is
@@ -367,6 +376,14 @@ plain refetch does not reopen it.
 
 `updates` is fixed when the stream starts: a new definition for the same
 key does not reconnect. `apply` is always the one of the latest definition.
+
+::: warning One key, one kind of definition
+The latest definition for a key decides whether it has a stream. If the same
+key is also defined without `stream` (a prefetch helper with its own
+`Query.single`, say), that definition stops the stream of a mounted query:
+the data is refetched once, and no updates arrive until a definition with a
+stream is used again. Share one definition per key.
+:::
 
 The stream runs with the services of the client's runtime, like a background
 refetch. `streamError` is typed `unknown`; narrow it yourself (a

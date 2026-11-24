@@ -176,6 +176,16 @@ The implementation follows the design, with these differences:
 - **During a background restore** by a persister, the stream is held back
   like the mount fetch. Once restored, the data is refetched and the stream
   starts.
+- **A fetch that is under way when the stream starts** is from before it as
+  well: it is left to finish, and another fetch follows.
+- **A stream that keeps failing cannot cancel the refetch that makes up for
+  it.** That refetch is left to finish and is followed by one more. It keeps
+  the services and the `retry` of the fetch it replaced.
+- **Every way of closing marks the data stale**: the stream ended, its
+  retries are used up, it died, or it was interrupted from within.
+- **A definition without a stream for the same key** stops the stream of a
+  query that is still observed. The data is then refetched once, and the
+  stream starts again when a definition with a stream is the latest.
 - **A closed stream starts again** on `resetQueries`, or when observers
   return. `updates` is fixed when the stream starts; `apply` follows the
   latest definition.
