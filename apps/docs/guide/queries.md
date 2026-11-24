@@ -341,7 +341,7 @@ result.streamError; // Option<unknown>: the stream's last failure, until its nex
 | `"idle"`         | not running: the query has no stream, or no enabled observer           |
 | `"open"`         | running, without a failure since it started or since its last update   |
 | `"reconnecting"` | it failed and is being retried; no update has arrived since            |
-| `"closed"`       | it ended, or failed with its retries used up; the data is marked stale |
+| `"closed"`       | it ended, or failed with its retries used up; the data counts as stale |
 
 A stream cannot tell when its connection is established, so `"open"` means
 that it is running, not that it is connected.
@@ -363,7 +363,8 @@ that keeps dropping cannot keep the query from loading.
 The data is marked stale whenever updates stop arriving: when the stream
 stops for lack of observers, and when it closes, whether it ended, used up
 its retries, or died. The next observer, window focus or reconnect then
-refetches, whatever the `staleTime`.
+refetches, whatever the `staleTime`. While the stream is closed, fetched
+data counts as stale at once, so those triggers keep refetching.
 
 With `networkMode: "online"` (the default) the stream waits for the network
 before each attempt. A defect in the stream, or an `apply` that throws, is

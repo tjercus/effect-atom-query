@@ -1019,11 +1019,14 @@ describe("stream: failures", () => {
       yield* TestClock.adjust("1 second");
       yield* settle;
       assert.isTrue(QueryResult.isDefect(registry.get(q)));
-      // A refetch repairs the query, but no updates arrive any more.
+      assert.isTrue(registry.get(q).isStale);
+      // A refetch repairs the query, but no updates arrive any more: the
+      // data stays stale for as long as the stream is closed.
       yield* client.refetchQueries({ queryKey: ["live-defect-stale"] });
       const result = registry.get(q);
       assert.strictEqual(result.status, "success");
       assert.strictEqual(result.streamStatus, "closed");
+      assert.isTrue(result.isStale);
     }),
   );
 

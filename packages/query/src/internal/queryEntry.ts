@@ -1136,6 +1136,7 @@ export class QueryEntry<A, E> {
       return;
     }
     this.fetchFiber = undefined;
+    const caller = this.fetchCaller;
     this.fetchCaller = undefined;
     // Recorded updates were for this fetch; a success has applied them.
     this.streamRecord = [];
@@ -1159,7 +1160,8 @@ export class QueryEntry<A, E> {
         cause: Option.none(),
         failureCount: 0,
         failureReason: Option.none(),
-        isInvalidated: outdated,
+        // A closed stream delivers nothing: the data is behind again at once.
+        isInvalidated: outdated || s.streamStatus === "closed",
       }));
       this.scheduleStaleTimer();
     } else if (Cause.hasInterruptsOnly(exit.cause)) {
@@ -1190,8 +1192,9 @@ export class QueryEntry<A, E> {
       this.scheduleGc();
     }
     if (refetch && Exit.isSuccess(exit) && this.isActive && this.options.staleTime !== "static") {
-      // The request was sent before the stream ran (again): fetch once more.
-      this.startFetch(undefined, false, true);
+      // The request was sent before the stream ran (again): fetch once more,
+      // with the same services.
+      this.startFetch({ context: caller?.context }, false, true);
     }
   }
 

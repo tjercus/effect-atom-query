@@ -182,7 +182,8 @@ The implementation follows the design, with these differences:
   it.** That refetch is left to finish and is followed by one more. It keeps
   the services and the `retry` of the fetch it replaced.
 - **Every way of closing marks the data stale**: the stream ended, its
-  retries are used up, it died, or it was interrupted from within.
+  retries are used up, it died, or it was interrupted from within. While
+  it is closed, fetched data counts as stale at once.
 - **A definition without a stream for the same key** stops the stream of a
   query that is still observed. The data is then refetched once, and the
   stream starts again when a definition with a stream is the latest.
