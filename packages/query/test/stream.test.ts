@@ -1047,6 +1047,91 @@ describe("stream: failures", () => {
     }),
   );
 
+  it.effect("leaves a remount to refetchOnMount after the stream stopped", () =>
+    Effect.gen(function* () {
+      const { client } = yield* setup();
+      const source = makeSource<Item>();
+      const runs = counter();
+      const q = Query.single({
+        key: ["live-remount-no-refetch"],
+        run: runs.tick.pipe(Effect.as<ReadonlyArray<Item>>([item(1)])),
+        stream: { updates: source.updates, apply: upsert },
+        staleTime: "Infinity",
+      });
+      const unsubscribe = QueryObserver.make(client, q).subscribe(() => {});
+      yield* settle;
+      unsubscribe();
+      yield* settle;
+      yield* TestClock.adjust("1 second");
+      yield* settle;
+      assert.strictEqual(source.state.closed, 1);
+
+      const observer = QueryObserver.make(client, q, { refetchOnMount: false });
+      observer.subscribe(() => {});
+      yield* settle;
+      assert.strictEqual(runs.count, 1);
+      assert.isTrue(observer.getCurrentResult().isStale);
+    }),
+  );
+
+  it.effect("does not fetch again after a cancel", () =>
+    Effect.gen(function* () {
+      const { client, registry } = yield* setup();
+      const source = makeSource<Item>();
+      const runs = counter();
+      const q = Query.single({
+        key: ["live-cancel-no-follow-up"],
+        run: runs.tick.pipe(
+          Effect.andThen(Effect.sleep("5 seconds")),
+          Effect.as<ReadonlyArray<Item>>([item(1)]),
+        ),
+        stream: { updates: source.updates, apply: upsert },
+        staleTime: "Infinity",
+      });
+      registry.mount(q);
+      yield* settle;
+      yield* TestClock.adjust("5 seconds");
+      yield* settle;
+
+      yield* Effect.forkChild(client.refetchQueries({ queryKey: q.key }));
+      yield* settle;
+      yield* source.fail("connection lost");
+      yield* TestClock.adjust("1 second");
+      yield* settle;
+      yield* source.emit(item(2));
+      // Cancelled, as before an optimistic write: nothing may overwrite it.
+      yield* client.cancelQueries({ queryKey: q.key });
+      yield* settle;
+      assert.strictEqual(runs.count, 2);
+      const result = registry.get(q);
+      assert.strictEqual(result.fetchStatus, "idle");
+      assert.isTrue(result.isStale);
+    }),
+  );
+
+  it.effect("fetches once when a definition gets a stream", () =>
+    Effect.gen(function* () {
+      const { client } = yield* setup();
+      const source = makeSource<Item>();
+      const runs = counter();
+      const run = runs.tick.pipe(Effect.as<ReadonlyArray<Item>>([item(1)]));
+      const definition = (live: boolean) =>
+        Query.single({
+          key: ["live-toggled-once"],
+          run,
+          stream: live ? { updates: source.updates, apply: upsert } : undefined,
+        });
+      const observer = QueryObserver.make(client, definition(false));
+      observer.subscribe(() => {});
+      yield* settle;
+      assert.strictEqual(runs.count, 1);
+      observer.setOptions(definition(true));
+      yield* settle;
+      assert.strictEqual(source.state.opened, 1);
+      assert.strictEqual(runs.count, 2);
+    }),
+  );
+
   it.effect("keeps recorded updates when a definition without a stream takes over", () =>
     Effect.gen(function* () {
       const { client, registry } = yield* setup();

@@ -474,7 +474,12 @@ export class QueryEntry<A, E> {
       this.runtime.runFork(
         Effect.andThen(
           Effect.yieldNow,
-          Effect.sync(() => this.startStreamForObservers()),
+          Effect.sync(() => {
+            // Unless an observer started it meanwhile.
+            if (this.syncStream()) {
+              this.fetchForObservers();
+            }
+          }),
         ),
       );
     }
@@ -525,7 +530,8 @@ export class QueryEntry<A, E> {
   onRestored(): void {
     this.claimPersisted();
     // The stream was held back as well.
-    this.startStreamForObservers();
+    this.syncStream();
+    this.fetchForObservers();
   }
 
   /** Re-resolve options, e.g. after `setQueryDefaults`. */
@@ -1145,7 +1151,11 @@ export class QueryEntry<A, E> {
       this.scheduleGc();
     }
     // Its request may be from before a hole closed: then another one follows.
-    this.syncSnapshot(context);
+    // Not after a cancel: whoever cancelled does not want a fetch now (an
+    // optimistic write may follow). The data stays stale.
+    if (Exit.isSuccess(exit) || !Cause.hasInterruptsOnly(exit.cause)) {
+      this.syncSnapshot(context);
+    }
   }
 
   /**
@@ -1227,13 +1237,9 @@ export class QueryEntry<A, E> {
     return false;
   }
 
-  /** Starts the stream for the observers that are there, as their mount would. */
-  private startStreamForObservers(): void {
-    if (this.removed) {
-      return;
-    }
-    this.syncStream();
-    if (this.state.fetchStatus !== "idle") {
+  /** Fetches as the mount of the observers that are there would. */
+  private fetchForObservers(): void {
+    if (this.removed || this.state.fetchStatus !== "idle") {
       return;
     }
     for (const record of this.records) {
@@ -1251,7 +1257,9 @@ export class QueryEntry<A, E> {
     // Whatever was fetched or is being fetched is from before the stream.
     this.streamGap++;
     this.patchStream({ streamStatus: "open", streamError: Option.none() });
-    this.syncSnapshot();
+    // Only marks the data stale: whoever starts the stream fetches as on a
+    // mount, and a fetch that is under way comes back here when it is done.
+    this.markBehind();
     // Runs once per attempt: the first start, then each retry.
     const attempt = Stream.unwrap(
       Effect.as(
@@ -1385,12 +1393,12 @@ export class QueryEntry<A, E> {
     this.streamStarted = false;
     this.streamLive = false;
     this.streamGap++;
-    this.snapshotDue = true;
+    // Still observed: a definition without a stream took over. From here on
+    // this is a plain query, brought up to date once. Without observers the
+    // data is only marked stale, and the next mount decides.
+    this.snapshotDue = this.isActive;
     // The record stays: a running fetch still needs the updates it holds.
     this.patchStream({ streamStatus: "idle", streamError: Option.none() });
-    // Without observers this only marks the data stale. With them, a
-    // definition without a stream took over: a plain query from here on,
-    // brought up to date once.
     this.syncSnapshot();
   }
 
@@ -1408,15 +1416,8 @@ export class QueryEntry<A, E> {
    * and fetches a snapshot when that can help.
    */
   private syncSnapshot(context?: Context.Context<any>): void {
-    if (this.removed || !this.isBehindStream) {
-      return;
-    }
-    if (Option.isNone(this.state.data) || this.showsInitialData) {
-      // Nothing to bring up to date: loading is up to the observers.
-      return;
-    }
-    this.invalidate();
     if (
+      !this.markBehind() ||
       // While a hole is open, a snapshot would miss the rest of it.
       (this.streamStarted && !this.streamLive) ||
       // No request twice for the same hole, also when it failed.
@@ -1428,6 +1429,19 @@ export class QueryEntry<A, E> {
       return;
     }
     this.fetch(context === undefined ? undefined : { context });
+  }
+
+  /** Marks data that is behind the stream as stale. Returns whether it is. */
+  private markBehind(): boolean {
+    if (this.removed || !this.isBehindStream) {
+      return false;
+    }
+    if (Option.isNone(this.state.data) || this.showsInitialData) {
+      // Nothing to bring up to date: loading is up to the observers.
+      return false;
+    }
+    this.invalidate();
+    return true;
   }
 
   /**
