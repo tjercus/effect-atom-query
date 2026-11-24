@@ -173,6 +173,9 @@ The implementation follows the design, with these differences:
 - **Data fetched before the stream ran is refetched** by the first observer
   (after a prefetch, a Suspense fetch or a restore), whatever the
   `staleTime`, because it misses the updates since.
+- **During a background restore** by a persister, the stream is held back
+  like the mount fetch. Once restored, the data is refetched and the stream
+  starts.
 - **A closed stream starts again** on `resetQueries`, or when observers
   return. `updates` is fixed when the stream starts; `apply` follows the
   latest definition.

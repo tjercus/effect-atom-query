@@ -870,6 +870,27 @@ describe("stream: types", () => {
     >();
   });
 
+  it("keeps such a definition's data defined when it has initial data", () => {
+    type Live = Query.SingleDefinition<number, "http", Api, number, never, Socket>;
+    const single = (definition: Live & { readonly initialData: () => number }) =>
+      Query.single(definition);
+    expectTypeOf(single).returns.toEqualTypeOf<
+      Query.DefinedQueryAtom<number, "http", Api | Socket>
+    >();
+    type LiveFamily = Query.Definition<string, number, "http", Api, number, never, Socket>;
+    const family = (definition: LiveFamily & { readonly initialData: (arg: string) => number }) =>
+      Query.make(definition);
+    expectTypeOf(family).returns.toEqualTypeOf<
+      Query.QueryFamily<
+        string,
+        number,
+        "http",
+        Api | Socket,
+        Query.DefinedQueryAtom<number, "http", Api | Socket>
+      >
+    >();
+  });
+
   it("leaves a query without a stream as it was, also as an argument", () => {
     const both = (client: QueryClient.Service) =>
       Effect.all([
