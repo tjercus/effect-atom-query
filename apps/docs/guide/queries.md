@@ -320,6 +320,10 @@ state as the first update of the stream, so that `apply` replaces the data
 with a snapshot taken after the subscription was established.
 :::
 
+The playground has a runnable example with a real WebSocket, including a
+button that cuts the connection: `apps/playground/src/examples/Live.tsx`,
+with the stream built from a `WebSocket` in `apps/playground/src/quotes.ts`.
+
 Set `staleTime: "Infinity"` on a query with a stream. The stream keeps the
 data current, so refetching on mount and on window focus only repeats what
 it already delivered. Invalidation, `setQueryData` and optimistic updates
